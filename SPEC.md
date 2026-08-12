@@ -319,10 +319,11 @@ All features: model from `ANTHROPIC_MODEL` env var; every call logged to `ai_cal
 
 ---
 
-## Open decisions flagged for owner review
+## Decisions (resolved with owner, 2026-08-12)
 
-1. **"What counts for touch"** (§3): inbound-only email not resetting the cadence clock is my recommendation; confirm.
-2. **Snooze-all parameters** (§3): 21-day horizon, weekday-only, per-day floor of 3 — all settings, but confirm defaults.
-3. **Cross-source conflict default** (§8): "keep stored, report conflict" vs a per-source precedence ranking. Starting with the former.
-4. **Geocoding provider** (§1/§7): location radius filtering needs one (suggest self-hosted-friendly Nominatim with heavy caching, or skip radius until wanted). Off by default.
-5. **Notes counting as interactions** default toggle (§3).
+1. **"What counts for touch"** (§3): CONFIRMED — inbound-only email does not reset the cadence clock; only outbound emails, meetings, LinkedIn messages, manual logs, and counting notes do.
+2. **Snooze-all parameters** (§3): CONFIRMED — 21-day horizon, weekday-only, per-day floor of 3, as defaults (all settings).
+3. **Cross-source conflict default** (§8): keep stored value, report conflict. (Owner can request per-source precedence later if it gets annoying.)
+4. **Geocoding provider** (§1/§7): CONFIRMED — Nominatim (OpenStreetMap) with heavy caching, off by default; radius filter disabled with tooltip until enabled in settings.
+5. **Notes counting as interactions** (§3): default toggle stands as specced — on for notes created via Today's "log interaction", off for plain notes.
+6. **Auth setup** (owner decision): first-run setup screen creates the password (hash in `settings`), changeable in settings; recovery via documented CLI reset script. No password env var.
