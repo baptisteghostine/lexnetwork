@@ -20,6 +20,11 @@ import { runFilter } from "@/server/views";
 
 export const dynamic = "force-dynamic";
 
+// Render cap — a real LinkedIn import lands thousands of contacts, and an
+// unbounded server-rendered table makes the page unusable long before the
+// Phase 11 virtualization pass. The header still shows the true total.
+const PAGE_LIMIT = 500;
+
 const SORTS: { key: string; label: string }[] = [
   { key: "name", label: "Name" },
   { key: "company", label: "Company" },
@@ -69,9 +74,10 @@ export default async function ContactsPage({
   );
 
   const nowMs = currentTime();
-  const { contacts: rows, warnings } = await runFilter(filter, {
+  const { contacts: rows, total, warnings } = await runFilter(filter, {
     now: nowMs,
     sort: sortSpec(sortParam),
+    limit: PAGE_LIMIT,
   });
 
   const allTags = listTags();
@@ -105,7 +111,7 @@ export default async function ContactsPage({
           <h1 className="text-sm font-semibold">
             {activeView?.name ?? (archivedView ? "Archived" : "Contacts")}
           </h1>
-          <span className="text-xs text-muted-foreground">{rows.length}</span>
+          <span className="text-xs text-muted-foreground">{total}</span>
         </div>
         <div className="flex items-center gap-1">
           {SORTS.map((s) => (
@@ -151,21 +157,29 @@ export default async function ContactsPage({
               : "No contacts yet — create one, or use Imports in the sidebar."}
         </p>
       ) : (
-        <ContactsList
-          archivedView={archivedView}
-          allTags={allTags}
-          rows={rows.map((c) => ({
-            id: c.id,
-            displayName: c.displayName,
-            title: c.title,
-            company: c.company,
-            starred: c.starred,
-            cadenceDays: c.cadenceDays,
-            hasPhoto: c.photoPath !== null,
-            overdue: c.nextTouchAt !== null && c.nextTouchAt <= nowMs,
-            tags: tagsByContact.get(c.id) ?? [],
-          }))}
-        />
+        <>
+          {total > rows.length && (
+            <p className="border-b border-border px-5 py-1.5 text-xs text-muted-foreground">
+              Showing the first {rows.length} of {total} — narrow with filters
+              or search (⌘K) to see the rest.
+            </p>
+          )}
+          <ContactsList
+            archivedView={archivedView}
+            allTags={allTags}
+            rows={rows.map((c) => ({
+              id: c.id,
+              displayName: c.displayName,
+              title: c.title,
+              company: c.company,
+              starred: c.starred,
+              cadenceDays: c.cadenceDays,
+              hasPhoto: c.photoPath !== null,
+              overdue: c.nextTouchAt !== null && c.nextTouchAt <= nowMs,
+              tags: tagsByContact.get(c.id) ?? [],
+            }))}
+          />
+        </>
       )}
     </div>
   );

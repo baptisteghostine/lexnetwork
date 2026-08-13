@@ -1,6 +1,6 @@
 "use server";
 
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
@@ -26,13 +26,22 @@ export type FilteredContact = typeof contactsTable.$inferSelect;
 
 export type FilterRunResult = {
   contacts: FilteredContact[];
+  /** Total matches before `limit` — callers show "N of total". */
+  total: number;
   warnings: string[];
+};
+
+/** The compiled SQL is `SELECT c.* …`, so raw rows are snake_case. */
+type RawFilterRow = {
+  id: number;
+  location_lat: number | null;
+  location_lng: number | null;
 };
 
 /** Compile + run a filter set against the live DB (geocoder: not yet). */
 export async function runFilter(
   filter: FilterSet,
-  opts: { now: number; sort?: SortSpec }
+  opts: { now: number; sort?: SortSpec; limit?: number }
 ): Promise<FilterRunResult> {
   await requireAuth();
   const catalog = {
@@ -48,23 +57,29 @@ export async function runFilter(
   const compiled = compileFilter(filter, { now: opts.now, sort: opts.sort, catalog });
   let rows = rawDb
     .prepare(compiled.sql)
-    .all(...(compiled.params as unknown[])) as unknown as FilteredContact[];
+    .all(...(compiled.params as unknown[])) as unknown as RawFilterRow[];
   if (compiled.radius) {
     const { lat, lng, km } = compiled.radius;
     rows = rows.filter(
       (c) =>
-        c.locationLat !== null &&
-        c.locationLng !== null &&
-        haversineKm(lat, lng, c.locationLat, c.locationLng) <= km
+        c.location_lat !== null &&
+        c.location_lng !== null &&
+        haversineKm(lat, lng, c.location_lat, c.location_lng) <= km
     );
   }
-  // Raw rows come back snake_case; re-select through drizzle for camelCase.
-  const ids = (rows as unknown as { id: number }[]).map((r) => r.id);
-  if (ids.length === 0) return { contacts: [], warnings: compiled.warnings };
+  const total = rows.length;
+  // Hydrate only the rows the caller will render: cap before the drizzle
+  // re-select (raw rows are snake_case; the re-select yields camelCase)
+  // so a 5k-row import can't balloon the page render.
+  const ids = (opts.limit !== undefined ? rows.slice(0, opts.limit) : rows).map(
+    (r) => r.id
+  );
+  if (ids.length === 0) return { contacts: [], total, warnings: compiled.warnings };
   const byId = new Map(
     db
       .select()
       .from(contactsTable)
+      .where(inArray(contactsTable.id, ids))
       .all()
       .map((c) => [c.id, c] as const)
   );
@@ -72,6 +87,7 @@ export async function runFilter(
     contacts: ids
       .map((id) => byId.get(id))
       .filter((c): c is FilteredContact => c !== undefined),
+    total,
     warnings: compiled.warnings,
   };
 }
