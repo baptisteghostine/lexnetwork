@@ -3,30 +3,86 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
+import { ensureDigestJob } from "@/jobs/scheduler";
+import { buildTodayDigest } from "@/jobs/digest";
 import { requireAuth } from "@/lib/auth";
+import { sendEmail } from "@/lib/digest/send";
 import { getSetting, setSetting } from "@/lib/settings";
+import { fallbackTimezone } from "@/lib/time";
 
 // The keys the app reads today (cadence engine, import engine, contact
-// form). Digest hour is read by snooze-all slot planning now and by the
-// Phase 5 digest job later.
+// form, scheduler, digest, birthdays).
 export type AppSettings = {
+  timezone: string;
   phoneDefaultRegion: string | null;
   snoozeAllHorizonDays: number;
   snoozeAllPerDayFloor: number;
   digestHour: number;
+  digestSendWhenEmpty: boolean;
+  birthdaysFeb29: "feb28" | "mar1";
+  birthdaysImportantOnly: boolean;
+  appUrl: string;
+  smtpHost: string;
+  smtpPort: number;
+  smtpSecure: boolean;
+  smtpUser: string;
+  smtpPass: string;
+  smtpFrom: string;
+  smtpTo: string;
+};
+
+type StoredSmtp = {
+  host?: string;
+  port?: number;
+  secure?: boolean;
+  user?: string;
+  pass?: string;
+  from?: string;
+  to?: string;
 };
 
 export async function readAppSettings(): Promise<AppSettings> {
   await requireAuth();
+  const smtp = getSetting<StoredSmtp>("smtp") ?? {};
   return {
+    timezone: getSetting<string>("timezone") ?? fallbackTimezone(),
     phoneDefaultRegion: getSetting<string>("phone_default_region") ?? null,
     snoozeAllHorizonDays: getSetting<number>("snooze_all.horizon_days") ?? 21,
     snoozeAllPerDayFloor: getSetting<number>("snooze_all.per_day_floor") ?? 3,
     digestHour: getSetting<number>("digest.hour") ?? 8,
+    digestSendWhenEmpty:
+      getSetting<boolean>("digest.send_when_empty") ?? false,
+    birthdaysFeb29: getSetting<"feb28" | "mar1">("birthdays.feb29") ?? "feb28",
+    birthdaysImportantOnly:
+      getSetting<boolean>("birthdays.important_only") ?? true,
+    appUrl: getSetting<string>("app_url") ?? "http://localhost:3000",
+    smtpHost: smtp.host ?? "",
+    smtpPort: smtp.port ?? 587,
+    smtpSecure: smtp.secure ?? false,
+    smtpUser: smtp.user ?? "",
+    smtpPass: smtp.pass ?? "",
+    smtpFrom: smtp.from ?? "",
+    smtpTo: smtp.to ?? "",
   };
 }
 
 const settingsInput = z.object({
+  timezone: z
+    .string()
+    .trim()
+    .min(1)
+    .max(60)
+    .refine(
+      (tz) => {
+        try {
+          new Intl.DateTimeFormat("en-US", { timeZone: tz });
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      { message: "Unknown timezone — use an IANA name like Europe/Zurich." }
+    ),
   phoneDefaultRegion: z
     .string()
     .trim()
@@ -36,6 +92,17 @@ const settingsInput = z.object({
   snoozeAllHorizonDays: z.coerce.number().int().min(1).max(365),
   snoozeAllPerDayFloor: z.coerce.number().int().min(1).max(50),
   digestHour: z.coerce.number().int().min(0).max(23),
+  digestSendWhenEmpty: z.coerce.boolean(),
+  birthdaysFeb29: z.enum(["feb28", "mar1"]),
+  birthdaysImportantOnly: z.coerce.boolean(),
+  appUrl: z.string().trim().url().max(300),
+  smtpHost: z.string().trim().max(300),
+  smtpPort: z.coerce.number().int().min(1).max(65535),
+  smtpSecure: z.coerce.boolean(),
+  smtpUser: z.string().trim().max(300),
+  smtpPass: z.string().max(300),
+  smtpFrom: z.string().trim().max(300),
+  smtpTo: z.string().trim().max(300),
 });
 
 export type SettingsFormState = { error?: string; saved?: boolean };
@@ -46,19 +113,62 @@ export async function updateSettingsAction(
 ): Promise<SettingsFormState> {
   await requireAuth();
   const parsed = settingsInput.safeParse({
+    timezone: formData.get("timezone"),
     phoneDefaultRegion: formData.get("phoneDefaultRegion") ?? "",
     snoozeAllHorizonDays: formData.get("snoozeAllHorizonDays"),
     snoozeAllPerDayFloor: formData.get("snoozeAllPerDayFloor"),
     digestHour: formData.get("digestHour"),
+    digestSendWhenEmpty: formData.get("digestSendWhenEmpty") === "on",
+    birthdaysFeb29: formData.get("birthdaysFeb29"),
+    birthdaysImportantOnly: formData.get("birthdaysImportantOnly") === "on",
+    appUrl: formData.get("appUrl"),
+    smtpHost: formData.get("smtpHost") ?? "",
+    smtpPort: formData.get("smtpPort") || 587,
+    smtpSecure: formData.get("smtpSecure") === "on",
+    smtpUser: formData.get("smtpUser") ?? "",
+    smtpPass: formData.get("smtpPass") ?? "",
+    smtpFrom: formData.get("smtpFrom") ?? "",
+    smtpTo: formData.get("smtpTo") ?? "",
   });
   if (!parsed.success) {
     return { error: parsed.error.issues[0].message };
   }
   const s = parsed.data;
+  setSetting("timezone", s.timezone);
   setSetting("phone_default_region", s.phoneDefaultRegion || null);
   setSetting("snooze_all.horizon_days", s.snoozeAllHorizonDays);
   setSetting("snooze_all.per_day_floor", s.snoozeAllPerDayFloor);
   setSetting("digest.hour", s.digestHour);
+  setSetting("digest.send_when_empty", s.digestSendWhenEmpty);
+  setSetting("birthdays.feb29", s.birthdaysFeb29);
+  setSetting("birthdays.important_only", s.birthdaysImportantOnly);
+  setSetting("app_url", s.appUrl);
+  setSetting("smtp", {
+    host: s.smtpHost,
+    port: s.smtpPort,
+    secure: s.smtpSecure,
+    user: s.smtpUser,
+    pass: s.smtpPass,
+    from: s.smtpFrom,
+    to: s.smtpTo,
+  });
+  // Digest hour or timezone may have moved — re-aim the pending job.
+  ensureDigestJob(Date.now());
   revalidatePath("/settings");
   return { saved: true };
+}
+
+export type TestDigestState = { error?: string; sent?: boolean };
+
+/** Settings-page button: build the digest for right now and send it,
+ * even when empty — you're testing the pipe, not the content. */
+export async function sendDigestNowAction(): Promise<TestDigestState> {
+  await requireAuth();
+  try {
+    const email = buildTodayDigest(Date.now());
+    await sendEmail(email);
+    return { sent: true };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Send failed." };
+  }
 }
