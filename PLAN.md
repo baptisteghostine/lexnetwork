@@ -4,6 +4,17 @@ Eleven phases, each independently shippable and manually verifiable in the brows
 
 Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summary of changed/tested/stubbed, recommendation for next phase. Schema for each phase's tables comes from SCHEMA.md via a new Drizzle migration — no ad-hoc columns.
 
+## Status
+
+- ✅ **Phase 1** — app shell, auth, contacts CRUD, tags (migration 0000)
+- ✅ **Phase 2** — notes with autosave/mentions/attachments, timeline, groups (0001)
+- ✅ **Phase 3** — CSV + vCard import, provenance, diff reports (0002)
+- ✅ **Phase 4** — cadence engine, `next_touch_at`, snooze-all, Today page
+- ⬜ **Phase 5 → 11** — next up: scheduler, reminders, birthdays, digest
+
+83 unit tests passing as of Phase 4. Open questions from SPEC.md's decision
+list are all resolved with the owner; see that section before revisiting them.
+
 ---
 
 ## Phase 1 — Skeleton + contacts you can actually use

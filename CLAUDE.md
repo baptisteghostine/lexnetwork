@@ -63,6 +63,26 @@ data/               # SQLite file, attachments/, backups/ — gitignored
 | Apply migrations | `npm run db:migrate` |
 | Full pre-done check | `npm run check` (lint + typecheck + test) |
 
+### Environment notes (learned the hard way)
+
+- **Node 22 LTS or newer.** Node 18 is too old for several deps; Node 24 had no
+  prebuilt `better-sqlite3` binary at the time of writing.
+- **Install with `npm install --ignore-scripts`.** `better-sqlite3` ships a
+  prebuilt binary per platform, but npm still tries its `node-gyp` build step,
+  which fails on machines without a C++ toolchain (notably Windows without
+  Visual Studio Build Tools). Skipping install scripts uses the prebuilt binary;
+  verified working on Linux and Windows.
+- **First run:** `npm run db:migrate` then optionally `npm run seed`
+  (25 demo contacts, 8 with overdue cadences). `seed --force` wipes first.
+- **Forgot the password:** `npm run reset-password -- <newpassword>`.
+- **GitHub Codespaces** works with zero local install (`.devcontainer/` sets it
+  up): open the codespace, `npm run dev`, then open the forwarded port from the
+  PORTS tab — not `localhost:3000` in your own browser. If a stale server holds
+  the port, `lsof -ti:3000 | xargs -r kill`.
+- **Behind a reverse proxy**, Server Actions need the proxy host in
+  `ROLO_ALLOWED_ORIGINS` (comma-separated `host[:port]`), or Next rejects every
+  mutation as a CSRF mismatch. Proxied dev domains are already allowed.
+
 ## Non-goals (never build these)
 
 Multi-user auth, roles/permissions, teams, deal pipelines/stages/revenue, email campaign sending, billing/Stripe, admin panel, public third-party API, native mobile app, browser extension that scrapes or automates LinkedIn, telemetry/analytics of any kind, external message brokers.
