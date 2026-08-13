@@ -36,9 +36,13 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   Portability API** — official EEA self-serve product, weekly CONNECTIONS
   snapshot into the same import core as the ZIP, runtime domain discovery.
   Deferred from Phase 8 scope: optional contacts.readonly People import
-  (separate consent, not yet built); live-API manual test still pending —
-  all engines are fixture-tested, the real-account pass happens on first
-  deploy (SPEC §9 documents this as the phase's known risk).
+  (separate consent, not yet built). Live-tested 2026-08-13: the owner is
+  UK-based, and LinkedIn does not offer the "(Member)" product to UK
+  accounts (EEA/CH only) — confirmed against a real developer app, not
+  just docs. §9a's code is sound and stays for any EEA/CH owner, but for
+  this deployment it's currently unreachable; **the ZIP import (§8) is
+  the live sync path.** Google sync (Gmail + Calendar) is unaffected and
+  still awaits its own first live-account pass.
 - ⬜ **Phase 9 → 11** — next up: dedupe & merge
 
 202 unit tests passing as of Phase 8. Open questions from SPEC.md's decision
