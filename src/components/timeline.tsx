@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import {
   Bell,
   Calendar,
@@ -59,6 +59,15 @@ function When({ at }: { at: number }) {
   );
 }
 
+// Dex pattern: a filter control at the top of the timeline narrows to one
+// activity type instantly.
+const FILTERS = [
+  { key: "all", label: "All" },
+  { key: "notes", label: "Notes" },
+  { key: "interactions", label: "Interactions" },
+] as const;
+type FilterKey = (typeof FILTERS)[number]["key"];
+
 export function Timeline({
   items,
   newestNoteId,
@@ -67,16 +76,42 @@ export function Timeline({
   newestNoteId: number | null;
 }) {
   const [pending, startTransition] = useTransition();
+  const [filter, setFilter] = useState<FilterKey>("all");
   if (items.length === 0) {
     return (
       <p className="py-6 text-center text-xs text-muted-foreground">
-        No notes or interactions yet.
+        No notes or interactions yet. Log a catch-up or jot a note — anything
+        that counts as a touch keeps this person off the overdue list.
       </p>
     );
   }
+  const visible = items.filter((i) =>
+    filter === "all" ? true : filter === "notes" ? i.type === "note" : i.type === "interaction"
+  );
   return (
-    <ol className="space-y-2">
-      {items.map((item) =>
+    <div className="space-y-2">
+      <div className="flex gap-1">
+        {FILTERS.map((f) => (
+          <button
+            key={f.key}
+            onClick={() => setFilter(f.key)}
+            className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors ${
+              filter === f.key
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+      {visible.length === 0 ? (
+        <p className="py-6 text-center text-xs text-muted-foreground">
+          Nothing of this type yet.
+        </p>
+      ) : null}
+      <ol className="space-y-2">
+        {visible.map((item) =>
         item.type === "note" ? (
           <li key={`n${item.note.id}`}>
             {item.mentionedOnly ? (
@@ -151,6 +186,7 @@ export function Timeline({
           </li>
         )
       )}
-    </ol>
+      </ol>
+    </div>
   );
 }

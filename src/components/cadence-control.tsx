@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { CADENCE_PRESETS } from "@/lib/cadence/engine";
+import { CADENCE_PRESETS, snoozeUntil } from "@/lib/cadence/engine";
 import { setCadenceAction, snoozeContactAction } from "@/server/cadence";
 
 export function CadenceControl({
@@ -32,6 +32,9 @@ export function CadenceControl({
   const [pending, startTransition] = useTransition();
   const [customOpen, setCustomOpen] = useState(false);
   const [customDays, setCustomDays] = useState("");
+  // Captured when the menu opens (event handlers may be impure; render
+  // must not call Date.now()) so snooze rows can show their exact date.
+  const [menuNow, setMenuNow] = useState<number | null>(null);
 
   const preset = CADENCE_PRESETS.find((p) => p.days === cadenceDays);
   const label =
@@ -47,7 +50,11 @@ export function CadenceControl({
 
   return (
     <div className="flex items-center gap-2">
-      <DropdownMenu>
+      <DropdownMenu
+        onOpenChange={(open) => {
+          if (open) setMenuNow(Date.now());
+        }}
+      >
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" disabled={pending}>
             <Clock />
@@ -88,8 +95,18 @@ export function CadenceControl({
                 <DropdownMenuItem
                   key={p}
                   onSelect={() => run(() => snoozeContactAction(contactId, p))}
+                  className="justify-between gap-4"
                 >
                   {l}
+                  {/* Dex pattern: always show the exact resulting date. */}
+                  {menuNow !== null && (
+                    <span className="text-[11px] text-muted-foreground">
+                      {new Date(snoozeUntil(p, menuNow)).toLocaleDateString(
+                        undefined,
+                        { month: "short", day: "numeric" }
+                      )}
+                    </span>
+                  )}
                 </DropdownMenuItem>
               ))}
               <DropdownMenuSeparator />

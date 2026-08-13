@@ -6,6 +6,7 @@ import { db } from "@/db/client";
 import {
   attachments,
   contactEmails,
+  contactFieldSources,
   contactPhones,
   contacts,
   contactSocials,
@@ -91,6 +92,19 @@ export function getContactDetail(contactId: number) {
       .where(eq(contactTags.contactId, contactId))
       .all()
       .map((r) => r.tagId),
+    // field → where its current value came from (SPEC §1 hover provenance).
+    provenance: Object.fromEntries(
+      db
+        .select({
+          field: contactFieldSources.field,
+          source: contactFieldSources.source,
+          updatedAt: contactFieldSources.updatedAt,
+        })
+        .from(contactFieldSources)
+        .where(eq(contactFieldSources.contactId, contactId))
+        .all()
+        .map((r) => [r.field, { source: r.source, updatedAt: r.updatedAt }])
+    ) as Record<string, { source: string; updatedAt: number }>,
   };
 }
 
