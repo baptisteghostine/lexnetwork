@@ -203,6 +203,99 @@ export const settings = sqliteTable("settings", {
   value: text("value").notNull(),
 });
 
+// Pulled forward from Phase 7 (shape verbatim from SCHEMA.md): the Phase 6
+// filter compiler's "current OR past company" and education dimensions —
+// and the ex-Googlers AC — need these to exist. LinkedIn import populates
+// them in Phase 7.
+export const workHistory = sqliteTable(
+  "work_history",
+  {
+    id: integer("id").primaryKey(),
+    contactId: integer("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    company: text("company").notNull(),
+    companyNormalized: text("company_normalized").notNull(),
+    title: text("title"),
+    // ISO 'YYYY-MM' or 'YYYY' — sources give partial dates; lexicographic
+    // ISO ordering still sorts correctly (SCHEMA.md).
+    startDate: text("start_date"),
+    endDate: text("end_date"),
+    isCurrent: integer("is_current", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    source: text("source").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("idx_work_company").on(t.companyNormalized)]
+);
+
+export const education = sqliteTable(
+  "education",
+  {
+    id: integer("id").primaryKey(),
+    contactId: integer("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    school: text("school").notNull(),
+    degree: text("degree"),
+    field: text("field"),
+    startYear: integer("start_year"),
+    endYear: integer("end_year"),
+    source: text("source").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("idx_education_school").on(t.school)]
+);
+
+export const customFields = sqliteTable("custom_fields", {
+  id: integer("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  // 'text' | 'number' | 'date' | 'single_select' | 'multi_select'
+  kind: text("kind").notNull(),
+  // JSON array for select kinds.
+  options: text("options"),
+  sortOrder: integer("sort_order"),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const customFieldValues = sqliteTable(
+  "custom_field_values",
+  {
+    id: integer("id").primaryKey(),
+    customFieldId: integer("custom_field_id")
+      .notNull()
+      .references(() => customFields.id, { onDelete: "cascade" }),
+    contactId: integer("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    // One populated per kind — keeps number/date filters real comparisons.
+    valueText: text("value_text"),
+    valueNumber: real("value_number"),
+    valueDate: integer("value_date"),
+    // multi_select array, JSON.
+    valueJson: text("value_json"),
+  },
+  (t) => [
+    uniqueIndex("uq_cfv_field_contact").on(t.customFieldId, t.contactId),
+    index("idx_cfv_field_number").on(t.customFieldId, t.valueNumber),
+    index("idx_cfv_field_date").on(t.customFieldId, t.valueDate),
+    index("idx_cfv_field_text").on(t.customFieldId, t.valueText),
+  ]
+);
+
+export const views = sqliteTable("views", {
+  id: integer("id").primaryKey(),
+  name: text("name").notNull(),
+  // Versioned {v:1,...} — code-versioned JSON (SCHEMA.md).
+  filterJson: text("filter_json").notNull(),
+  sortJson: text("sort_json"),
+  pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
+  sortOrder: integer("sort_order"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 export const jobs = sqliteTable(
   "jobs",
   {
