@@ -1,12 +1,16 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import fs from "node:fs";
+import path from "node:path";
+
+import { eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
-import { db } from "@/db/client";
+import { DATA_DIR, db } from "@/db/client";
 import {
+  attachments,
   contactEmails,
   contactFieldSources,
   contactPhones,
@@ -14,6 +18,7 @@ import {
   contactSocials,
   contactTags,
   groupMembers,
+  notes,
 } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
 import {
@@ -329,7 +334,10 @@ export async function deleteContactAction(
 ): Promise<{ error?: string }> {
   await requireAuth();
   const row = db
-    .select({ displayName: contacts.displayName })
+    .select({
+      displayName: contacts.displayName,
+      photoPath: contacts.photoPath,
+    })
     .from(contacts)
     .where(eq(contacts.id, contactId))
     .get();
@@ -337,7 +345,27 @@ export async function deleteContactAction(
   if (confirmName.trim() !== row.displayName) {
     return { error: "Typed name doesn't match — contact not deleted." };
   }
+  // Collect file paths before the cascade removes the rows that point at
+  // them; note attachments and the photo are owned by the contact's data.
+  const noteIds = db
+    .select({ id: notes.id })
+    .from(notes)
+    .where(eq(notes.contactId, contactId))
+    .all()
+    .map((n) => n.id);
+  const files = noteIds.length
+    ? db
+        .select({ path: attachments.path })
+        .from(attachments)
+        .where(inArray(attachments.noteId, noteIds))
+        .all()
+        .map((f) => f.path)
+    : [];
+  if (row.photoPath) files.push(row.photoPath);
   db.delete(contacts).where(eq(contacts.id, contactId)).run();
+  for (const rel of files) {
+    fs.rmSync(path.join(DATA_DIR, rel), { force: true });
+  }
   revalidatePath("/contacts");
   redirect("/contacts");
 }
