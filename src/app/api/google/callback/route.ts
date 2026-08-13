@@ -7,15 +7,20 @@ import { exchangeGoogleCode } from "@/lib/sync/google-auth";
 import { ensureSyncJobs } from "@/jobs/scheduler";
 import { googleClientCreds, upsertAccount } from "@/server/sync/accounts";
 import { verifyOauthState } from "@/server/sync/oauth-state";
+import { publicOrigin } from "@/server/sync/request-origin";
 
 function fail(req: NextRequest, code: string): NextResponse {
   return NextResponse.redirect(
-    new URL(`/settings?connect_error=${encodeURIComponent(code)}`, req.url)
+    new URL(
+      `/settings?connect_error=${encodeURIComponent(code)}`,
+      publicOrigin(req)
+    )
   );
 }
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
   await requireAuth();
+  const origin = publicOrigin(req);
   const params = req.nextUrl.searchParams;
   if (!verifyOauthState(params.get("state"))) return fail(req, "bad-state");
   const code = params.get("code");
@@ -28,7 +33,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       code,
       clientId: creds.clientId,
       clientSecret: creds.clientSecret,
-      redirectUri: new URL("/api/google/callback", req.url).toString(),
+      redirectUri: new URL("/api/google/callback", origin).toString(),
     });
     const profileRes = await outboundFetch(buildProfileUrl(), {
       headers: { Authorization: `Bearer ${tokens.accessToken}` },
@@ -49,7 +54,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       myAddresses: [profile.emailAddress],
     });
     ensureSyncJobs(Date.now());
-    return NextResponse.redirect(new URL("/settings?connected=google", req.url));
+    return NextResponse.redirect(new URL("/settings?connected=google", origin));
   } catch (err) {
     const msg = err instanceof Error ? err.message : "exchange-failed";
     return fail(req, msg.slice(0, 120));
