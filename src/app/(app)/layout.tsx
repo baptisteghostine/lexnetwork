@@ -7,7 +7,7 @@ import { SidebarNav } from "@/components/sidebar-nav";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { db } from "@/db/client";
-import { contacts } from "@/db/schema";
+import { contacts, reminders } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
 import { now as currentTime } from "@/lib/time";
 import { logoutAction } from "@/server/auth";
@@ -20,7 +20,8 @@ export default async function AppLayout({
   children: React.ReactNode;
 }) {
   await requireAuth();
-  const dueCount =
+  const now = currentTime();
+  const dueContactCount =
     db
       .select({ n: sql<number>`count(*)` })
       .from(contacts)
@@ -29,10 +30,23 @@ export default async function AppLayout({
           isNull(contacts.archivedAt),
           isNotNull(contacts.cadenceDays),
           isNotNull(contacts.nextTouchAt),
-          lte(contacts.nextTouchAt, currentTime())
+          lte(contacts.nextTouchAt, now)
         )
       )
       .get()?.n ?? 0;
+  const dueReminderCount =
+    db
+      .select({ n: sql<number>`count(*)` })
+      .from(reminders)
+      .where(
+        and(
+          isNull(reminders.rrule),
+          isNull(reminders.completedAt),
+          sql`COALESCE(${reminders.snoozedUntil}, ${reminders.dueAt}) <= ${now}`
+        )
+      )
+      .get()?.n ?? 0;
+  const dueCount = dueContactCount + dueReminderCount;
   const initialDark =
     (await cookies()).get("rolo-theme")?.value === "dark";
 

@@ -1,11 +1,12 @@
-import { and, asc, desc, inArray, isNotNull, isNull, lte } from "drizzle-orm";
+import Link from "next/link";
+import { Cake, Star } from "lucide-react";
 
+import { ContactAvatar } from "@/components/contact-avatar";
 import { TodayQueue, type DueItem } from "@/components/today-queue";
-import { db } from "@/db/client";
-import { contactEmails, contacts } from "@/db/schema";
-import { DAY_MS } from "@/lib/cadence/engine";
+import { TodayReminders } from "@/components/today-reminders";
 import { requireAuth } from "@/lib/auth";
 import { now as currentTime } from "@/lib/time";
+import { getTodayData } from "@/server/today-data";
 
 export const dynamic = "force-dynamic";
 
@@ -13,76 +14,96 @@ export default async function TodayPage() {
   // Pages guard themselves — see contacts/page.tsx for why.
   await requireAuth();
   const now = currentTime();
+  const data = getTodayData(now);
 
-  const due = db
-    .select()
-    .from(contacts)
-    .where(
-      and(
-        isNull(contacts.archivedAt),
-        isNotNull(contacts.cadenceDays),
-        isNotNull(contacts.nextTouchAt),
-        lte(contacts.nextTouchAt, now)
-      )
-    )
-    .orderBy(desc(contacts.starred), asc(contacts.nextTouchAt))
-    .all();
-
-  // One query for all primary emails (lowest priority per contact wins).
-  const primaryEmails = new Map<number, string>();
-  if (due.length > 0) {
-    const emailRows = db
-      .select({
-        contactId: contactEmails.contactId,
-        email: contactEmails.email,
-      })
-      .from(contactEmails)
-      .where(
-        inArray(
-          contactEmails.contactId,
-          due.map((c) => c.id)
-        )
-      )
-      .orderBy(asc(contactEmails.priority))
-      .all();
-    for (const e of emailRows) {
-      if (!primaryEmails.has(e.contactId)) {
-        primaryEmails.set(e.contactId, e.email);
-      }
-    }
-  }
-
-  const items: DueItem[] = due.map((c) => ({
-    contactId: c.id,
+  const items: DueItem[] = data.dueContacts.map((c) => ({
+    contactId: c.contactId,
     displayName: c.displayName,
     company: c.company,
     title: c.title,
     starred: c.starred,
-    hasPhoto: c.photoPath !== null,
-    daysOverdue: Math.max(
-      0,
-      Math.floor((now - (c.nextTouchAt as number)) / DAY_MS)
-    ),
-    primaryEmail: primaryEmails.get(c.id) ?? null,
+    hasPhoto: c.hasPhoto,
+    daysOverdue: c.daysOverdue,
+    primaryEmail: c.primaryEmail,
   }));
+
+  const counts = [
+    data.reminders.length > 0 &&
+      `${data.reminders.length} reminder${data.reminders.length > 1 ? "s" : ""}`,
+    `${items.length} due`,
+    data.birthdays.length > 0 &&
+      `${data.birthdays.length} birthday${data.birthdays.length > 1 ? "s" : ""}`,
+  ].filter(Boolean);
 
   return (
     <div>
       <header className="flex items-center gap-3 border-b border-border px-5 py-2.5">
         <h1 className="text-sm font-semibold">Today</h1>
         <span className="text-xs text-muted-foreground">
-          {items.length} due
+          {counts.join(" · ")}
         </span>
       </header>
       <div className="max-w-3xl space-y-6 px-5 py-4">
+        {/* SPEC §12 section order: reminders → keep-in-touch → job changes
+            (Phase 7) → birthdays → calendar agenda (Phase 8). */}
+        {data.reminders.length > 0 && (
+          <section className="space-y-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Reminders
+            </h2>
+            <TodayReminders items={data.reminders} now={now} />
+          </section>
+        )}
         <section className="space-y-2">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Keep in touch
           </h2>
           <TodayQueue items={items} />
         </section>
-        {/* Reminders, birthdays, job changes, and the calendar agenda join
-            this page in later phases (SPEC §12 section order). */}
+        {data.birthdays.length > 0 && (
+          <section className="space-y-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Birthdays this week
+            </h2>
+            <ol className="space-y-1">
+              {data.birthdays.map((b) => (
+                <li key={b.contactId}>
+                  <Link
+                    href={`/contacts/${b.contactId}`}
+                    className="flex items-center gap-3 rounded-md border border-border/60 px-3 py-2 transition-colors hover:bg-accent/50"
+                  >
+                    <Cake className="size-3.5 shrink-0 text-primary" />
+                    <ContactAvatar
+                      contactId={b.contactId}
+                      name={b.displayName}
+                      hasPhoto={b.hasPhoto}
+                      size="sm"
+                    />
+                    <span className="flex items-center gap-1.5 truncate text-[13px] font-medium">
+                      {b.displayName}
+                      {b.starred ? (
+                        <Star className="size-3 shrink-0 fill-warning text-warning" />
+                      ) : null}
+                    </span>
+                    {b.turns !== null ? (
+                      <span className="text-[11px] text-muted-foreground">
+                        turns {b.turns}
+                      </span>
+                    ) : null}
+                    <span className="flex-1" />
+                    <span className="text-[11px] text-muted-foreground">
+                      {b.daysUntil === 0
+                        ? "today 🎂"
+                        : b.daysUntil === 1
+                          ? "tomorrow"
+                          : `in ${b.daysUntil} days`}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
       </div>
     </div>
   );
