@@ -203,6 +203,35 @@ export const settings = sqliteTable("settings", {
   value: text("value").notNull(),
 });
 
+export const contactChanges = sqliteTable(
+  "contact_changes",
+  {
+    id: integer("id").primaryKey(),
+    contactId: integer("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    // 'company' | 'title'
+    field: text("field").notNull(),
+    oldValue: text("old_value"),
+    newValue: text("new_value"),
+    source: text("source").notNull(),
+    syncRunId: integer("sync_run_id").references(() => syncRuns.id, {
+      onDelete: "set null",
+    }),
+    detectedAt: integer("detected_at").notNull(),
+    dismissedAt: integer("dismissed_at"),
+    // Owner logged an interaction from the Today card.
+    actedAt: integer("acted_at"),
+  },
+  (t) => [
+    // The Today "reason to reach out" cards.
+    index("idx_changes_open")
+      .on(t.detectedAt)
+      .where(sql`dismissed_at IS NULL AND acted_at IS NULL`),
+    index("idx_changes_contact").on(t.contactId, t.detectedAt),
+  ]
+);
+
 // Pulled forward from Phase 7 (shape verbatim from SCHEMA.md): the Phase 6
 // filter compiler's "current OR past company" and education dimensions —
 // and the ex-Googlers AC — need these to exist. LinkedIn import populates

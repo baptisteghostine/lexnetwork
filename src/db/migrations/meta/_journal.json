@@ -50,6 +50,13 @@
       "when": 1786618943825,
       "tag": "0006_fts_search",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1786629001429,
+      "tag": "0007_good_christian_walker",
+      "breakpoints": true
     }
   ]
 }
