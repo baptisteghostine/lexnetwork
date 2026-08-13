@@ -21,6 +21,8 @@ import {
   isValidBirthday,
   normalizeEmail,
 } from "@/lib/contacts/normalize";
+import { toE164 } from "@/lib/imports/phone";
+import { getSetting } from "@/lib/settings";
 
 const emailRow = z.object({
   email: z.string().trim().email(),
@@ -137,14 +139,13 @@ function writeMultiValueRows(contactId: number, p: ContactPayload, now: number) 
   });
 
   db.delete(contactPhones).where(eq(contactPhones.contactId, contactId)).run();
+  const region = getSetting<string>("phone_default_region") ?? undefined;
   p.phones.forEach((ph, i) => {
     db.insert(contactPhones)
       .values({
         contactId,
         phoneRaw: ph.phone,
-        // E.164 parsing arrives with libphonenumber-js in Phase 3 (imports);
-        // until then phone identity matching is not needed.
-        phoneE164: null,
+        phoneE164: toE164(ph.phone, region),
         label: ph.label || null,
         priority: i,
         source: "user",
