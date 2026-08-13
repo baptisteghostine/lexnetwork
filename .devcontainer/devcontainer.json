@@ -4,8 +4,9 @@
   // --ignore-scripts skips better-sqlite3's node-gyp step; the package ships
   // a prebuilt linux-x64 binary, so nothing needs compiling here.
   "postCreateCommand": "npm install --ignore-scripts && npm run db:migrate && npm run seed",
-  // Starts the dev server on attach so the forwarded port is live immediately.
-  "postAttachCommand": "npm run dev",
+  // Deliberately no postAttachCommand: an auto-started server lives in a
+  // terminal you can't Ctrl+C, so it keeps holding port 3000 with stale config
+  // after a `git pull`. Run `npm run dev` yourself instead.
   "forwardPorts": [3000],
   "portsAttributes": {
     "3000": {
