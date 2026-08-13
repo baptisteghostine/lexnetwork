@@ -148,7 +148,6 @@ export const contactTags = sqliteTable(
 );
 
 // Per-field provenance for scalar contact fields (see SCHEMA.md).
-// sync_run_id will be added by the Phase 3 migration alongside sync_runs.
 export const contactFieldSources = sqliteTable(
   "contact_field_sources",
   {
@@ -157,9 +156,42 @@ export const contactFieldSources = sqliteTable(
       .references(() => contacts.id, { onDelete: "cascade" }),
     field: text("field").notNull(),
     source: text("source").notNull(),
+    syncRunId: integer("sync_run_id").references(() => syncRuns.id, {
+      onDelete: "set null",
+    }),
     updatedAt: integer("updated_at").notNull(),
   },
   (t) => [primaryKey({ columns: [t.contactId, t.field] })]
+);
+
+// One row per sync tick or file import (see SCHEMA.md).
+export const syncRuns = sqliteTable(
+  "sync_runs",
+  {
+    id: integer("id").primaryKey(),
+    // 'csv_import' | 'vcard_import' | 'linkedin_import' | 'gmail' |
+    // 'calendar' | 'google_contacts' | 'dedupe_scan' | 'export' | 'backup'
+    kind: text("kind").notNull(),
+    fileName: text("file_name"),
+    fileSha256: text("file_sha256"),
+    // Column mapping used (CSV), JSON.
+    mappingJson: text("mapping_json"),
+    cursorBefore: text("cursor_before"),
+    cursorAfter: text("cursor_after"),
+    // 'running' | 'success' | 'failed' | 'partial'
+    status: text("status").notNull(),
+    // {new, updated, unchanged, conflicts, errors}, JSON.
+    statsJson: text("stats_json"),
+    // Row-level diff report, JSON — large, load lazily.
+    reportJson: text("report_json"),
+    error: text("error"),
+    startedAt: integer("started_at").notNull(),
+    finishedAt: integer("finished_at"),
+  },
+  (t) => [
+    index("idx_sync_runs_kind").on(t.kind, t.startedAt),
+    index("idx_sync_runs_sha").on(t.fileSha256),
+  ]
 );
 
 export const settings = sqliteTable("settings", {

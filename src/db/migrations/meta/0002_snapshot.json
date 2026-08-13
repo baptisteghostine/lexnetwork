@@ -1,0 +1,1431 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "36dfc971-d4eb-44b1-8bcf-4d8f86f36a52",
+  "prevId": "0bfb9c79-77cc-4393-97da-b1f776006e7b",
+  "tables": {
+    "attachments": {
+      "name": "attachments",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "note_id": {
+          "name": "note_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "filename": {
+          "name": "filename",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mime": {
+          "name": "mime",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "size_bytes": {
+          "name": "size_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "path": {
+          "name": "path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_attachments_note": {
+          "name": "idx_attachments_note",
+          "columns": [
+            "note_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "attachments_note_id_notes_id_fk": {
+          "name": "attachments_note_id_notes_id_fk",
+          "tableFrom": "attachments",
+          "tableTo": "notes",
+          "columnsFrom": [
+            "note_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "contact_emails": {
+      "name": "contact_emails",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "contact_id": {
+          "name": "contact_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "email_normalized": {
+          "name": "email_normalized",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "priority": {
+          "name": "priority",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "uq_emails_contact_normalized": {
+          "name": "uq_emails_contact_normalized",
+          "columns": [
+            "contact_id",
+            "email_normalized"
+          ],
+          "isUnique": true
+        },
+        "idx_emails_normalized": {
+          "name": "idx_emails_normalized",
+          "columns": [
+            "email_normalized"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "contact_emails_contact_id_contacts_id_fk": {
+          "name": "contact_emails_contact_id_contacts_id_fk",
+          "tableFrom": "contact_emails",
+          "tableTo": "contacts",
+          "columnsFrom": [
+            "contact_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "contact_field_sources": {
+      "name": "contact_field_sources",
+      "columns": {
+        "contact_id": {
+          "name": "contact_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "field": {
+          "name": "field",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sync_run_id": {
+          "name": "sync_run_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "contact_field_sources_contact_id_contacts_id_fk": {
+          "name": "contact_field_sources_contact_id_contacts_id_fk",
+          "tableFrom": "contact_field_sources",
+          "tableTo": "contacts",
+          "columnsFrom": [
+            "contact_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "contact_field_sources_sync_run_id_sync_runs_id_fk": {
+          "name": "contact_field_sources_sync_run_id_sync_runs_id_fk",
+          "tableFrom": "contact_field_sources",
+          "tableTo": "sync_runs",
+          "columnsFrom": [
+            "sync_run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "contact_field_sources_contact_id_field_pk": {
+          "columns": [
+            "contact_id",
+            "field"
+          ],
+          "name": "contact_field_sources_contact_id_field_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "contact_phones": {
+      "name": "contact_phones",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "contact_id": {
+          "name": "contact_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "phone_raw": {
+          "name": "phone_raw",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "phone_e164": {
+          "name": "phone_e164",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "priority": {
+          "name": "priority",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "uq_phones_contact_e164": {
+          "name": "uq_phones_contact_e164",
+          "columns": [
+            "contact_id",
+            "phone_e164"
+          ],
+          "isUnique": true
+        },
+        "idx_phones_e164": {
+          "name": "idx_phones_e164",
+          "columns": [
+            "phone_e164"
+          ],
+          "isUnique": false,
+          "where": "phone_e164 IS NOT NULL"
+        }
+      },
+      "foreignKeys": {
+        "contact_phones_contact_id_contacts_id_fk": {
+          "name": "contact_phones_contact_id_contacts_id_fk",
+          "tableFrom": "contact_phones",
+          "tableTo": "contacts",
+          "columnsFrom": [
+            "contact_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "contact_socials": {
+      "name": "contact_socials",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "contact_id": {
+          "name": "contact_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "platform": {
+          "name": "platform",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "url": {
+          "name": "url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "handle": {
+          "name": "handle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "uq_socials_contact_url": {
+          "name": "uq_socials_contact_url",
+          "columns": [
+            "contact_id",
+            "url"
+          ],
+          "isUnique": true
+        },
+        "idx_socials_url": {
+          "name": "idx_socials_url",
+          "columns": [
+            "url"
+          ],
+          "isUnique": false
+        },
+        "idx_socials_linkedin": {
+          "name": "idx_socials_linkedin",
+          "columns": [
+            "contact_id"
+          ],
+          "isUnique": false,
+          "where": "platform = 'linkedin'"
+        }
+      },
+      "foreignKeys": {
+        "contact_socials_contact_id_contacts_id_fk": {
+          "name": "contact_socials_contact_id_contacts_id_fk",
+          "tableFrom": "contact_socials",
+          "tableTo": "contacts",
+          "columnsFrom": [
+            "contact_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "contact_tags": {
+      "name": "contact_tags",
+      "columns": {
+        "contact_id": {
+          "name": "contact_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tag_id": {
+          "name": "tag_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_contact_tags_tag": {
+          "name": "idx_contact_tags_tag",
+          "columns": [
+            "tag_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "contact_tags_contact_id_contacts_id_fk": {
+          "name": "contact_tags_contact_id_contacts_id_fk",
+          "tableFrom": "contact_tags",
+          "tableTo": "contacts",
+          "columnsFrom": [
+            "contact_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "contact_tags_tag_id_tags_id_fk": {
+          "name": "contact_tags_tag_id_tags_id_fk",
+          "tableFrom": "contact_tags",
+          "tableTo": "tags",
+          "columnsFrom": [
+            "tag_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "contact_tags_contact_id_tag_id_pk": {
+          "columns": [
+            "contact_id",
+            "tag_id"
+          ],
+          "name": "contact_tags_contact_id_tag_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "contacts": {
+      "name": "contacts",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "first_name": {
+          "name": "first_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_name": {
+          "name": "last_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "photo_path": {
+          "name": "photo_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "company": {
+          "name": "company",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "location": {
+          "name": "location",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "location_lat": {
+          "name": "location_lat",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "location_lng": {
+          "name": "location_lng",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "bio": {
+          "name": "bio",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "description_md": {
+          "name": "description_md",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "birthday_month": {
+          "name": "birthday_month",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "birthday_day": {
+          "name": "birthday_day",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "birthday_year": {
+          "name": "birthday_year",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "starred": {
+          "name": "starred",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "archived_at": {
+          "name": "archived_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cadence_days": {
+          "name": "cadence_days",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cadence_assigned_at": {
+          "name": "cadence_assigned_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "snoozed_until": {
+          "name": "snoozed_until",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_interaction_at": {
+          "name": "last_interaction_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "next_touch_at": {
+          "name": "next_touch_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_contacts_next_touch": {
+          "name": "idx_contacts_next_touch",
+          "columns": [
+            "next_touch_at"
+          ],
+          "isUnique": false,
+          "where": "archived_at IS NULL AND cadence_days IS NOT NULL"
+        },
+        "idx_contacts_birthday": {
+          "name": "idx_contacts_birthday",
+          "columns": [
+            "birthday_month",
+            "birthday_day"
+          ],
+          "isUnique": false
+        },
+        "idx_contacts_company": {
+          "name": "idx_contacts_company",
+          "columns": [
+            "company"
+          ],
+          "isUnique": false
+        },
+        "idx_contacts_created": {
+          "name": "idx_contacts_created",
+          "columns": [
+            "created_at"
+          ],
+          "isUnique": false
+        },
+        "idx_contacts_last_interaction": {
+          "name": "idx_contacts_last_interaction",
+          "columns": [
+            "last_interaction_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "group_members": {
+      "name": "group_members",
+      "columns": {
+        "group_id": {
+          "name": "group_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "contact_id": {
+          "name": "contact_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_group_members_contact": {
+          "name": "idx_group_members_contact",
+          "columns": [
+            "contact_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "group_members_group_id_groups_id_fk": {
+          "name": "group_members_group_id_groups_id_fk",
+          "tableFrom": "group_members",
+          "tableTo": "groups",
+          "columnsFrom": [
+            "group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "group_members_contact_id_contacts_id_fk": {
+          "name": "group_members_contact_id_contacts_id_fk",
+          "tableFrom": "group_members",
+          "tableTo": "contacts",
+          "columnsFrom": [
+            "contact_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "group_members_group_id_contact_id_pk": {
+          "columns": [
+            "group_id",
+            "contact_id"
+          ],
+          "name": "group_members_group_id_contact_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "groups": {
+      "name": "groups",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "emoji": {
+          "name": "emoji",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "parent_id": {
+          "name": "parent_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "uq_groups_parent_name": {
+          "name": "uq_groups_parent_name",
+          "columns": [
+            "parent_id",
+            "name"
+          ],
+          "isUnique": true,
+          "where": "parent_id IS NOT NULL"
+        },
+        "uq_groups_root_name": {
+          "name": "uq_groups_root_name",
+          "columns": [
+            "name"
+          ],
+          "isUnique": true,
+          "where": "parent_id IS NULL"
+        }
+      },
+      "foreignKeys": {
+        "groups_parent_id_groups_id_fk": {
+          "name": "groups_parent_id_groups_id_fk",
+          "tableFrom": "groups",
+          "tableTo": "groups",
+          "columnsFrom": [
+            "parent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "interactions": {
+      "name": "interactions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "contact_id": {
+          "name": "contact_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "direction": {
+          "name": "direction",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "meta": {
+          "name": "meta",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_key": {
+          "name": "source_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "counts_for_touch": {
+          "name": "counts_for_touch",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "uq_interactions_source": {
+          "name": "uq_interactions_source",
+          "columns": [
+            "contact_id",
+            "source",
+            "source_key"
+          ],
+          "isUnique": true,
+          "where": "source_key IS NOT NULL"
+        },
+        "idx_interactions_contact_time": {
+          "name": "idx_interactions_contact_time",
+          "columns": [
+            "contact_id",
+            "occurred_at"
+          ],
+          "isUnique": false
+        },
+        "idx_interactions_time": {
+          "name": "idx_interactions_time",
+          "columns": [
+            "occurred_at"
+          ],
+          "isUnique": false
+        },
+        "idx_interactions_touch": {
+          "name": "idx_interactions_touch",
+          "columns": [
+            "contact_id",
+            "occurred_at"
+          ],
+          "isUnique": false,
+          "where": "counts_for_touch = 1"
+        }
+      },
+      "foreignKeys": {
+        "interactions_contact_id_contacts_id_fk": {
+          "name": "interactions_contact_id_contacts_id_fk",
+          "tableFrom": "interactions",
+          "tableTo": "contacts",
+          "columnsFrom": [
+            "contact_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "note_mentions": {
+      "name": "note_mentions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "note_id": {
+          "name": "note_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "contact_id": {
+          "name": "contact_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "group_id": {
+          "name": "group_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "uq_mentions_note_contact": {
+          "name": "uq_mentions_note_contact",
+          "columns": [
+            "note_id",
+            "contact_id"
+          ],
+          "isUnique": true,
+          "where": "contact_id IS NOT NULL"
+        },
+        "uq_mentions_note_group": {
+          "name": "uq_mentions_note_group",
+          "columns": [
+            "note_id",
+            "group_id"
+          ],
+          "isUnique": true,
+          "where": "group_id IS NOT NULL"
+        },
+        "idx_mentions_contact": {
+          "name": "idx_mentions_contact",
+          "columns": [
+            "contact_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "note_mentions_note_id_notes_id_fk": {
+          "name": "note_mentions_note_id_notes_id_fk",
+          "tableFrom": "note_mentions",
+          "tableTo": "notes",
+          "columnsFrom": [
+            "note_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "note_mentions_contact_id_contacts_id_fk": {
+          "name": "note_mentions_contact_id_contacts_id_fk",
+          "tableFrom": "note_mentions",
+          "tableTo": "contacts",
+          "columnsFrom": [
+            "contact_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "note_mentions_group_id_groups_id_fk": {
+          "name": "note_mentions_group_id_groups_id_fk",
+          "tableFrom": "note_mentions",
+          "tableTo": "groups",
+          "columnsFrom": [
+            "group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "notes": {
+      "name": "notes",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "contact_id": {
+          "name": "contact_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "body_md": {
+          "name": "body_md",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "summary_ai": {
+          "name": "summary_ai",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "counts_for_touch": {
+          "name": "counts_for_touch",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_notes_contact": {
+          "name": "idx_notes_contact",
+          "columns": [
+            "contact_id",
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "notes_contact_id_contacts_id_fk": {
+          "name": "notes_contact_id_contacts_id_fk",
+          "tableFrom": "notes",
+          "tableTo": "contacts",
+          "columnsFrom": [
+            "contact_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "settings": {
+      "name": "settings",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "sync_runs": {
+      "name": "sync_runs",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "file_name": {
+          "name": "file_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "file_sha256": {
+          "name": "file_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "mapping_json": {
+          "name": "mapping_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cursor_before": {
+          "name": "cursor_before",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cursor_after": {
+          "name": "cursor_after",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "stats_json": {
+          "name": "stats_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "report_json": {
+          "name": "report_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "error": {
+          "name": "error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_sync_runs_kind": {
+          "name": "idx_sync_runs_kind",
+          "columns": [
+            "kind",
+            "started_at"
+          ],
+          "isUnique": false
+        },
+        "idx_sync_runs_sha": {
+          "name": "idx_sync_runs_sha",
+          "columns": [
+            "file_sha256"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "tags": {
+      "name": "tags",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "color": {
+          "name": "color",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "tags_name_unique": {
+          "name": "tags_name_unique",
+          "columns": [
+            "name"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}
