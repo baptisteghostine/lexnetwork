@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNotNull, isNull, lte } from "drizzle-orm";
+import { and, asc, desc, inArray, isNotNull, isNull, lte } from "drizzle-orm";
 
 import { TodayQueue, type DueItem } from "@/components/today-queue";
 import { db } from "@/db/client";
@@ -28,15 +28,28 @@ export default async function TodayPage() {
     .orderBy(desc(contacts.starred), asc(contacts.nextTouchAt))
     .all();
 
+  // One query for all primary emails (lowest priority per contact wins).
   const primaryEmails = new Map<number, string>();
-  for (const c of due) {
-    const e = db
-      .select({ email: contactEmails.email })
+  if (due.length > 0) {
+    const emailRows = db
+      .select({
+        contactId: contactEmails.contactId,
+        email: contactEmails.email,
+      })
       .from(contactEmails)
-      .where(eq(contactEmails.contactId, c.id))
+      .where(
+        inArray(
+          contactEmails.contactId,
+          due.map((c) => c.id)
+        )
+      )
       .orderBy(asc(contactEmails.priority))
-      .get();
-    if (e) primaryEmails.set(c.id, e.email);
+      .all();
+    for (const e of emailRows) {
+      if (!primaryEmails.has(e.contactId)) {
+        primaryEmails.set(e.contactId, e.email);
+      }
+    }
   }
 
   const items: DueItem[] = due.map((c) => ({
@@ -45,6 +58,7 @@ export default async function TodayPage() {
     company: c.company,
     title: c.title,
     starred: c.starred,
+    hasPhoto: c.photoPath !== null,
     daysOverdue: Math.max(
       0,
       Math.floor((now - (c.nextTouchAt as number)) / DAY_MS)

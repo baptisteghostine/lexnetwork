@@ -3,7 +3,8 @@ import Link from "next/link";
 import { ContactsList } from "@/components/contacts-list";
 import { Button } from "@/components/ui/button";
 import { requireAuth } from "@/lib/auth";
-import { listContacts, type ContactSort } from "@/server/queries";
+import { now as currentTime } from "@/lib/time";
+import { listContacts, listTags, type ContactSort } from "@/server/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,8 @@ export default async function ContactsPage({
   ) as ContactSort;
   const archived = params.archived === "1";
   const rows = listContacts({ sort, archived });
+  const allTags = listTags();
+  const nowMs = currentTime();
 
   return (
     <div>
@@ -72,6 +75,8 @@ export default async function ContactsPage({
         </p>
       ) : (
         <ContactsList
+          archivedView={archived}
+          allTags={allTags}
           rows={rows.map((c) => ({
             id: c.id,
             displayName: c.displayName,
@@ -79,6 +84,8 @@ export default async function ContactsPage({
             company: c.company,
             starred: c.starred,
             cadenceDays: c.cadenceDays,
+            hasPhoto: c.photoPath !== null,
+            overdue: c.nextTouchAt !== null && c.nextTouchAt <= nowMs,
             tags: c.tags,
           }))}
         />

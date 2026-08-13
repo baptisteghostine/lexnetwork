@@ -67,7 +67,7 @@ export default async function ImportsPage() {
                         {stats.new} new · {stats.updated} updated ·{" "}
                         {stats.unchanged} unchanged
                         {stats.conflicts > 0 && (
-                          <span className="text-yellow-500">
+                          <span className="text-warning">
                             {" "}
                             · {stats.conflicts} conflicts
                           </span>
@@ -75,7 +75,7 @@ export default async function ImportsPage() {
                       </span>
                     )}
                     <span
-                      className={`text-[11px] ${r.status === "success" ? "text-green-500" : r.status === "failed" ? "text-destructive" : "text-muted-foreground"}`}
+                      className={`text-[11px] ${r.status === "success" ? "text-success" : r.status === "failed" ? "text-destructive" : "text-muted-foreground"}`}
                     >
                       {r.status}
                     </span>

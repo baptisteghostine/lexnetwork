@@ -45,7 +45,7 @@ export function ContactActions({
         onClick={() => startTransition(() => toggleStarAction(contactId))}
       >
         <Star
-          className={starred ? "fill-yellow-500 text-yellow-500" : undefined}
+          className={starred ? "fill-warning text-warning" : undefined}
         />
       </Button>
       <Button

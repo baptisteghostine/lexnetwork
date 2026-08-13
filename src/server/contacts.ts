@@ -328,6 +328,43 @@ export async function setArchivedAction(
   revalidatePath(`/contacts/${contactId}`);
 }
 
+export async function bulkAddTagAction(
+  contactIds: number[],
+  tagId: number
+): Promise<void> {
+  await requireAuth();
+  const ids = contactIds.filter((n) => Number.isInteger(n)).slice(0, 1000);
+  const now = Date.now();
+  db.transaction(() => {
+    for (const contactId of ids) {
+      db.insert(contactTags)
+        .values({ contactId, tagId, createdAt: now })
+        .onConflictDoNothing()
+        .run();
+    }
+  });
+  revalidatePath("/contacts");
+}
+
+export async function bulkSetArchivedAction(
+  contactIds: number[],
+  archived: boolean
+): Promise<void> {
+  await requireAuth();
+  const ids = contactIds.filter((n) => Number.isInteger(n)).slice(0, 1000);
+  const now = Date.now();
+  db.transaction(() => {
+    for (const contactId of ids) {
+      db.update(contacts)
+        .set({ archivedAt: archived ? now : null, updatedAt: now })
+        .where(eq(contacts.id, contactId))
+        .run();
+    }
+  });
+  revalidatePath("/contacts");
+  revalidatePath("/today");
+}
+
 export async function deleteContactAction(
   contactId: number,
   confirmName: string

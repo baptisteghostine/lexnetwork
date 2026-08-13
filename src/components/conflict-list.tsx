@@ -27,7 +27,7 @@ export function ConflictList({
   if (rows.length === 0) return null;
   return (
     <section className="space-y-2">
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-yellow-500">
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-warning">
         Conflicts — stored value kept, review each
       </h2>
       <ul className="space-y-1">
@@ -57,7 +57,7 @@ export function ConflictList({
               <span className="font-medium">“{r.conflict.incoming}”</span>
               <span className="flex-1" />
               {r.conflict.accepted ? (
-                <span className="text-[11px] text-green-500">
+                <span className="text-[11px] text-success">
                   incoming accepted
                 </span>
               ) : (

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Star } from "lucide-react";
 
+import { ContactAvatar } from "@/components/contact-avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { snoozeContactAction, snoozeAllAction } from "@/server/cadence";
@@ -16,6 +17,7 @@ export type DueItem = {
   company: string | null;
   title: string | null;
   starred: boolean;
+  hasPhoto: boolean;
   daysOverdue: number;
   primaryEmail: string | null;
 };
@@ -128,9 +130,13 @@ export function TodayQueue({ items }: { items: DueItem[] }) {
 
   if (items.length === 0) {
     return (
-      <p className="py-10 text-center text-xs text-muted-foreground">
-        Nobody is due. Set cadences on contacts to build your queue.
-      </p>
+      <div className="py-10 text-center">
+        <p className="text-sm font-medium">You&apos;re all caught up</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Nobody is due today. Set keep-in-touch cadences on more contacts to
+          build your queue.
+        </p>
+      </div>
     );
   }
 
@@ -159,17 +165,23 @@ export function TodayQueue({ items }: { items: DueItem[] }) {
             className={cn(
               "flex cursor-default items-center gap-3 rounded-md border px-3 py-2",
               i === selected
-                ? "border-foreground/40 bg-accent/60"
+                ? "border-primary/50 bg-accent/60 ring-1 ring-primary/30"
                 : "border-border/60"
             )}
           >
-            {item.starred ? (
-              <Star className="size-3 shrink-0 fill-yellow-500 text-yellow-500" />
-            ) : (
-              <span className="w-3 shrink-0" />
-            )}
-            <span className="w-52 truncate text-[13px] font-medium">
-              {item.displayName}
+            <ContactAvatar
+              contactId={item.contactId}
+              name={item.displayName}
+              hasPhoto={item.hasPhoto}
+              size="sm"
+            />
+            <span className="flex w-52 items-center gap-1.5">
+              <span className="truncate text-[13px] font-medium">
+                {item.displayName}
+              </span>
+              {item.starred ? (
+                <Star className="size-3 shrink-0 fill-warning text-warning" />
+              ) : null}
             </span>
             <span className="flex-1 truncate text-[12px] text-muted-foreground">
               {[item.title, item.company].filter(Boolean).join(" · ")}
@@ -177,7 +189,9 @@ export function TodayQueue({ items }: { items: DueItem[] }) {
             <span
               className={cn(
                 "text-[11px]",
-                item.daysOverdue > 7 ? "text-destructive" : "text-muted-foreground"
+                item.daysOverdue > 7
+                  ? "font-medium text-overdue"
+                  : "text-muted-foreground"
               )}
             >
               {item.daysOverdue === 0

@@ -103,7 +103,7 @@ export default async function ImportReportPage({
 
         {newRows.length > 0 && (
           <section className="space-y-1">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-green-500">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-success">
               New ({newRows.length})
             </h2>
             <ul className="grid grid-cols-2 gap-1 text-[12.5px] sm:grid-cols-3">

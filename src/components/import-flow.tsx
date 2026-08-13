@@ -256,11 +256,11 @@ export function ImportFlow() {
                   <span
                     className={
                       p.status === "conflict"
-                        ? "text-yellow-500"
+                        ? "text-warning"
                         : p.status === "error"
                           ? "text-destructive"
                           : p.status === "new"
-                            ? "text-green-500"
+                            ? "text-success"
                             : "text-blue-400"
                     }
                   >
@@ -277,7 +277,7 @@ export function ImportFlow() {
                     </span>
                   )}
                   {p.conflicts.length > 0 && (
-                    <span className="text-yellow-500/80">
+                    <span className="text-warning/80">
                       {" "}
                       · conflicts: {p.conflicts.map((c) => c.field).join(", ")}
                     </span>
@@ -302,10 +302,10 @@ export function StatsRow({ stats }: { stats: ImportStats }) {
   return (
     <div className="flex gap-2">
       {cell("total", stats.total)}
-      {cell("new", stats.new, "text-green-500")}
+      {cell("new", stats.new, "text-success")}
       {cell("updated", stats.updated, "text-blue-400")}
       {cell("unchanged", stats.unchanged)}
-      {cell("conflicts", stats.conflicts, "text-yellow-500")}
+      {cell("conflicts", stats.conflicts, "text-warning")}
       {cell("errors", stats.errors, stats.errors ? "text-destructive" : "")}
     </div>
   );
