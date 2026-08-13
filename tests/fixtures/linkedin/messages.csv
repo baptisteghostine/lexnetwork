@@ -1,0 +1,5 @@
+CONVERSATION ID,CONVERSATION TITLE,FROM,SENDER PROFILE URL,TO,RECIPIENT PROFILE URLS,DATE,SUBJECT,CONTENT,FOLDER
+conv-001,,Ana Silva,https://www.linkedin.com/in/ana-silva-example,Baptiste Ghostine,https://www.linkedin.com/in/baptiste-ghostine,2026-07-30 09:15:22 UTC,,"Hey! Are you around next week?",INBOX
+conv-001,,Baptiste Ghostine,https://www.linkedin.com/in/baptiste-ghostine,Ana Silva,https://www.linkedin.com/in/ana-silva-example,2026-08-01 14:02:10 UTC,,"Yes — Tuesday works.",INBOX
+conv-002,,Baptiste Ghostine,https://www.linkedin.com/in/baptiste-ghostine,Noah Okonkwo,https://www.linkedin.com/in/noah-okonkwo,2026-06-12 08:00:00 UTC,,"Great meeting you at DevCon!",INBOX
+conv-003,,Zara Ahmed,https://www.linkedin.com/in/zara-ahmed-unknown,Baptiste Ghostine,https://www.linkedin.com/in/baptiste-ghostine,2026-05-01 10:00:00 UTC,,"Intro from the panel — let's talk.",INBOX
