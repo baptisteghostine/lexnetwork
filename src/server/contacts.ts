@@ -174,8 +174,42 @@ function writeMultiValueRows(contactId: number, p: ContactPayload, now: number) 
   });
 }
 
-function writeProvenance(contactId: number, now: number) {
-  for (const field of SCALAR_FIELDS) {
+// Stamp provenance only for fields this save actually changed (SPEC §1:
+// hand-editing *a field* flips that field to user — an untouched save must
+// not flip imported fields and provoke false conflicts on re-import).
+function changedScalarFields(
+  p: ContactPayload,
+  prev: typeof contacts.$inferSelect | undefined
+): (typeof SCALAR_FIELDS)[number][] {
+  const vals = scalarValues(p);
+  const pairs: [(typeof SCALAR_FIELDS)[number], unknown, unknown][] = [
+    ["first_name", vals.firstName, prev?.firstName ?? null],
+    ["last_name", vals.lastName, prev?.lastName ?? null],
+    ["title", vals.title, prev?.title ?? null],
+    ["company", vals.company, prev?.company ?? null],
+    ["location", vals.location, prev?.location ?? null],
+    ["bio", vals.bio, prev?.bio ?? null],
+    ["description_md", vals.descriptionMd, prev?.descriptionMd ?? null],
+  ];
+  const changed = pairs
+    .filter(([, next, before]) => next !== before)
+    .map(([field]) => field);
+  const birthdayBefore = prev
+    ? [prev.birthdayMonth, prev.birthdayDay, prev.birthdayYear]
+    : [null, null, null];
+  const birthdayNext = [p.birthdayMonth, p.birthdayDay, p.birthdayYear];
+  if (birthdayNext.some((v, i) => v !== birthdayBefore[i])) {
+    changed.push("birthday");
+  }
+  return changed;
+}
+
+function writeProvenance(
+  contactId: number,
+  fields: (typeof SCALAR_FIELDS)[number][],
+  now: number
+) {
+  for (const field of fields) {
     db.insert(contactFieldSources)
       .values({ contactId, field, source: "user", updatedAt: now })
       .onConflictDoUpdate({
@@ -219,7 +253,7 @@ export async function createContactAction(
       .returning({ id: contacts.id })
       .get();
     writeMultiValueRows(row.id, p, now);
-    writeProvenance(row.id, now);
+    writeProvenance(row.id, changedScalarFields(p, undefined), now);
     writeTags(row.id, p.tagIds, now);
     writeGroups(row.id, p.groupIds, now);
     return row.id;
@@ -238,12 +272,17 @@ export async function updateContactAction(
   if ("error" in p) return p;
   const now = Date.now();
   db.transaction(() => {
+    const prev = db
+      .select()
+      .from(contacts)
+      .where(eq(contacts.id, contactId))
+      .get();
     db.update(contacts)
       .set({ ...scalarValues(p), updatedAt: now })
       .where(eq(contacts.id, contactId))
       .run();
     writeMultiValueRows(contactId, p, now);
-    writeProvenance(contactId, now);
+    writeProvenance(contactId, changedScalarFields(p, prev), now);
     writeTags(contactId, p.tagIds, now);
     writeGroups(contactId, p.groupIds, now);
   });
