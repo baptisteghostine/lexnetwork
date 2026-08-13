@@ -57,7 +57,7 @@ data/               # SQLite file, attachments/, backups/ — gitignored
 | Dev server | `npm run dev` |
 | Typecheck | `npm run typecheck` (`tsc --noEmit`) |
 | Unit tests | `npm run test` (Vitest) |
-| E2E tests | `npm run test:e2e` (Playwright) |
+| E2E tests | `npm run test:e2e` (Playwright — script and suite arrive in Phase 11; not yet present) |
 | Lint | `npm run lint` |
 | Generate migration | `npm run db:generate` |
 | Apply migrations | `npm run db:migrate` |

@@ -294,6 +294,7 @@ All features: model from `ANTHROPIC_MODEL` env var; every call logged to `ai_cal
 ### Behavior
 - Home = one prioritized queue: (1) reminders due, (2) keep-in-touch due (starred first, then overdue-ness), (3) job changes, (4) birthdays this week, (5) today's calendar agenda. Section order fixed; counts in header.
 - Every item dispatchable via one keystroke while focused: `l` log interaction (with optional note), `s` snooze (then 1/3/7/m picks duration), `n` note, `o` open in Gmail (compose to primary email) / `L` open LinkedIn, `d` dismiss, `Enter` open contact.
+  - v1 deviation (Phase 4): `d` is implemented as snooze-to-tomorrow — a due keep-in-touch item has no separate "dismissed" state yet, and the queue hint labels it "dismiss to tomorrow". Revisit when reminders land (Phase 5).
 - Command palette (Cmd+K): jump to contact (fuzzy), create note/reminder, run a saved view, trigger a sync, jump to any screen.
 - Keyboard-first everywhere: `j/k` move, `g t` go-Today, `g c` go-Contacts, `/` focus search, `?` shows the cheat-sheet overlay.
 

@@ -148,7 +148,7 @@ Everything externally-sourced or manually logged (notes live in `notes`):
 
 ## groups / group_members
 
-- `groups: id, name TEXT NOT NULL, emoji TEXT, parent_id INTEGER FK → groups ON DELETE SET NULL, sort_order INTEGER, created_at`. `UNIQUE(parent_id, name)`. Depth capped in app at 3 — descendant queries use a recursive CTE; fine at personal scale.
+- `groups: id, name TEXT NOT NULL, emoji TEXT, parent_id INTEGER FK → groups ON DELETE SET NULL, sort_order INTEGER, created_at`. Uniqueness is two partial indexes rather than one `UNIQUE(parent_id, name)`: SQLite treats NULLs as distinct in unique indexes, so root-level names need `UNIQUE(name) WHERE parent_id IS NULL` plus `UNIQUE(parent_id, name) WHERE parent_id IS NOT NULL`. Depth capped in app at 3 — descendant queries use a recursive CTE; fine at personal scale.
 - `group_members: group_id FK CASCADE, contact_id FK CASCADE, created_at, PK(group_id, contact_id)`, index on `(contact_id)`.
 
 ## custom_fields / custom_field_values

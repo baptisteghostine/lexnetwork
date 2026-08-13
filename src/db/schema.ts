@@ -49,7 +49,10 @@ export const contacts = sqliteTable(
     index("idx_contacts_next_touch")
       .on(t.nextTouchAt)
       .where(sql`archived_at IS NULL AND cadence_days IS NOT NULL`),
-    index("idx_contacts_birthday").on(t.birthdayMonth, t.birthdayDay),
+    index("idx_contacts_birthday")
+      .on(t.birthdayMonth, t.birthdayDay)
+      .where(sql`archived_at IS NULL`),
+    index("idx_contacts_starred").on(t.starred).where(sql`starred = 1`),
     index("idx_contacts_company").on(t.company),
     index("idx_contacts_created").on(t.createdAt),
     index("idx_contacts_last_interaction").on(t.lastInteractionAt),
