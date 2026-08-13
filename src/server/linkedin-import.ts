@@ -297,18 +297,6 @@ export function executeLinkedInImport(opts: {
     };
   }
 
-  const runId = db
-    .insert(syncRuns)
-    .values({
-      kind: "linkedin_import",
-      fileName: opts.fileName,
-      fileSha256: opts.fileSha256,
-      status: "running",
-      startedAt: Date.now(),
-    })
-    .returning({ id: syncRuns.id })
-    .get().id;
-
   const ownerName = files.profile
     ? parseProfileOwnerName(files.profile)
     : null;
@@ -316,6 +304,44 @@ export function executeLinkedInImport(opts: {
   const messages = files.messages
     ? parseMessages(files.messages, ownerName)
     : [];
+
+  return executeLinkedInRows({
+    connections,
+    messages,
+    ownerName,
+    runKind: "linkedin_import",
+    fileName: opts.fileName,
+    fileSha256: opts.fileSha256,
+  });
+}
+
+/**
+ * Row-level core of the LinkedIn import: identity ladder, provenance
+ * merge, job-change detection, message linking. Shared by the ZIP upload
+ * (kind 'linkedin_import') and the Member Data Portability API sync
+ * (kind 'linkedin_api_sync', SPEC §9a) — both sources produce the same
+ * `LinkedInConnection` rows, so the merge semantics stay identical.
+ */
+export function executeLinkedInRows(opts: {
+  connections: LinkedInConnection[];
+  messages: LinkedInMessage[];
+  ownerName: string | null;
+  runKind: "linkedin_import" | "linkedin_api_sync";
+  fileName?: string;
+  fileSha256?: string;
+}): { runId: number; report: LinkedInReport } {
+  const { connections, messages, ownerName } = opts;
+  const runId = db
+    .insert(syncRuns)
+    .values({
+      kind: opts.runKind,
+      fileName: opts.fileName ?? null,
+      fileSha256: opts.fileSha256 ?? null,
+      status: "running",
+      startedAt: Date.now(),
+    })
+    .returning({ id: syncRuns.id })
+    .get().id;
 
   const report: LinkedInReport = {
     kind: "linkedin",
