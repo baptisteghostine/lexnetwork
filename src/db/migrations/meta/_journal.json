@@ -57,6 +57,13 @@
       "when": 1786629001429,
       "tag": "0007_good_christian_walker",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1786629343514,
+      "tag": "0008_motionless_mattie_franklin",
+      "breakpoints": true
     }
   ]
 }

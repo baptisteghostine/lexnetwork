@@ -504,6 +504,11 @@ export const interactions = sqliteTable(
     // Idempotency key for synced/imported rows (gmail msg id, event id…).
     sourceKey: text("source_key"),
     countsForTouch: integer("counts_for_touch", { mode: "boolean" }).notNull(),
+    // Which sync/import run wrote this row (SCHEMA.md; column added by
+    // migration #9 — 0001 omitted it).
+    syncRunId: integer("sync_run_id").references(() => syncRuns.id, {
+      onDelete: "set null",
+    }),
     createdAt: integer("created_at").notNull(),
   },
   (t) => [

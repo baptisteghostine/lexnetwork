@@ -1,0 +1,1 @@
+ALTER TABLE `interactions` ADD `sync_run_id` integer REFERENCES sync_runs(id);
