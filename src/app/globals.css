@@ -3,49 +3,61 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Dex-inspired palette: clean neutral surfaces, a single indigo accent
+ * (Tailwind indigo-600 territory) reserved for primary actions, active
+ * nav, and focus rings. Light is the default register; dark keeps the
+ * same accent one step brighter for contrast.
+ */
 :root {
   --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --foreground: oklch(0.205 0.005 285);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.205 0.005 285);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.205 0.005 285);
+  --primary: oklch(0.511 0.262 276.966);
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.967 0.003 285);
+  --secondary-foreground: oklch(0.205 0.005 285);
+  --muted: oklch(0.967 0.003 285);
+  --muted-foreground: oklch(0.552 0.014 285.938);
+  --accent: oklch(0.962 0.008 275);
+  --accent-foreground: oklch(0.257 0.09 281.288);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --border: oklch(0.92 0.004 286.32);
+  --input: oklch(0.92 0.004 286.32);
+  --ring: oklch(0.585 0.233 277.117);
+  --overdue: oklch(0.577 0.245 27.325);
+  --success: oklch(0.627 0.194 149.214);
+  --warning: oklch(0.681 0.162 75.834);
   --radius: 0.5rem;
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
+  --background: oklch(0.152 0.005 285.823);
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.185 0 0);
+  --card: oklch(0.19 0.006 285.885);
   --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
+  --popover: oklch(0.21 0.006 285.885);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
+  --primary: oklch(0.585 0.233 277.117);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.274 0.006 286.033);
   --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
+  --muted: oklch(0.274 0.006 286.033);
+  --muted-foreground: oklch(0.712 0.013 286.067);
+  --accent: oklch(0.274 0.02 282);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
   --destructive-foreground: oklch(0.985 0 0);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --ring: oklch(0.585 0.233 277.117);
+  --overdue: oklch(0.704 0.191 22.216);
+  --success: oklch(0.723 0.192 149.579);
+  --warning: oklch(0.795 0.184 86.047);
 }
 
 @theme inline {
@@ -68,6 +80,9 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-overdue: var(--overdue);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
