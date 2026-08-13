@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Cake, Star } from "lucide-react";
 
 import { ContactAvatar } from "@/components/contact-avatar";
+import { TodayAgenda } from "@/components/today-agenda";
 import { TodayChanges } from "@/components/today-changes";
 import { TodayQueue, type DueItem } from "@/components/today-queue";
 import { TodayReminders } from "@/components/today-reminders";
@@ -36,6 +37,8 @@ export default async function TodayPage() {
       `${data.changes.length} job change${data.changes.length > 1 ? "s" : ""}`,
     data.birthdays.length > 0 &&
       `${data.birthdays.length} birthday${data.birthdays.length > 1 ? "s" : ""}`,
+    data.agenda.length > 0 &&
+      `${data.agenda.length} meeting${data.agenda.length > 1 ? "s" : ""}`,
   ].filter(Boolean);
 
   return (
@@ -113,6 +116,14 @@ export default async function TodayPage() {
                 </li>
               ))}
             </ol>
+          </section>
+        )}
+        {data.agenda.length > 0 && (
+          <section className="space-y-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Today&apos;s agenda
+            </h2>
+            <TodayAgenda items={data.agenda} timezone={data.timezone} />
           </section>
         )}
       </div>

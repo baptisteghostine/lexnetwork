@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, sql } from "drizzl
 
 import { db } from "@/db/client";
 import {
+  calendarEvents,
   contactChanges,
   contactEmails,
   contacts,
@@ -10,7 +11,7 @@ import {
 import { upcomingBirthdays, type Feb29Rule, type UpcomingBirthday } from "@/lib/birthdays";
 import { DAY_MS } from "@/lib/cadence/engine";
 import { getSetting } from "@/lib/settings";
-import { fallbackTimezone, localParts } from "@/lib/time";
+import { fallbackTimezone, localParts, tzOffsetMs } from "@/lib/time";
 
 // The one source of truth for "what is due right now" — the Today page
 // and the digest email both render exactly this (SPEC §3 digest AC).
@@ -51,12 +52,29 @@ export type OpenChange = {
   detectedAt: number;
 };
 
+export type AgendaAttendee = {
+  email: string;
+  name: string | null;
+  contactId: number | null;
+};
+
+export type AgendaItem = {
+  eventKey: string;
+  summary: string | null;
+  startsAt: number;
+  endsAt: number | null;
+  allDay: boolean;
+  htmlLink: string | null;
+  attendees: AgendaAttendee[];
+};
+
 export type TodayData = {
   timezone: string;
   reminders: DueReminder[];
   dueContacts: DueContact[];
   changes: OpenChange[];
   birthdays: UpcomingBirthday[];
+  agenda: AgendaItem[];
 };
 
 export function ownerTimezone(): string {
@@ -204,8 +222,46 @@ export function getTodayData(now: number): TodayData {
     }
   );
 
+  // (5) Today's calendar agenda (SPEC §9): synced events overlapping the
+  // owner's local day, declined ones excluded.
+  const offset = tzOffsetMs(timezone, now);
+  const localNow = now + offset;
+  const dayStart = localNow - (localNow % DAY_MS) - offset;
+  const dayEnd = dayStart + DAY_MS;
+  const agenda: AgendaItem[] = db
+    .select()
+    .from(calendarEvents)
+    .where(
+      and(
+        sql`${calendarEvents.startsAt} < ${dayEnd}`,
+        sql`COALESCE(${calendarEvents.endsAt}, ${calendarEvents.startsAt}) >= ${dayStart}`
+      )
+    )
+    .orderBy(asc(calendarEvents.startsAt))
+    .all()
+    .filter((e) => e.myResponse !== "declined")
+    .map((e) => {
+      let attendees: AgendaAttendee[] = [];
+      try {
+        const parsed = JSON.parse(e.attendees ?? "[]") as AgendaAttendee[];
+        if (Array.isArray(parsed)) attendees = parsed;
+      } catch {
+        // tolerate junk — agenda still renders
+      }
+      return {
+        eventKey: e.eventKey,
+        summary: e.summary,
+        startsAt: e.startsAt,
+        endsAt: e.endsAt,
+        allDay: e.allDay,
+        htmlLink: e.htmlLink,
+        attendees,
+      };
+    });
+
   return {
     timezone,
+    agenda,
     reminders: reminderRows.map((r) => ({
       id: r.id,
       title: r.title,
