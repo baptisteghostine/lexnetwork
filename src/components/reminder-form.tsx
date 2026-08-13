@@ -85,6 +85,7 @@ export function ReminderForm({
           }
           setError(null);
           setTitle("");
+          setContact(null);
           setContactQuery("");
           setContactHits([]);
           router.refresh();

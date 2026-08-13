@@ -10,9 +10,13 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
 - ✅ **Phase 2** — notes with autosave/mentions/attachments, timeline, groups (0001)
 - ✅ **Phase 3** — CSV + vCard import, provenance, diff reports (0002)
 - ✅ **Phase 4** — cadence engine, `next_touch_at`, snooze-all, Today page
-- ⬜ **Phase 5 → 11** — next up: scheduler, reminders, birthdays, digest
+- ✅ **Consolidation + Dex-style UI overhaul** (between 4 and 5) — six bug
+  fixes, light-default indigo theme with dark toggle, avatars, two-zone
+  contact page with provenance-on-hover, bulk actions, ⌘K palette + G-chords
+- ✅ **Phase 5** — job scheduler, reminders (RRULE), birthdays, digest (0004)
+- ⬜ **Phase 6 → 11** — next up: search/FTS5, filters, saved views
 
-83 unit tests passing as of Phase 4. Open questions from SPEC.md's decision
+115 unit tests passing as of Phase 5. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---
