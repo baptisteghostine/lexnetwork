@@ -1,14 +1,15 @@
 "use server";
 
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { db } from "@/db/client";
-import { integrationAccounts, syncRuns } from "@/db/schema";
+import { integrationAccounts, jobs, syncRuns } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
+import { parseCookieBlob } from "@/lib/linkedin/session";
 import { getSetting, setSetting } from "@/lib/settings";
-import { ensureSyncJobs } from "@/jobs/scheduler";
+import { ensureSyncJobs, enqueueJob } from "@/jobs/scheduler";
 import {
   disconnectAccount,
   getAccount,
@@ -17,6 +18,12 @@ import {
 import { runCalendarSync } from "@/server/sync/calendar";
 import { runGmailSync } from "@/server/sync/gmail";
 import { runLinkedInSync } from "@/server/sync/linkedin";
+import {
+  getVoyagerSession,
+  isVoyagerEnabled,
+  setVoyagerEnabled,
+  setVoyagerSession,
+} from "@/server/sync/voyager";
 
 // Server actions + data for the Settings → Integrations panel. Thin by
 // design (CLAUDE.md): the engines live in server/sync/.
@@ -103,12 +110,148 @@ function statusFor(provider: "google" | "linkedin"): IntegrationStatus {
   };
 }
 
+export type VoyagerStatus = {
+  configured: boolean;
+  enabled: boolean;
+  /** When the weekly job will next run; null when the gate is off. */
+  nextRunAt: number | null;
+  recentRuns: SyncRunSummary[];
+};
+
+function voyagerStatusNow(): VoyagerStatus {
+  const pending = db
+    .select({ runAt: jobs.runAt })
+    .from(jobs)
+    .where(
+      and(eq(jobs.kind, "linkedin_voyager_sync"), eq(jobs.status, "pending"))
+    )
+    .get();
+  const recentRuns = db
+    .select({
+      id: syncRuns.id,
+      kind: syncRuns.kind,
+      status: syncRuns.status,
+      statsJson: syncRuns.statsJson,
+      error: syncRuns.error,
+      startedAt: syncRuns.startedAt,
+      finishedAt: syncRuns.finishedAt,
+    })
+    .from(syncRuns)
+    .where(eq(syncRuns.kind, "linkedin_voyager_sync"))
+    .orderBy(desc(syncRuns.startedAt))
+    .limit(5)
+    .all();
+  return {
+    configured: getVoyagerSession() !== null,
+    enabled: isVoyagerEnabled(),
+    nextRunAt: pending?.runAt ?? null,
+    recentRuns,
+  };
+}
+
 export async function readIntegrations(): Promise<{
   google: IntegrationStatus;
   linkedin: IntegrationStatus;
+  voyager: VoyagerStatus;
 }> {
   await requireAuth();
-  return { google: statusFor("google"), linkedin: statusFor("linkedin") };
+  return {
+    google: statusFor("google"),
+    linkedin: statusFor("linkedin"),
+    voyager: voyagerStatusNow(),
+  };
+}
+
+// ---------- Voyager cookie sync (SPEC §9b) ----------
+
+// Generous ceiling: a pasted Cookie header carries far more than the two
+// cookies we want. Bounded so a runaway paste can't be stored wholesale.
+const cookieInput = z.object({ cookieBlob: z.string().min(1).max(8000) });
+
+/**
+ * Stores the LinkedIn session pasted by the owner and turns the weekly
+ * sync on. Error messages never echo the submitted text back — it is a
+ * live credential, and validation failures are the most likely place for
+ * one to leak into a rendered page.
+ */
+export async function saveVoyagerSessionAction(input: {
+  cookieBlob: string;
+}): Promise<{ error?: string; ok?: true }> {
+  await requireAuth();
+  const parsed = cookieInput.safeParse(input);
+  if (!parsed.success) return { error: "Paste the cookie values first." };
+  const session = parseCookieBlob(parsed.data.cookieBlob);
+  if (session === null) {
+    return {
+      error:
+        "Couldn't find both cookies in that paste. Rolo needs li_at and JSESSIONID.",
+    };
+  }
+  setVoyagerSession(session);
+  setVoyagerEnabled(true);
+  ensureSyncJobs(Date.now());
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+export async function setVoyagerEnabledAction(input: {
+  enabled: boolean;
+}): Promise<{ ok: true }> {
+  await requireAuth();
+  setVoyagerEnabled(input.enabled);
+  ensureSyncJobs(Date.now());
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+export async function disconnectVoyagerAction(): Promise<{ ok: true }> {
+  await requireAuth();
+  setVoyagerSession(null);
+  setVoyagerEnabled(false);
+  ensureSyncJobs(Date.now());
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+/**
+ * Queues a sync to run now rather than running it inline: paging at the
+ * polite request rate can take minutes, and going through the queue gives
+ * a manual run the same retry and crash-recovery behaviour as the weekly
+ * one. Reuses the pending weekly row when there is one, so a manual run
+ * never stacks a second job of the same kind.
+ */
+export async function voyagerSyncNowAction(): Promise<{
+  error?: string;
+  ok?: true;
+}> {
+  await requireAuth();
+  if (getVoyagerSession() === null) {
+    return { error: "Save a LinkedIn session first." };
+  }
+  const now = Date.now();
+  const pending = db
+    .select({ id: jobs.id, runAt: jobs.runAt })
+    .from(jobs)
+    .where(
+      and(eq(jobs.kind, "linkedin_voyager_sync"), eq(jobs.status, "pending"))
+    )
+    .get();
+  if (pending) {
+    if (pending.runAt <= now) {
+      return { error: "A sync is already queued." };
+    }
+    db.update(jobs).set({ runAt: now }).where(eq(jobs.id, pending.id)).run();
+  } else {
+    enqueueJob({
+      kind: "linkedin_voyager_sync",
+      runAt: now,
+      // Minute-granular key so double-clicking the button doesn't queue two
+      // scrapes, while a genuine retry a minute later still gets through.
+      dedupeKey: `linkedin_voyager_sync:manual:${Math.floor(now / 60_000)}`,
+    });
+  }
+  revalidatePath("/settings");
+  return { ok: true };
 }
 
 const credsInput = z.object({

@@ -1,0 +1,56 @@
+{
+  "data": {
+    "paging": { "start": 0, "count": 40, "total": 4 },
+    "*elements": [
+      "urn:li:fsd_connection:ACoAAAconn1",
+      "urn:li:fsd_connection:ACoAAAconn2",
+      "urn:li:fsd_connection:ACoAAAconn3"
+    ]
+  },
+  "included": [
+    {
+      "entityUrn": "urn:li:fsd_connection:ACoAAAconn1",
+      "createdAt": 1690000000000,
+      "*connectedMemberResolutionResult": "urn:li:fsd_profile:ACoAAAprofile1"
+    },
+    {
+      "entityUrn": "urn:li:fsd_profile:ACoAAAprofile1",
+      "firstName": "Ada",
+      "lastName": "Lovelace",
+      "headline": "Principal Engineer at Analytical Engines",
+      "publicIdentifier": "ada-lovelace-1815",
+      "$type": "com.linkedin.voyager.dash.identity.profile.Profile"
+    },
+    {
+      "entityUrn": "urn:li:fsd_connection:ACoAAAconn2",
+      "createdAt": 1700000000000,
+      "*connectedMemberResolutionResult": "urn:li:fsd_profile:ACoAAAprofile2"
+    },
+    {
+      "entityUrn": "urn:li:fsd_profile:ACoAAAprofile2",
+      "firstName": "Grace",
+      "lastName": "Hopper",
+      "headline": "Rear Admiral",
+      "publicIdentifier": "Grace-Hopper",
+      "$type": "com.linkedin.voyager.dash.identity.profile.Profile"
+    },
+    {
+      "entityUrn": "urn:li:fsd_connection:ACoAAAconn3",
+      "*connectedMemberResolutionResult": "urn:li:fsd_profile:ACoAAAprofile3"
+    },
+    {
+      "entityUrn": "urn:li:fsd_profile:ACoAAAprofile3",
+      "firstName": "Alan",
+      "lastName": "Turing",
+      "occupation": "Cryptanalyst @ Bletchley Park",
+      "publicIdentifier": "alan-turing",
+      "$type": "com.linkedin.voyager.dash.identity.profile.Profile"
+    },
+    {
+      "entityUrn": "urn:li:fsd_company:1234",
+      "name": "Analytical Engines",
+      "universalName": "analytical-engines",
+      "$type": "com.linkedin.voyager.dash.organization.Company"
+    }
+  ]
+}

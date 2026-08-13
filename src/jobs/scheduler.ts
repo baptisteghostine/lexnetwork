@@ -17,6 +17,11 @@ import { getAccount } from "@/server/sync/accounts";
 import { runCalendarSync } from "@/server/sync/calendar";
 import { runGmailSync } from "@/server/sync/gmail";
 import { runLinkedInSync } from "@/server/sync/linkedin";
+import {
+  getVoyagerSession,
+  isVoyagerEnabled,
+  runVoyagerSync,
+} from "@/server/sync/voyager";
 
 // The in-process scheduler (CLAUDE.md: jobs table, no external broker).
 // Durability lives in the `jobs` table and in domain ledgers like
@@ -41,34 +46,50 @@ const HANDLERS: Record<string, Handler> = {
   linkedin_sync: async () => {
     await runLinkedInSync();
   },
+  linkedin_voyager_sync: async () => {
+    await runVoyagerSync();
+  },
 };
 
+function providerActive(provider: "google" | "linkedin"): boolean {
+  const account = getAccount(provider);
+  return !!account && account.status !== "revoked";
+}
+
 // Recurring sync cadence (SPEC §9): Gmail 15 min, Calendar 30 min;
-// LinkedIn snapshots move slowly — weekly (SPEC §9a).
+// LinkedIn snapshots move slowly — weekly (SPEC §9a/§9b). Each entry's
+// `connected` gate decides whether its job should exist at all.
 const SYNC_JOBS: {
-  kind: "gmail_sync" | "calendar_sync" | "linkedin_sync";
-  provider: "google" | "linkedin";
+  kind: "gmail_sync" | "calendar_sync" | "linkedin_sync" | "linkedin_voyager_sync";
+  connected: () => boolean;
   intervalMs: number;
 }[] = [
-  { kind: "gmail_sync", provider: "google", intervalMs: 15 * 60 * 1000 },
-  { kind: "calendar_sync", provider: "google", intervalMs: 30 * 60 * 1000 },
-  { kind: "linkedin_sync", provider: "linkedin", intervalMs: 7 * 24 * 3600 * 1000 },
+  { kind: "gmail_sync", connected: () => providerActive("google"), intervalMs: 15 * 60 * 1000 },
+  { kind: "calendar_sync", connected: () => providerActive("google"), intervalMs: 30 * 60 * 1000 },
+  { kind: "linkedin_sync", connected: () => providerActive("linkedin"), intervalMs: 7 * 24 * 3600 * 1000 },
+  {
+    kind: "linkedin_voyager_sync",
+    // The weekly job exists only while the owner has both saved a session
+    // and left the opt-in toggle on (SPEC §9b). "Sync now" bypasses this
+    // gate deliberately — a manual run needs only the session.
+    connected: () => isVoyagerEnabled() && getVoyagerSession() !== null,
+    intervalMs: 7 * 24 * 3600 * 1000,
+  },
 ];
 
 /**
- * Keep one pending job per connected provider's sync kind. Called at
- * startup, after each sync run, and right after an OAuth connect (so the
+ * Keep one pending job per connected sync kind. Called at startup, after
+ * each sync run, and right after a connect/toggle in Settings (so the
  * first sync starts within a tick, not an interval).
  */
 export function ensureSyncJobs(now: number): void {
   for (const spec of SYNC_JOBS) {
-    const account = getAccount(spec.provider);
     const pending = db
       .select({ id: jobs.id })
       .from(jobs)
       .where(and(eq(jobs.kind, spec.kind), eq(jobs.status, "pending")))
       .get();
-    if (!account || account.status === "revoked") {
+    if (!spec.connected()) {
       if (pending) db.delete(jobs).where(eq(jobs.id, pending.id)).run();
       continue;
     }

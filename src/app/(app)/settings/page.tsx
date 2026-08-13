@@ -29,6 +29,7 @@ export default async function SettingsPage() {
         <IntegrationsPanel
           google={integrations.google}
           linkedin={integrations.linkedin}
+          voyager={integrations.voyager}
         />
       </div>
       <div className="max-w-lg space-y-3 px-5 pb-6">

@@ -318,15 +318,16 @@ export function executeLinkedInImport(opts: {
 /**
  * Row-level core of the LinkedIn import: identity ladder, provenance
  * merge, job-change detection, message linking. Shared by the ZIP upload
- * (kind 'linkedin_import') and the Member Data Portability API sync
- * (kind 'linkedin_api_sync', SPEC §9a) — both sources produce the same
+ * (kind 'linkedin_import'), the Member Data Portability API sync
+ * (kind 'linkedin_api_sync', SPEC §9a), and the opt-in Voyager cookie sync
+ * (kind 'linkedin_voyager_sync', SPEC §9b) — all sources produce the same
  * `LinkedInConnection` rows, so the merge semantics stay identical.
  */
 export function executeLinkedInRows(opts: {
   connections: LinkedInConnection[];
   messages: LinkedInMessage[];
   ownerName: string | null;
-  runKind: "linkedin_import" | "linkedin_api_sync";
+  runKind: "linkedin_import" | "linkedin_api_sync" | "linkedin_voyager_sync";
   fileName?: string;
   fileSha256?: string;
 }): { runId: number; report: LinkedInReport } {

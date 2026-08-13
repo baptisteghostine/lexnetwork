@@ -264,6 +264,23 @@ Re-running any import with the same file: 100% unchanged, zero writes. An identi
 - [ ] Snapshot CONNECTIONS records map to the ZIP row shape across header variants (test) and a re-sync of identical data is all-unchanged/zero-writes (same idempotence AC as §8).
 - [ ] A token without the CONNECTIONS domain produces a failed `linkedin_api_sync` run whose error says so, and no writes.
 
+## 9b. LinkedIn weekly sync (Voyager session cookie)
+
+*Added 2026-08-13 at the owner's explicit request, after §9a was confirmed region-locked for UK accounts. This one crosses a line §9a did not: it reads LinkedIn's internal Voyager API, which breaches LinkedIn's User Agreement — enforcement risk (account restriction) sits with the owner. The terms it was built under are in CLAUDE.md §LinkedIn; the ZIP remains the sanctioned, recommended route.*
+
+- Owner pastes their `li_at` and `JSESSIONID` cookies into Settings → Integrations → "LinkedIn (session cookie)". Stored encrypted at rest via the token box (`lib/crypto`) under `settings.linkedin_voyager.session`; never logged (`scrubSecrets` guards every error path). Saving a session turns the weekly toggle on; both are clearable in the UI.
+- A recurring `linkedin_voyager_sync` job (weekly, same scheduler as §9's syncs; "Sync now" re-aims the pending job) pages the owner's own connection list through the Voyager connections endpoint — serial requests, 2.5 s between pages, 250-page cap, LinkedIn's own page size of 40, no evasion of any kind. The request goes through the outbound-host allowlist like every other integration call.
+- Each connection maps to the same `LinkedInConnection` row the ZIP's Connections.csv and the §9a snapshot produce (title/company split conservatively from the headline; profile URL derived from the public identifier), then feeds `executeLinkedInRows` — same identity ladder, provenance rules, job-change detection, `contact_changes` rows, and Today cards as every other LinkedIn source.
+- Voyager connections carry **no email or phone**, which is why profile-URL matching is rung 0 of the identity ladder — without it every weekly sync would re-create the same people.
+- Zero parsed connections is a failed run, not an empty result: it means the response shape drifted or the session expired. The sync never deletes a contact that stopped appearing.
+- Expected failure mode: this reads an undocumented API, so it *will* break. `src/lib/linkedin/voyager.ts` parses structurally (duck-typed profile objects anywhere in the payload) rather than by fixed path, to survive renames; when it does break, the run fails with a message pointing at that file.
+
+### Acceptance criteria
+- [ ] Cookie-blob parsing accepts a raw `Cookie:` header, devtools-style lines, and bare values; rejects pastes missing either cookie (unit tests).
+- [ ] Fixture-payload parsing finds every person, ignores company entities, pairs connection dates by URN, and returns empty (not throwing) on drifted shapes (unit tests).
+- [ ] A Voyager connection maps to the shared row shape with the normalized profile URL as identity and no email/phone (unit test).
+- [ ] Session cookies never appear in `sync_runs.error`, `jobs.last_error`, or console output — every error path scrubs (code-level guarantee via `scrubSecrets`).
+
 ---
 
 ## 10. Deduplication & Merge

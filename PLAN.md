@@ -43,9 +43,16 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   this deployment it's currently unreachable; **the ZIP import (§8) is
   the live sync path.** Google sync (Gmail + Calendar) is unaffected and
   still awaits its own first live-account pass.
+- ✅ **§9b (owner request, post-cleanup): LinkedIn Voyager weekly sync** —
+  opt-in cookie-session sync of the owner's own connection list through
+  LinkedIn's internal API, rebuilt on top of the Phase 5 scheduler, Phase 7
+  import core, and Phase 8 token box + allowlist after the original
+  pre-Phase-5 build was superseded in the branch consolidation. Off by
+  default; ToS tradeoff and no-evasion constraints recorded in CLAUDE.md
+  §LinkedIn and SPEC §9b. Awaits its first live run with a real session.
 - ⬜ **Phase 9 → 11** — next up: dedupe & merge
 
-202 unit tests passing as of Phase 8. Open questions from SPEC.md's decision
+240 unit tests passing as of §9b. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---

@@ -89,7 +89,20 @@ Multi-user auth, roles/permissions, teams, deal pipelines/stages/revenue, email 
 
 **Privacy invariants:** Gmail sync is `gmail.metadata` scope only — sender/recipients, subject, thread id, timestamp. Never fetch, store, or log message bodies. No third-party network calls except integrations the owner explicitly configured (Google APIs, Anthropic API, geocoding if configured).
 
-**LinkedIn invariant** (amended 2026-08-13, owner request): LinkedIn data enters only through official, owner-consented channels — the data-export ZIP the owner uploads, and the Member Data Portability API (the DMA self-serve product, EEA/CH members) connected by the owner in Settings. Both feed the same import engine. Scraping, browser automation, and unofficial endpoints remain forbidden. The ZIP ritual stays first-class: it is the only source of message history and the fallback when the API isn't available.
+**LinkedIn** (re-amended 2026-08-13, owner request): three paths in, all owner-initiated, all feeding the same import engine.
+
+1. The official data-export ZIP the owner uploads. Sanctioned, zero account risk, the recommended route, and the only source of message history. Making that monthly import effortless is a first-class product problem, not a fallback.
+2. The Member Data Portability API (DMA self-serve product) connected by the owner in Settings (SPEC §9a). Official and consented, but EEA/CH-only — confirmed unreachable for this deployment's UK owner.
+3. An opt-in weekly sync that reads the owner's own connection list through LinkedIn's internal Voyager API using a session cookie the owner pastes in (SPEC §9b, `src/lib/sync/linkedin-voyager.ts`). Off by default.
+
+Path 3 was added on the owner's explicit instruction — requested once before Phase 5, discarded in a branch consolidation, then explicitly re-requested after §9a proved region-locked — overriding this file's previous "official channels only" invariant, and with the tradeoff stated: automated access breaches LinkedIn's User Agreement, and the enforcement risk — account restriction — falls on the owner's account.
+
+**Constraints on path 3 — these are the terms it was built under, not preferences:**
+
+- **No evasion.** No fingerprint randomisation, no proxy rotation, no CAPTCHA or challenge solving, no impersonating a specific browser build. The client identifies itself honestly. If LinkedIn declines a request, the sync fails and reports it; it does not try to get around the refusal.
+- **Polite pacing.** Serial requests, a real delay between pages, a hard page cap. Burst traffic is both rude and the thing that actually gets accounts flagged.
+- **Fail loud, never silent.** A zero-connection result is an error, not a successful no-op — it means the response shape drifted or the session died. Imports only ever add or update; a contact is never deleted because it stopped appearing.
+- **Never log the session.** `li_at`/`JSESSIONID` are bearer credentials: encrypted at rest via the token box (`lib/crypto`), and anything bound for a log, `jobs.last_error`, or a sync-run report goes through `scrubSecrets` first.
 
 **Outbound HTTP** goes through `src/lib/net/fetch.ts` (`outboundFetch`) — a host allowlist enforcing the privacy invariant. Never call `fetch` directly for external hosts; add a host to the allowlist only alongside an owner-configurable integration.
 
