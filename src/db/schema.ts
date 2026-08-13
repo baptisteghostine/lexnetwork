@@ -203,6 +203,64 @@ export const settings = sqliteTable("settings", {
   value: text("value").notNull(),
 });
 
+export const jobs = sqliteTable(
+  "jobs",
+  {
+    id: integer("id").primaryKey(),
+    // 'gmail_sync' | 'calendar_sync' | 'digest' | 'backup' | 'dedupe_scan' |
+    // 'reminder_fire' | 'geocode' | 'ai_batch_tag'
+    kind: text("kind").notNull(),
+    payloadJson: text("payload_json"),
+    // Prevents double-enqueue of e.g. today's digest.
+    dedupeKey: text("dedupe_key"),
+    runAt: integer("run_at").notNull(),
+    startedAt: integer("started_at"),
+    finishedAt: integer("finished_at"),
+    // 'pending' | 'running' | 'success' | 'failed' | 'dead'
+    status: text("status").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(5),
+    lastError: text("last_error"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    index("idx_jobs_pending").on(t.runAt).where(sql`status = 'pending'`),
+    uniqueIndex("uq_jobs_dedupe")
+      .on(t.dedupeKey)
+      .where(sql`dedupe_key IS NOT NULL`),
+  ]
+);
+
+export const reminders = sqliteTable(
+  "reminders",
+  {
+    id: integer("id").primaryKey(),
+    // Contact-attached reminders survive contact deletion as standalone.
+    contactId: integer("contact_id").references(() => contacts.id, {
+      onDelete: "set null",
+    }),
+    title: text("title").notNull(),
+    body: text("body"),
+    dueAt: integer("due_at").notNull(),
+    // RFC 5545 recurrence — held only by the defining row of a series.
+    rrule: text("rrule"),
+    // Occurrences point at the defining reminder.
+    seriesId: integer("series_id"),
+    firedAt: integer("fired_at"),
+    completedAt: integer("completed_at"),
+    snoozedUntil: integer("snoozed_until"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    // Occurrences + one-offs — what the scheduler and Today scan.
+    index("idx_reminders_due")
+      .on(t.dueAt)
+      .where(sql`completed_at IS NULL AND rrule IS NULL`),
+    index("idx_reminders_contact").on(t.contactId),
+  ]
+);
+
 export const groups = sqliteTable(
   "groups",
   {
