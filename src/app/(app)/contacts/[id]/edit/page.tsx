@@ -3,7 +3,12 @@ import { notFound } from "next/navigation";
 import { ContactForm } from "@/components/contact-form";
 import { requireAuth } from "@/lib/auth";
 import { updateContactAction } from "@/server/contacts";
-import { getContactDetail, listTags } from "@/server/queries";
+import {
+  getContactDetail,
+  getContactGroupIds,
+  listGroups,
+  listTags,
+} from "@/server/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -53,8 +58,10 @@ export default async function EditContactPage({
             url: s.url,
           })),
           tagIds,
+          groupIds: getContactGroupIds(contactId),
         }}
         allTags={listTags()}
+        allGroups={listGroups()}
         submitLabel="Save changes"
       />
     </div>

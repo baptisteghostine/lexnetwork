@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Tags, Users } from "lucide-react";
+import { FolderTree, Tags, Users } from "lucide-react";
 
 import { requireAuth } from "@/lib/auth";
 import { logoutAction } from "@/server/auth";
@@ -24,6 +24,7 @@ export default async function AppLayout({
         <nav className="flex-1 space-y-0.5 px-2">
           <SidebarLink href="/contacts" icon={<Users />} label="Contacts" />
           <SidebarLink href="/tags" icon={<Tags />} label="Tags" />
+          <SidebarLink href="/groups" icon={<FolderTree />} label="Groups" />
         </nav>
         <form action={logoutAction} className="p-2">
           <Button

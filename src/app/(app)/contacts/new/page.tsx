@@ -1,7 +1,7 @@
 import { ContactForm, EMPTY_CONTACT } from "@/components/contact-form";
 import { requireAuth } from "@/lib/auth";
 import { createContactAction } from "@/server/contacts";
-import { listTags } from "@/server/queries";
+import { listGroups, listTags } from "@/server/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +18,7 @@ export default async function NewContactPage() {
         action={createContactAction}
         initial={EMPTY_CONTACT}
         allTags={allTags}
+        allGroups={listGroups()}
         submitLabel="Create contact"
       />
     </div>

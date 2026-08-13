@@ -14,6 +14,7 @@ type EmailRow = { email: string; label: string };
 type PhoneRow = { phone: string; label: string };
 type SocialRow = { platform: ContactPayload["socials"][number]["platform"]; url: string };
 type TagOption = { id: number; name: string; color: string };
+type GroupOption = { id: number; name: string; emoji: string | null };
 
 export type ContactFormInitial = {
   firstName: string;
@@ -30,6 +31,7 @@ export type ContactFormInitial = {
   phones: PhoneRow[];
   socials: SocialRow[];
   tagIds: number[];
+  groupIds: number[];
 };
 
 export const EMPTY_CONTACT: ContactFormInitial = {
@@ -47,6 +49,7 @@ export const EMPTY_CONTACT: ContactFormInitial = {
   phones: [],
   socials: [],
   tagIds: [],
+  groupIds: [],
 };
 
 const PLATFORMS = ["linkedin", "twitter", "github", "website", "other"] as const;
@@ -55,6 +58,7 @@ export function ContactForm({
   action,
   initial,
   allTags,
+  allGroups,
   submitLabel,
 }: {
   action: (
@@ -63,6 +67,7 @@ export function ContactForm({
   ) => Promise<ContactFormState>;
   initial: ContactFormInitial;
   allTags: TagOption[];
+  allGroups: GroupOption[];
   submitLabel: string;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
@@ -332,6 +337,39 @@ export function ContactForm({
                   >
                     {t.name}
                   </Badge>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {allGroups.length > 0 && (
+        <section className="space-y-2">
+          <Label>Groups</Label>
+          <div className="flex flex-wrap gap-1.5">
+            {allGroups.map((g) => {
+              const active = form.groupIds.includes(g.id);
+              return (
+                <button
+                  key={g.id}
+                  type="button"
+                  onClick={() =>
+                    set(
+                      "groupIds",
+                      active
+                        ? form.groupIds.filter((id) => id !== g.id)
+                        : [...form.groupIds, g.id]
+                    )
+                  }
+                  className={`rounded-md border px-2 py-1 text-xs ${
+                    active
+                      ? "border-foreground bg-accent"
+                      : "border-input text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {g.emoji ? `${g.emoji} ` : ""}
+                  {g.name}
                 </button>
               );
             })}

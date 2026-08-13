@@ -13,6 +13,7 @@ import {
   contacts,
   contactSocials,
   contactTags,
+  groupMembers,
 } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
 import {
@@ -49,6 +50,7 @@ const contactPayload = z.object({
   phones: z.array(phoneRow).max(20).default([]),
   socials: z.array(socialRow).max(20).default([]),
   tagIds: z.array(z.number().int()).max(100).default([]),
+  groupIds: z.array(z.number().int()).max(100).default([]),
 });
 
 export type ContactPayload = z.infer<typeof contactPayload>;
@@ -190,6 +192,15 @@ function writeTags(contactId: number, tagIds: number[], now: number) {
   }
 }
 
+function writeGroups(contactId: number, groupIds: number[], now: number) {
+  db.delete(groupMembers).where(eq(groupMembers.contactId, contactId)).run();
+  for (const groupId of groupIds) {
+    db.insert(groupMembers)
+      .values({ contactId, groupId, createdAt: now })
+      .run();
+  }
+}
+
 export async function createContactAction(
   _prev: ContactFormState,
   formData: FormData
@@ -209,6 +220,7 @@ export async function createContactAction(
     writeMultiValueRows(row.id, p, now);
     writeProvenance(row.id, now);
     writeTags(row.id, p.tagIds, now);
+    writeGroups(row.id, p.groupIds, now);
     return row.id;
   });
   revalidatePath("/contacts");
@@ -232,6 +244,7 @@ export async function updateContactAction(
     writeMultiValueRows(contactId, p, now);
     writeProvenance(contactId, now);
     writeTags(contactId, p.tagIds, now);
+    writeGroups(contactId, p.groupIds, now);
   });
   revalidatePath("/contacts");
   revalidatePath(`/contacts/${contactId}`);
