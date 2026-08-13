@@ -2,11 +2,19 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { ContactActions } from "@/components/contact-actions";
+import { LogInteraction } from "@/components/log-interaction";
+import { AddNoteButton, Timeline } from "@/components/timeline";
 import { requireAuth } from "@/lib/auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { getContactDetail, listTags } from "@/server/queries";
+import {
+  getContactDetail,
+  getContactGroupIds,
+  getContactTimeline,
+  listGroups,
+  listTags,
+} from "@/server/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -22,10 +30,19 @@ export default async function ContactPage({
     : null;
   if (!detail) notFound();
   const { contact, emails, phones, socials, tagIds } = detail;
+  const timeline = getContactTimeline(contactId);
+  // A just-created empty note opens directly in edit mode.
+  const newestEmptyNote = timeline.find(
+    (i) => i.type === "note" && !i.mentionedOnly && i.note.bodyMd === ""
+  );
+  const newestEmptyNoteId =
+    newestEmptyNote?.type === "note" ? newestEmptyNote.note.id : null;
   const tagsById = new Map(listTags().map((t) => [t.id, t]));
   const contactTagList = tagIds
     .map((tid) => tagsById.get(tid))
     .filter((t): t is NonNullable<typeof t> => Boolean(t));
+  const groupIds = new Set(getContactGroupIds(contactId));
+  const contactGroups = listGroups().filter((g) => groupIds.has(g.id));
 
   const birthday =
     contact.birthdayMonth && contact.birthdayDay
@@ -70,8 +87,8 @@ export default async function ContactPage({
           <Dd>{contact.bio}</Dd>
         </dl>
 
-        {contactTagList.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
+        {(contactTagList.length > 0 || contactGroups.length > 0) && (
+          <div className="flex flex-wrap items-center gap-1.5">
             {contactTagList.map((t) => (
               <Badge
                 key={t.id}
@@ -79,6 +96,12 @@ export default async function ContactPage({
                 style={{ borderColor: t.color, color: t.color }}
               >
                 {t.name}
+              </Badge>
+            ))}
+            {contactGroups.map((g) => (
+              <Badge key={`g${g.id}`} variant="secondary">
+                {g.emoji ? `${g.emoji} ` : ""}
+                {g.name}
               </Badge>
             ))}
           </div>
@@ -132,13 +155,25 @@ export default async function ContactPage({
         {contact.descriptionMd ? (
           <>
             <Separator />
-            {/* Rendered as plain text for now; markdown rendering + notes
-                timeline arrive in Phase 2. */}
             <p className="whitespace-pre-wrap text-[13px] text-muted-foreground">
               {contact.descriptionMd}
             </p>
           </>
         ) : null}
+
+        <Separator />
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Timeline
+            </h2>
+            <div className="flex gap-2">
+              <LogInteraction contactId={contact.id} />
+              <AddNoteButton contactId={contact.id} />
+            </div>
+          </div>
+          <Timeline items={timeline} newestNoteId={newestEmptyNoteId} />
+        </section>
       </div>
     </div>
   );
