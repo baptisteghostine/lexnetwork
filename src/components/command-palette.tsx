@@ -10,6 +10,7 @@ import {
   Search,
   Settings,
   Star,
+  StickyNote,
   Sun,
   Tags,
   UserPlus,
@@ -24,6 +25,13 @@ type ContactHit = {
   detail: string;
   hasPhoto: boolean;
   starred: boolean;
+};
+
+type NoteHit = {
+  noteId: number;
+  contactId: number;
+  contactName: string;
+  snippet: string;
 };
 
 // Navigation actions, also reachable directly via G-then-key chords
@@ -49,6 +57,7 @@ export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<ContactHit[]>([]);
+  const [noteHits, setNoteHits] = useState<NoteHit[]>([]);
   const [active, setActive] = useState(0);
   const chordAt = useRef<number>(0);
   const requestSeq = useRef(0);
@@ -98,9 +107,13 @@ export function CommandPalette() {
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
         if (!res.ok) return;
-        const data = (await res.json()) as { results: ContactHit[] };
+        const data = (await res.json()) as {
+          results: ContactHit[];
+          notes?: NoteHit[];
+        };
         if (seq === requestSeq.current) {
           setHits(data.results);
+          setNoteHits(data.notes ?? []);
           setActive(0);
         }
       } catch {
@@ -114,14 +127,16 @@ export function CommandPalette() {
   const actions = [NEW_CONTACT, ...NAV].filter(
     (a) => !q || a.label.toLowerCase().includes(q)
   );
-  const total = hits.length + actions.length;
+  const total = hits.length + noteHits.length + actions.length;
 
   const go = (index: number) => {
     setOpen(false);
     if (index < hits.length) {
       router.push(`/contacts/${hits[index].id}`);
+    } else if (index < hits.length + noteHits.length) {
+      router.push(`/contacts/${noteHits[index - hits.length].contactId}`);
     } else {
-      const a = actions[index - hits.length];
+      const a = actions[index - hits.length - noteHits.length];
       if (a) router.push(a.href);
     }
   };
@@ -148,6 +163,7 @@ export function CommandPalette() {
           requestSeq.current++;
           setQuery("");
           setHits([]);
+          setNoteHits([]);
           setActive(0);
         }
       }}
@@ -171,6 +187,7 @@ export function CommandPalette() {
                 if (!e.target.value.trim()) {
                   requestSeq.current++;
                   setHits([]);
+                  setNoteHits([]);
                   setActive(0);
                 }
               }}
@@ -212,13 +229,39 @@ export function CommandPalette() {
                 </span>
               </button>
             ))}
+            {noteHits.length > 0 && (
+              <p className="px-2 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Notes
+              </p>
+            )}
+            {noteHits.map((n, j) => {
+              const i = hits.length + j;
+              return (
+                <button
+                  key={`n${n.noteId}`}
+                  onClick={() => go(i)}
+                  onMouseMove={() => setActive(i)}
+                  className={`flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-[13px] ${
+                    active === i ? "bg-accent" : ""
+                  }`}
+                >
+                  <StickyNote className="size-3.5 shrink-0 text-muted-foreground" />
+                  <span className="truncate text-muted-foreground">
+                    {n.snippet}
+                  </span>
+                  <span className="flex-1 truncate text-right text-[11px] text-muted-foreground">
+                    {n.contactName}
+                  </span>
+                </button>
+              );
+            })}
             {actions.length > 0 && (
               <p className="px-2 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Actions
               </p>
             )}
             {actions.map((a, j) => {
-              const i = hits.length + j;
+              const i = hits.length + noteHits.length + j;
               const Icon = a.icon;
               return (
                 <button
