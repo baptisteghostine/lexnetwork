@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnySQLiteColumn,
   index,
   integer,
   primaryKey,
@@ -166,6 +167,141 @@ export const settings = sqliteTable("settings", {
   // JSON-encoded value.
   value: text("value").notNull(),
 });
+
+export const groups = sqliteTable(
+  "groups",
+  {
+    id: integer("id").primaryKey(),
+    name: text("name").notNull(),
+    emoji: text("emoji"),
+    parentId: integer("parent_id").references((): AnySQLiteColumn => groups.id, {
+      onDelete: "set null",
+    }),
+    sortOrder: integer("sort_order"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    // SQLite treats NULLs as distinct in unique indexes, so root-level
+    // uniqueness needs its own partial index.
+    uniqueIndex("uq_groups_parent_name")
+      .on(t.parentId, t.name)
+      .where(sql`parent_id IS NOT NULL`),
+    uniqueIndex("uq_groups_root_name")
+      .on(t.name)
+      .where(sql`parent_id IS NULL`),
+  ]
+);
+
+export const groupMembers = sqliteTable(
+  "group_members",
+  {
+    groupId: integer("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "cascade" }),
+    contactId: integer("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.groupId, t.contactId] }),
+    index("idx_group_members_contact").on(t.contactId),
+  ]
+);
+
+export const notes = sqliteTable(
+  "notes",
+  {
+    id: integer("id").primaryKey(),
+    // null = standalone note (not attached to a contact).
+    contactId: integer("contact_id").references(() => contacts.id, {
+      onDelete: "cascade",
+    }),
+    bodyMd: text("body_md").notNull().default(""),
+    summaryAi: text("summary_ai"),
+    countsForTouch: integer("counts_for_touch", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [index("idx_notes_contact").on(t.contactId, t.createdAt)]
+);
+
+export const noteMentions = sqliteTable(
+  "note_mentions",
+  {
+    id: integer("id").primaryKey(),
+    noteId: integer("note_id")
+      .notNull()
+      .references(() => notes.id, { onDelete: "cascade" }),
+    contactId: integer("contact_id").references(() => contacts.id, {
+      onDelete: "cascade",
+    }),
+    groupId: integer("group_id").references(() => groups.id, {
+      onDelete: "cascade",
+    }),
+  },
+  (t) => [
+    uniqueIndex("uq_mentions_note_contact")
+      .on(t.noteId, t.contactId)
+      .where(sql`contact_id IS NOT NULL`),
+    uniqueIndex("uq_mentions_note_group")
+      .on(t.noteId, t.groupId)
+      .where(sql`group_id IS NOT NULL`),
+    index("idx_mentions_contact").on(t.contactId),
+  ]
+);
+
+export const attachments = sqliteTable(
+  "attachments",
+  {
+    id: integer("id").primaryKey(),
+    noteId: integer("note_id")
+      .notNull()
+      .references(() => notes.id, { onDelete: "cascade" }),
+    filename: text("filename").notNull(),
+    mime: text("mime").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    // Relative to DATA_DIR, e.g. "attachments/12/photo.png".
+    path: text("path").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("idx_attachments_note").on(t.noteId)]
+);
+
+export const interactions = sqliteTable(
+  "interactions",
+  {
+    id: integer("id").primaryKey(),
+    contactId: integer("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    // 'email' | 'meeting' | 'message' | 'manual' | 'reminder_fired'
+    kind: text("kind").notNull(),
+    // 'inbound' | 'outbound' | null
+    direction: text("direction"),
+    occurredAt: integer("occurred_at").notNull(),
+    title: text("title"),
+    // JSON: thread id, participants, event id, conversation id…
+    meta: text("meta"),
+    source: text("source").notNull(),
+    // Idempotency key for synced/imported rows (gmail msg id, event id…).
+    sourceKey: text("source_key"),
+    countsForTouch: integer("counts_for_touch", { mode: "boolean" }).notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("uq_interactions_source")
+      .on(t.contactId, t.source, t.sourceKey)
+      .where(sql`source_key IS NOT NULL`),
+    index("idx_interactions_contact_time").on(t.contactId, t.occurredAt),
+    index("idx_interactions_time").on(t.occurredAt),
+    index("idx_interactions_touch")
+      .on(t.contactId, t.occurredAt)
+      .where(sql`counts_for_touch = 1`),
+  ]
+);
 
 export type Contact = typeof contacts.$inferSelect;
 export type NewContact = typeof contacts.$inferInsert;
