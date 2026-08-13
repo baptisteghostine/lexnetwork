@@ -14,9 +14,14 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   fixes, light-default indigo theme with dark toggle, avatars, two-zone
   contact page with provenance-on-hover, bulk actions, ⌘K palette + G-chords
 - ✅ **Phase 5** — job scheduler, reminders (RRULE), birthdays, digest (0004)
-- ⬜ **Phase 6 → 11** — next up: search/FTS5, filters, saved views
+- ✅ **Phase 6** — FTS5 search + nickname re-rank, filter compiler, saved
+  views, global timeline, `?` overlay, custom fields (0005/0006). Note:
+  work_history + education migrated here instead of Phase 7 — the filter
+  compiler's company-past dimension and the ex-Googlers AC need the tables;
+  Phase 7's LinkedIn import populates them.
+- ⬜ **Phase 7 → 11** — next up: LinkedIn ZIP import + job changes
 
-115 unit tests passing as of Phase 5. Open questions from SPEC.md's decision
+143 unit tests passing as of Phase 6. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---
