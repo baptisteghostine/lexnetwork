@@ -1,9 +1,15 @@
+import { cookies } from "next/headers";
 import Link from "next/link";
-import { FolderTree, Import, Settings, Sun, Tags, Users } from "lucide-react";
+import { and, isNotNull, isNull, lte, sql } from "drizzle-orm";
 
-import { requireAuth } from "@/lib/auth";
-import { logoutAction } from "@/server/auth";
+import { SidebarNav } from "@/components/sidebar-nav";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
+import { db } from "@/db/client";
+import { contacts } from "@/db/schema";
+import { requireAuth } from "@/lib/auth";
+import { now as currentTime } from "@/lib/time";
+import { logoutAction } from "@/server/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -13,53 +19,48 @@ export default async function AppLayout({
   children: React.ReactNode;
 }) {
   await requireAuth();
+  const dueCount =
+    db
+      .select({ n: sql<number>`count(*)` })
+      .from(contacts)
+      .where(
+        and(
+          isNull(contacts.archivedAt),
+          isNotNull(contacts.cadenceDays),
+          isNotNull(contacts.nextTouchAt),
+          lte(contacts.nextTouchAt, currentTime())
+        )
+      )
+      .get()?.n ?? 0;
+  const initialDark =
+    (await cookies()).get("rolo-theme")?.value === "dark";
+
   return (
     <div className="flex min-h-screen">
-      <aside className="flex w-48 shrink-0 flex-col border-r border-border bg-card/50">
+      <aside className="flex w-48 shrink-0 flex-col border-r border-border bg-card">
         <div className="px-4 py-3.5">
-          <Link href="/contacts" className="text-sm font-semibold tracking-tight">
+          <Link
+            href="/today"
+            className="text-sm font-semibold tracking-tight text-primary"
+          >
             Rolo
           </Link>
         </div>
-        <nav className="flex-1 space-y-0.5 px-2">
-          <SidebarLink href="/today" icon={<Sun />} label="Today" />
-          <SidebarLink href="/contacts" icon={<Users />} label="Contacts" />
-          <SidebarLink href="/tags" icon={<Tags />} label="Tags" />
-          <SidebarLink href="/groups" icon={<FolderTree />} label="Groups" />
-          <SidebarLink href="/imports" icon={<Import />} label="Imports" />
-          <SidebarLink href="/settings" icon={<Settings />} label="Settings" />
-        </nav>
-        <form action={logoutAction} className="p-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start text-muted-foreground"
-          >
-            Log out
-          </Button>
-        </form>
+        <SidebarNav dueCount={dueCount} />
+        <div className="flex items-center justify-between gap-1 border-t border-border p-2">
+          <form action={logoutAction} className="flex-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-muted-foreground"
+            >
+              Log out
+            </Button>
+          </form>
+          <ThemeToggle initialDark={initialDark} />
+        </div>
       </aside>
       <main className="min-w-0 flex-1">{children}</main>
     </div>
-  );
-}
-
-function SidebarLink({
-  href,
-  icon,
-  label,
-}: {
-  href: string;
-  icon: React.ReactNode;
-  label: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground [&_svg]:size-3.5"
-    >
-      {icon}
-      {label}
-    </Link>
   );
 }

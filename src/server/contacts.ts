@@ -65,16 +65,15 @@ export type ContactFormState = { error?: string };
 
 // Scalar fields whose provenance we track (SPEC §1). Multi-value rows carry
 // their own source column.
-const SCALAR_FIELDS = [
-  "first_name",
-  "last_name",
-  "title",
-  "company",
-  "location",
-  "bio",
-  "description_md",
-  "birthday",
-] as const;
+type ScalarFieldName =
+  | "first_name"
+  | "last_name"
+  | "title"
+  | "company"
+  | "location"
+  | "bio"
+  | "description_md"
+  | "birthday";
 
 function parsePayload(formData: FormData): ContactPayload | { error: string } {
   let raw: unknown;
@@ -186,9 +185,9 @@ function writeMultiValueRows(contactId: number, p: ContactPayload, now: number) 
 function changedScalarFields(
   p: ContactPayload,
   prev: typeof contacts.$inferSelect | undefined
-): (typeof SCALAR_FIELDS)[number][] {
+): ScalarFieldName[] {
   const vals = scalarValues(p);
-  const pairs: [(typeof SCALAR_FIELDS)[number], unknown, unknown][] = [
+  const pairs: [ScalarFieldName, unknown, unknown][] = [
     ["first_name", vals.firstName, prev?.firstName ?? null],
     ["last_name", vals.lastName, prev?.lastName ?? null],
     ["title", vals.title, prev?.title ?? null],
@@ -212,7 +211,7 @@ function changedScalarFields(
 
 function writeProvenance(
   contactId: number,
-  fields: (typeof SCALAR_FIELDS)[number][],
+  fields: ScalarFieldName[],
   now: number
 ) {
   for (const field of fields) {
