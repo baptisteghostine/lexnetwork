@@ -1,11 +1,12 @@
-// Minimal Phase 2 slice of the cadence engine: keep the derived
-// contacts.last_interaction_at in sync. Phase 4 extends this module with
-// next_touch_at, snooze handling, and the full recompute (see SPEC §3) —
-// every interaction/note write path already funnels through here.
+// DB glue for the cadence engine: keeps the derived columns
+// contacts.last_interaction_at and contacts.next_touch_at in sync, and
+// clears snoozes when a newer counting interaction lands (SPEC §3).
+// Every interaction/note/cadence write path calls recomputeContact().
 import { and, desc, eq } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import { contacts, interactions, notes } from "@/db/schema";
+import { computeNextTouchAt } from "./engine";
 
 /** Max occurred_at across counting interactions + counting notes, or null. */
 export function computeLastInteractionAt(contactId: number): number | null {
@@ -36,10 +37,37 @@ export function computeLastInteractionAt(contactId: number): number | null {
   return candidates.length ? Math.max(...candidates) : null;
 }
 
-/** Call after any interaction/note write for the contact. */
+/** Call after any interaction/note/cadence/snooze write for the contact. */
 export function recomputeContact(contactId: number): void {
+  const c = db
+    .select({
+      cadenceDays: contacts.cadenceDays,
+      cadenceAssignedAt: contacts.cadenceAssignedAt,
+      lastInteractionAt: contacts.lastInteractionAt,
+      snoozedUntil: contacts.snoozedUntil,
+    })
+    .from(contacts)
+    .where(eq(contacts.id, contactId))
+    .get();
+  if (!c) return;
+
+  const newLast = computeLastInteractionAt(contactId);
+  // A newer counting interaction clears any snooze — the clock restarts
+  // from real contact, not from the postponement (SPEC §3).
+  const snoozedUntil =
+    newLast !== null && (c.lastInteractionAt === null || newLast > c.lastInteractionAt)
+      ? null
+      : c.snoozedUntil;
+
+  const nextTouchAt = computeNextTouchAt({
+    cadenceDays: c.cadenceDays,
+    cadenceAssignedAt: c.cadenceAssignedAt,
+    lastInteractionAt: newLast,
+    snoozedUntil,
+  });
+
   db.update(contacts)
-    .set({ lastInteractionAt: computeLastInteractionAt(contactId) })
+    .set({ lastInteractionAt: newLast, snoozedUntil, nextTouchAt })
     .where(eq(contacts.id, contactId))
     .run();
 }
