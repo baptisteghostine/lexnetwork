@@ -325,6 +325,68 @@ export const views = sqliteTable("views", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+export const integrationAccounts = sqliteTable(
+  "integration_accounts",
+  {
+    id: integer("id").primaryKey(),
+    // 'google' | 'linkedin' — one connection per provider (SPEC §9/§9a).
+    provider: text("provider").notNull(),
+    accountEmail: text("account_email").notNull(),
+    scopes: text("scopes").notNull(),
+    // Encrypted at rest via lib/crypto (SESSION_SECRET-derived key).
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    tokenExpiresAt: integer("token_expires_at"),
+    gmailHistoryId: text("gmail_history_id"),
+    gmailBackfillDone: integer("gmail_backfill_done", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    calendarSyncToken: text("calendar_sync_token"),
+    peopleSyncToken: text("people_sync_token"),
+    // JSON array incl. aliases, for email direction detection.
+    myAddresses: text("my_addresses"),
+    // JSON array of snapshot domains the LinkedIn token can actually pull
+    // (observed at connect time — LinkedIn varies this per product/version).
+    linkedinDomains: text("linkedin_domains"),
+    linkedinSnapshotAt: integer("linkedin_snapshot_at"),
+    // 'active' | 'error' | 'revoked'
+    status: text("status").notNull(),
+    lastError: text("last_error"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [uniqueIndex("uq_integration_provider").on(t.provider)]
+);
+
+export const calendarEvents = sqliteTable(
+  "calendar_events",
+  {
+    id: integer("id").primaryKey(),
+    // Google event id (instances of recurring events have unique ids
+    // under singleEvents=true) — the upsert key.
+    eventKey: text("event_key").notNull(),
+    accountId: integer("account_id")
+      .notNull()
+      .references(() => integrationAccounts.id, { onDelete: "cascade" }),
+    summary: text("summary"),
+    startsAt: integer("starts_at").notNull(),
+    endsAt: integer("ends_at"),
+    allDay: integer("all_day", { mode: "boolean" }).notNull().default(false),
+    // Google event status: 'confirmed' | 'tentative' (cancelled = deleted row).
+    status: text("status").notNull(),
+    // Owner's own response: 'accepted' | 'declined' | 'tentative' | 'needsAction'.
+    myResponse: text("my_response"),
+    // JSON [{email, name, contactId|null}] — matched at sync time.
+    attendees: text("attendees"),
+    htmlLink: text("html_link"),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("uq_calendar_event").on(t.eventKey),
+    index("idx_calendar_events_start").on(t.startsAt),
+  ]
+);
+
 export const jobs = sqliteTable(
   "jobs",
   {

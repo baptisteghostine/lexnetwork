@@ -169,14 +169,21 @@ Everything externally-sourced or manually logged (notes live in `notes`):
 
 ## integration_accounts
 
-`id, provider TEXT NOT NULL ('google'), account_email TEXT NOT NULL, scopes TEXT NOT NULL, access_token TEXT, refresh_token TEXT, token_expires_at INTEGER, gmail_history_id TEXT, gmail_backfill_done INTEGER DEFAULT 0, calendar_sync_token TEXT, people_sync_token TEXT, my_addresses TEXT (JSON array incl. aliases, for direction detection), status TEXT ('active','error','revoked'), last_error TEXT, created_at, updated_at`.
-- Tokens at rest are encrypted with a key from `SESSION_SECRET`-derived KDF (single-user box, but the SQLite file gets backed up/copied around — don't leave refresh tokens plaintext in backups).
+`id, provider TEXT NOT NULL ('google','linkedin' — UNIQUE, one connection per provider), account_email TEXT NOT NULL, scopes TEXT NOT NULL, access_token TEXT, refresh_token TEXT, token_expires_at INTEGER, gmail_history_id TEXT, gmail_backfill_done INTEGER DEFAULT 0, calendar_sync_token TEXT, people_sync_token TEXT, my_addresses TEXT (JSON array incl. aliases, for direction detection), linkedin_domains TEXT (JSON array — snapshot domains observed for this token; CONNECTIONS is required for sync and must be discovered, not assumed), linkedin_snapshot_at INTEGER, status TEXT ('active','error','revoked'), last_error TEXT, created_at, updated_at`.
+- Tokens at rest are encrypted with a key from `SESSION_SECRET`-derived KDF (single-user box, but the SQLite file gets backed up/copied around — don't leave refresh tokens plaintext in backups). Implemented in `src/lib/crypto.ts` (AES-256-GCM, scrypt-derived key); rotating the secret invalidates stored tokens, which surfaces as a "reconnect" status.
+- 'linkedin' rows added 2026-08-13 for the Member Data Portability API (SPEC §9a). LinkedIn self-serve tokens usually have no refresh token — expiry (~60 days) means reconnect.
+
+## calendar_events  *(added table — Today agenda cache)*
+
+`id, event_key TEXT NOT NULL UNIQUE (Google event id; recurring instances are unique under singleEvents=true), account_id FK → integration_accounts ON DELETE CASCADE, summary TEXT, starts_at INTEGER NOT NULL, ends_at INTEGER, all_day INTEGER DEFAULT 0, status TEXT NOT NULL ('confirmed','tentative' — cancelled events are deleted rows), my_response TEXT ('accepted','declined','tentative','needsAction'), attendees TEXT (JSON [{email, name, contact_id|null}] — matched at sync time), html_link TEXT, updated_at`.
+- `idx_calendar_events_start ON calendar_events(starts_at)` — the agenda query.
+- Why a table: interactions hold only *past* meetings; the agenda needs today's and upcoming events without a live API call at page render. Bounded by the sync window (past 1y/future 60d), so it self-prunes as the window slides.
 
 ## sync_runs
 
 Covers **both** API syncs and file imports (one lifecycle: started → stats → finished/failed):
 
-`id, kind TEXT NOT NULL ('gmail','calendar','google_contacts','csv_import','vcard_import','linkedin_import','dedupe_scan','export','backup'), integration_account_id FK ON DELETE SET NULL, file_name TEXT, file_sha256 TEXT, mapping_json TEXT (CSV column mapping used), cursor_before TEXT, cursor_after TEXT, status TEXT ('running','success','failed','partial'), stats_json TEXT ({new, updated, unchanged, conflicts, errors,…}), report_json TEXT (row-level diff report; large, loaded lazily), error TEXT, started_at, finished_at`.
+`id, kind TEXT NOT NULL ('gmail','calendar','google_contacts','csv_import','vcard_import','linkedin_import','linkedin_api_sync','dedupe_scan','export','backup'), integration_account_id FK ON DELETE SET NULL, file_name TEXT, file_sha256 TEXT, mapping_json TEXT (CSV column mapping used), cursor_before TEXT, cursor_after TEXT, status TEXT ('running','success','failed','partial'), stats_json TEXT ({new, updated, unchanged, conflicts, errors,…}), report_json TEXT (row-level diff report; large, loaded lazily), error TEXT, started_at, finished_at`.
 - `idx_sync_runs_kind ON sync_runs(kind, started_at DESC)`, `idx_sync_runs_sha ON sync_runs(file_sha256)` (the "already imported this exact file" check).
 
 ## contact_changes
@@ -196,7 +203,7 @@ Covers **both** API syncs and file imports (one lifecycle: started → stats →
 
 ## jobs
 
-`id, kind TEXT NOT NULL ('gmail_sync','calendar_sync','digest','backup','dedupe_scan','reminder_fire','geocode','ai_batch_tag'), payload_json TEXT, dedupe_key TEXT (UNIQUE where NOT NULL — prevents double-enqueue of e.g. today's digest), run_at INTEGER NOT NULL, started_at INTEGER, finished_at INTEGER, status TEXT NOT NULL ('pending','running','success','failed','dead'), attempts INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 5, last_error TEXT, created_at`.
+`id, kind TEXT NOT NULL ('gmail_sync','calendar_sync','linkedin_sync','digest','backup','dedupe_scan','reminder_fire','geocode','ai_batch_tag'), payload_json TEXT, dedupe_key TEXT (UNIQUE where NOT NULL — prevents double-enqueue of e.g. today's digest), run_at INTEGER NOT NULL, started_at INTEGER, finished_at INTEGER, status TEXT NOT NULL ('pending','running','success','failed','dead'), attempts INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 5, last_error TEXT, created_at`.
 - `idx_jobs_pending ON jobs(run_at) WHERE status = 'pending'` — the scheduler's poll (every ~15 s). Backoff: `run_at += 2^attempts * 30s`. Stale 'running' rows older than a lease window are reclaimed at startup (crash recovery). Recurring jobs re-enqueue their next run on completion — schedule lives in code, durability in this table.
 - Implementation note (Phase 5): reminder firing does NOT create per-fire job rows — the scheduler tick sweeps due reminders inline, with `reminders.fired_at` as the exactly-once ledger (idempotent across crashes, no reminder↔job sync to keep straight). The `reminder_fire` kind stays reserved for future one-off scheduled fires if ever needed.
 
