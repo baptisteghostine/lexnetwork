@@ -79,13 +79,21 @@ export function materializeNext(definerId: number, afterMs: number): void {
  * Fire one reminder: persist fired_at, write the (non-counting) timeline
  * interaction when contact-attached, and materialize the series' next
  * occurrence. Firing never touches next_touch_at (SPEC §3).
+ *
+ * The fired_at write is a compare-and-swap (WHERE fired_at IS NULL), so
+ * two sweeps racing across processes fire a reminder exactly once — the
+ * loser matches zero rows and skips the interaction write too.
  */
-export function fireReminder(r: FireableReminder, now: number): void {
+export function fireReminder(r: FireableReminder, now: number): boolean {
+  let fired = false;
   db.transaction(() => {
-    db.update(reminders)
+    const claimed = db
+      .update(reminders)
       .set({ firedAt: now, updatedAt: now })
-      .where(eq(reminders.id, r.id))
+      .where(and(eq(reminders.id, r.id), isNull(reminders.firedAt)))
       .run();
+    if (claimed.changes === 0) return;
+    fired = true;
     if (r.contactId !== null) {
       db.insert(interactions)
         .values({
@@ -101,11 +109,14 @@ export function fireReminder(r: FireableReminder, now: number): void {
     }
     if (r.seriesId !== null) materializeNext(r.seriesId, r.dueAt);
   });
+  return fired;
 }
 
-/** The scheduler-tick sweep. Returns how many fired. */
+/** The scheduler-tick sweep. Returns how many actually fired. */
 export function fireDueReminders(now: number): number {
-  const due = dueUnfired(now);
-  for (const r of due) fireReminder(r, now);
-  return due.length;
+  let fired = 0;
+  for (const r of dueUnfired(now)) {
+    if (fireReminder(r, now)) fired += 1;
+  }
+  return fired;
 }

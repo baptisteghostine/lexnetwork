@@ -110,11 +110,15 @@ async function runDueJobs(now: number): Promise<void> {
     .limit(5)
     .all();
   for (const j of due) {
-    // Single synchronous SQLite connection = this claim can't race.
-    db.update(jobs)
+    // Compare-and-swap claim: the WHERE re-checks status so a second
+    // process (clustered start, stray dev server on the same data dir)
+    // can't double-run a job — the loser's UPDATE matches zero rows.
+    const claimed = db
+      .update(jobs)
       .set({ status: "running", startedAt: Date.now(), attempts: j.attempts + 1 })
-      .where(eq(jobs.id, j.id))
+      .where(and(eq(jobs.id, j.id), eq(jobs.status, "pending")))
       .run();
+    if (claimed.changes === 0) continue;
     let error: string | null = null;
     try {
       const handler = HANDLERS[j.kind];
