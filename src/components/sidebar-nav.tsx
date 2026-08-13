@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Bell,
   FolderTree,
   Import,
   Settings,
@@ -14,6 +15,7 @@ import {
 const ITEMS = [
   { href: "/today", label: "Today", icon: Sun },
   { href: "/contacts", label: "Contacts", icon: Users },
+  { href: "/reminders", label: "Reminders", icon: Bell },
   { href: "/tags", label: "Tags", icon: Tags },
   { href: "/groups", label: "Groups", icon: FolderTree },
   { href: "/imports", label: "Imports", icon: Import },

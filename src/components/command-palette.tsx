@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
+  Bell,
   FolderTree,
   Import,
   Search,
@@ -30,6 +31,7 @@ type ContactHit = {
 const NAV = [
   { key: "t", label: "Go to Today", href: "/today", icon: Sun },
   { key: "c", label: "Go to Contacts", href: "/contacts", icon: Users },
+  { key: "r", label: "Go to Reminders", href: "/reminders", icon: Bell },
   { key: "a", label: "Go to Tags", href: "/tags", icon: Tags },
   { key: "g", label: "Go to Groups", href: "/groups", icon: FolderTree },
   { key: "i", label: "Go to Imports", href: "/imports", icon: Import },
