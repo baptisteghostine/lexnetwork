@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export default async function LoginPage() {
   if (!getPasswordHash()) redirect("/setup");
-  if (await isAuthenticated()) redirect("/contacts");
+  if (await isAuthenticated()) redirect("/today");
   return (
     <div className="space-y-5">
       <h1 className="text-lg font-semibold">Rolo</h1>

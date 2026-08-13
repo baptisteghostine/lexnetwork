@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { CadenceControl } from "@/components/cadence-control";
 import { ContactActions } from "@/components/contact-actions";
 import { LogInteraction } from "@/components/log-interaction";
 import { AddNoteButton, Timeline } from "@/components/timeline";
@@ -61,6 +62,12 @@ export default async function ContactPage({
           ) : null}
         </div>
         <div className="flex items-center gap-2">
+          <CadenceControl
+            contactId={contact.id}
+            cadenceDays={contact.cadenceDays}
+            nextTouchAt={contact.nextTouchAt}
+            snoozedUntil={contact.snoozedUntil}
+          />
           <ContactActions
             contactId={contact.id}
             displayName={contact.displayName}

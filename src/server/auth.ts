@@ -27,7 +27,7 @@ export async function setupPasswordAction(
   }
   setPasswordHash(hashPassword(password));
   await startSession();
-  redirect("/contacts");
+  redirect("/today");
 }
 
 export async function loginAction(
@@ -41,7 +41,7 @@ export async function loginAction(
     return { error: "Wrong password." };
   }
   await startSession();
-  redirect("/contacts");
+  redirect("/today");
 }
 
 export async function logoutAction(): Promise<void> {

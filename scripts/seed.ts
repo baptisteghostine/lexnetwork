@@ -1,5 +1,7 @@
 // Seeds 25 realistic fake contacts for local development.
 // Usage: npm run seed   (idempotent: skips if any contacts exist, --force wipes)
+import { eq } from "drizzle-orm";
+
 import { db } from "../src/db/client";
 import {
   contactEmails,
@@ -158,4 +160,27 @@ db.transaction(() => {
   }
 });
 
-console.log(`Seeded ${PEOPLE.length} contacts and ${TAGS.length} tags.`);
+// Give the first 8 contacts a cadence with a backdated baseline so the
+// Today queue has content to triage in dev.
+const DAY = 24 * 60 * 60 * 1000;
+const withCadence = db
+  .select({ id: contacts.id })
+  .from(contacts)
+  .limit(8)
+  .all();
+withCadence.forEach((c, i) => {
+  const cadenceDays = i % 2 === 0 ? 7 : 30;
+  const assignedAt = now - (cadenceDays + 2 + i) * DAY; // all overdue
+  db.update(contacts)
+    .set({
+      cadenceDays,
+      cadenceAssignedAt: assignedAt,
+      nextTouchAt: assignedAt + cadenceDays * DAY,
+    })
+    .where(eq(contacts.id, c.id))
+    .run();
+});
+
+console.log(
+  `Seeded ${PEOPLE.length} contacts and ${TAGS.length} tags (8 with overdue cadences).`
+);

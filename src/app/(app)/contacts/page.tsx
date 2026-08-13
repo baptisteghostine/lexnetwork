@@ -1,7 +1,6 @@
 import Link from "next/link";
-import { Star } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
+import { ContactsList } from "@/components/contacts-list";
 import { Button } from "@/components/ui/button";
 import { requireAuth } from "@/lib/auth";
 import { listContacts, type ContactSort } from "@/server/queries";
@@ -69,46 +68,20 @@ export default async function ContactsPage({
         <p className="px-5 py-10 text-center text-xs text-muted-foreground">
           {archived
             ? "Nothing archived."
-            : "No contacts yet — create one, or import your data (Phase 3)."}
+            : "No contacts yet — create one, or use Imports in the sidebar."}
         </p>
       ) : (
-        <ul>
-          {rows.map((c) => (
-            <li key={c.id}>
-              <Link
-                href={`/contacts/${c.id}`}
-                className="flex items-center gap-3 border-b border-border/60 px-5 py-2 transition-colors hover:bg-accent/50"
-              >
-                {c.starred ? (
-                  <Star className="size-3 shrink-0 fill-yellow-500 text-yellow-500" />
-                ) : (
-                  <span className="w-3 shrink-0" />
-                )}
-                <span className="w-56 truncate font-medium">
-                  {c.displayName}
-                </span>
-                <span className="w-44 truncate text-muted-foreground">
-                  {c.title}
-                </span>
-                <span className="w-44 truncate text-muted-foreground">
-                  {c.company}
-                </span>
-                <span className="flex flex-1 gap-1 overflow-hidden">
-                  {c.tags.map((t) => (
-                    <Badge
-                      key={t.id}
-                      variant="outline"
-                      className="shrink-0"
-                      style={{ borderColor: t.color, color: t.color }}
-                    >
-                      {t.name}
-                    </Badge>
-                  ))}
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <ContactsList
+          rows={rows.map((c) => ({
+            id: c.id,
+            displayName: c.displayName,
+            title: c.title,
+            company: c.company,
+            starred: c.starred,
+            cadenceDays: c.cadenceDays,
+            tags: c.tags,
+          }))}
+        />
       )}
     </div>
   );
