@@ -1,4 +1,4 @@
-import { and, asc, eq, isNotNull, lt, lte, or } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, lt, lte, or } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import { jobs } from "@/db/schema";
@@ -13,6 +13,10 @@ import { ownerTimezone, runDigest } from "@/jobs/digest";
 import { fireDueReminders } from "@/lib/reminders/fire";
 import { getSetting } from "@/lib/settings";
 import { localDateKey, nextLocalHour } from "@/lib/time";
+import { getAccount } from "@/server/sync/accounts";
+import { runCalendarSync } from "@/server/sync/calendar";
+import { runGmailSync } from "@/server/sync/gmail";
+import { runLinkedInSync } from "@/server/sync/linkedin";
 
 // The in-process scheduler (CLAUDE.md: jobs table, no external broker).
 // Durability lives in the `jobs` table and in domain ledgers like
@@ -28,7 +32,60 @@ const HANDLERS: Record<string, Handler> = {
   digest: async () => {
     await runDigest(Date.now());
   },
+  gmail_sync: async () => {
+    await runGmailSync();
+  },
+  calendar_sync: async () => {
+    await runCalendarSync();
+  },
+  linkedin_sync: async () => {
+    await runLinkedInSync();
+  },
 };
+
+// Recurring sync cadence (SPEC §9): Gmail 15 min, Calendar 30 min;
+// LinkedIn snapshots move slowly — weekly (SPEC §9a).
+const SYNC_JOBS: {
+  kind: "gmail_sync" | "calendar_sync" | "linkedin_sync";
+  provider: "google" | "linkedin";
+  intervalMs: number;
+}[] = [
+  { kind: "gmail_sync", provider: "google", intervalMs: 15 * 60 * 1000 },
+  { kind: "calendar_sync", provider: "google", intervalMs: 30 * 60 * 1000 },
+  { kind: "linkedin_sync", provider: "linkedin", intervalMs: 7 * 24 * 3600 * 1000 },
+];
+
+/**
+ * Keep one pending job per connected provider's sync kind. Called at
+ * startup, after each sync run, and right after an OAuth connect (so the
+ * first sync starts within a tick, not an interval).
+ */
+export function ensureSyncJobs(now: number): void {
+  for (const spec of SYNC_JOBS) {
+    const account = getAccount(spec.provider);
+    const pending = db
+      .select({ id: jobs.id })
+      .from(jobs)
+      .where(and(eq(jobs.kind, spec.kind), eq(jobs.status, "pending")))
+      .get();
+    if (!account || account.status === "revoked") {
+      if (pending) db.delete(jobs).where(eq(jobs.id, pending.id)).run();
+      continue;
+    }
+    if (pending) continue;
+    // First run for a fresh connection fires immediately; steady-state
+    // re-enqueues land one interval out.
+    const last = db
+      .select({ finishedAt: jobs.finishedAt })
+      .from(jobs)
+      .where(and(eq(jobs.kind, spec.kind), eq(jobs.status, "success")))
+      .orderBy(desc(jobs.finishedAt))
+      .limit(1)
+      .get();
+    const runAt = last?.finishedAt ? last.finishedAt + spec.intervalMs : now;
+    enqueueJob({ kind: spec.kind, runAt, dedupeKey: `${spec.kind}:${runAt}` });
+  }
+}
 
 export function enqueueJob(opts: {
   kind: string;
@@ -152,8 +209,9 @@ async function runDueJobs(now: number): Promise<void> {
       .where(eq(jobs.id, j.id))
       .run();
     // Recurring jobs re-enqueue their next run on completion.
-    if (j.kind === "digest" && outcome.status !== "pending") {
-      ensureDigestJob(Date.now());
+    if (outcome.status !== "pending") {
+      if (j.kind === "digest") ensureDigestJob(Date.now());
+      if (SYNC_JOBS.some((s) => s.kind === j.kind)) ensureSyncJobs(Date.now());
     }
   }
 }
@@ -195,6 +253,7 @@ export function startScheduler(): void {
   try {
     reclaimStaleJobs(now);
     ensureDigestJob(now);
+    ensureSyncJobs(now);
   } catch (err) {
     console.error("[rolo-scheduler] startup init failed:", err);
   }
