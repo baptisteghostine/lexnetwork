@@ -82,7 +82,8 @@ export async function logInteractionAction(
       kind: parsed.data.kind,
       occurredAt: parsed.data.occurredAt,
       title: parsed.data.title || null,
-      direction: null,
+      // A manually logged email is by definition you reaching out.
+      direction: parsed.data.kind === "email" ? "outbound" : null,
       source: "user",
       countsForTouch: true, // manually logged = you touched base (SPEC §3)
       createdAt: Date.now(),
