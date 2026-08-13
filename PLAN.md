@@ -19,9 +19,14 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   work_history + education migrated here instead of Phase 7 — the filter
   compiler's company-past dimension and the ex-Googlers AC need the tables;
   Phase 7's LinkedIn import populates them.
-- ⬜ **Phase 7 → 11** — next up: LinkedIn ZIP import + job changes
+- ✅ **Phase 7** — LinkedIn ZIP import (preamble-tolerant parsers, profile-URL
+  identity, provenance merge), job-change detection → contact_changes +
+  Today "Network updates" cards + digest section, messages → counting
+  interactions, work-history end-dating, unmatched-conversation picker
+  (0007/0008; interactions.sync_run_id backfilled per SCHEMA.md)
+- ⬜ **Phase 8 → 11** — next up: Google sync (Gmail metadata + Calendar)
 
-143 unit tests passing as of Phase 6. Open questions from SPEC.md's decision
+158 unit tests passing as of Phase 7. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---
