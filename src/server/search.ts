@@ -32,11 +32,17 @@ export type SearchResults = { contacts: ContactHit[]; notes: NoteHit[] };
 
 function contactCandidateIds(query: string): Set<number> {
   const ids = new Set<number>();
+  // Archived contacts are excluded inside each candidate query, before its
+  // LIMIT — filtering after the cap would let archived rows crowd live ones
+  // out of the candidate set on a heavily-archived database.
   const match = ftsQueryForContacts(query);
   if (match !== null) {
     try {
       const rows = db.all<{ id: number }>(
-        sql`SELECT rowid AS id FROM contacts_fts WHERE contacts_fts MATCH ${match} LIMIT 80`
+        sql`SELECT rowid AS id FROM contacts_fts
+            WHERE contacts_fts MATCH ${match}
+              AND rowid IN (SELECT id FROM contacts WHERE archived_at IS NULL)
+            LIMIT 80`
       );
       for (const r of rows) ids.add(r.id);
     } catch {
@@ -49,11 +55,17 @@ function contactCandidateIds(query: string): Set<number> {
   if (q.length > 0) {
     const pattern = `${q.replaceAll(/[%_\\]/g, (c) => `\\${c}`)}%`;
     const nameRows = db.all<{ id: number }>(
-      sql`SELECT id FROM contacts WHERE display_name LIKE ${pattern} ESCAPE '\\' LIMIT 20`
+      sql`SELECT id FROM contacts
+          WHERE display_name LIKE ${pattern} ESCAPE '\\'
+            AND archived_at IS NULL
+          LIMIT 20`
     );
     for (const r of nameRows) ids.add(r.id);
     const emailRows = db.all<{ contact_id: number }>(
-      sql`SELECT contact_id FROM contact_emails WHERE email_normalized LIKE ${pattern} ESCAPE '\\' LIMIT 20`
+      sql`SELECT contact_id FROM contact_emails
+          WHERE email_normalized LIKE ${pattern} ESCAPE '\\'
+            AND contact_id IN (SELECT id FROM contacts WHERE archived_at IS NULL)
+          LIMIT 20`
     );
     for (const r of emailRows) ids.add(r.contact_id);
   }
@@ -71,12 +83,10 @@ export function searchContacts(query: string, limit = 10): ContactHit[] {
       title: contacts.title,
       photoPath: contacts.photoPath,
       starred: contacts.starred,
-      archivedAt: contacts.archivedAt,
     })
     .from(contacts)
     .where(inArray(contacts.id, ids))
-    .all()
-    .filter((c) => c.archivedAt === null);
+    .all();
 
   const q = normalizeForSearch(query);
   const scored = rows.map((c) => {
