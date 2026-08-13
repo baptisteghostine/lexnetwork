@@ -78,15 +78,18 @@ async function fetchPage(
     signal,
   });
 
-  // A redirect to the login page is how an expired `li_at` presents itself.
+  // A redirect to the login page is how an expired `li_at` presents itself —
+  // but it's also how LinkedIn answers a valid cookie replayed from an IP it
+  // doesn't trust (datacenter/cloud hosts). The message keeps both readings
+  // so a cloud test run doesn't masquerade as a dead session.
   if (response.status === 401 || response.status === 403) {
     throw new VoyagerSessionError(
-      "LinkedIn rejected the saved session — the cookie has expired or been revoked. Paste a fresh one in Settings."
+      "LinkedIn rejected the saved session — the cookie has expired or been revoked, or this server's IP isn't trusted for it. Paste a fresh cookie in Settings; if it keeps failing, run Rolo from the network you browse LinkedIn on."
     );
   }
   if (response.status >= 300 && response.status < 400) {
     throw new VoyagerSessionError(
-      "LinkedIn redirected the request to a login page — the saved session is no longer valid. Paste a fresh cookie in Settings."
+      "LinkedIn bounced the request to a login page. Either the saved session has expired, or the session is fine but LinkedIn doesn't trust this server's IP (common from cloud/datacenter hosts). Paste a fresh cookie in Settings; if it keeps failing, run Rolo from the network you browse LinkedIn on."
     );
   }
   if (response.status === 429) {
