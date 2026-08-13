@@ -17,6 +17,7 @@ import { getAccount } from "@/server/sync/accounts";
 import { runCalendarSync } from "@/server/sync/calendar";
 import { runGmailSync } from "@/server/sync/gmail";
 import { runLinkedInSync } from "@/server/sync/linkedin";
+import { runAiBatchTag } from "@/server/ai-batch";
 import { runDedupeScan } from "@/server/dedupe-scan";
 import {
   getVoyagerSession,
@@ -32,11 +33,14 @@ import {
 // job rows — reminders.fired_at is the exactly-once ledger, so the sweep
 // is idempotent across crashes (SCHEMA.md notes this under `jobs`).
 
-type Handler = () => Promise<void>;
+type Handler = (payloadJson: string | null) => Promise<void>;
 
 const HANDLERS: Record<string, Handler> = {
   digest: async () => {
     await runDigest(Date.now());
+  },
+  ai_batch_tag: async (payloadJson) => {
+    await runAiBatchTag(payloadJson);
   },
   gmail_sync: async () => {
     await runGmailSync();
@@ -213,7 +217,7 @@ async function runDueJobs(now: number): Promise<void> {
     try {
       const handler = HANDLERS[j.kind];
       if (!handler) throw new Error(`No handler for job kind '${j.kind}'`);
-      await handler();
+      await handler(j.payloadJson);
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
     }

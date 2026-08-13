@@ -7,7 +7,9 @@ import { ContactActions } from "@/components/contact-actions";
 import { ContactAvatar } from "@/components/contact-avatar";
 import { CustomFieldValues } from "@/components/custom-field-values";
 import { LogInteraction } from "@/components/log-interaction";
+import { OpenersDialog } from "@/components/openers-dialog";
 import { RelationshipsCard } from "@/components/relationships-card";
+import { aiEnabled } from "@/server/ai-client";
 import { readRelationships } from "@/server/relationships";
 import { AddNoteButton, Timeline } from "@/components/timeline";
 import {
@@ -76,6 +78,7 @@ export default async function ContactPage({
   const customFields = await listCustomFields();
   const customValues = await getCustomFieldValues(contactId);
   const relationships = await readRelationships(contactId);
+  const ai = aiEnabled();
 
   const birthday =
     contact.birthdayMonth && contact.birthdayDay
@@ -348,11 +351,16 @@ export default async function ContactPage({
                 Timeline
               </h2>
               <div className="flex gap-2">
+                {ai && <OpenersDialog contactId={contact.id} />}
                 <LogInteraction contactId={contact.id} />
                 <AddNoteButton contactId={contact.id} />
               </div>
             </div>
-            <Timeline items={timeline} newestNoteId={newestEmptyNoteId} />
+            <Timeline
+              items={timeline}
+              newestNoteId={newestEmptyNoteId}
+              aiEnabled={ai}
+            />
           </div>
         </main>
       </div>

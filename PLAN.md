@@ -60,9 +60,22 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   cascade), full undo with conflicting-edit refusal, related-contacts
   edges on the profile. Ordering deviation for directed relationship
   edges recorded in SCHEMA.md.
-- ⬜ **Phase 10 → 11** — next up: AI layer
+- ✅ **Phase 10** — AI layer (0011: ai_calls, ai_suggestions). Anthropic
+  client wrapper (`@anthropic-ai/sdk` — the sanctioned API client; model
+  from `ANTHROPIC_MODEL`, key from `ANTHROPIC_API_KEY`, both unset → AI
+  affordances hidden) with mandatory one-ai_calls-row-per-use logging
+  through an outboundFetch-backed client. NL search → constrained
+  JSON-schema output → strict Zod validation (invented fields/ids
+  rejected, one retry with the error) → existing filter engine → chips +
+  save-as-view. Auto-tag `ai_batch_tag` job → ai_suggestions review queue
+  (approve/reject, never auto-applied). Conversation starters on the
+  contact page + Today job-change cards; note summarization ≥1500 chars
+  into notes.summary_ai. /ai page: suggestion queue + full audit (calls,
+  tokens, latency). Not yet live-tested against the real API — needs the
+  owner's key.
+- ⬜ **Phase 11** — next up: export, backups, Docker deploy, E2E suite
 
-265 unit tests passing as of Phase 9. Open questions from SPEC.md's decision
+284 unit tests passing as of Phase 10. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---

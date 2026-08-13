@@ -3,7 +3,15 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Archive, ArchiveRestore, CircleAlert, Clock, Star, Tag } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  CircleAlert,
+  Clock,
+  Sparkles,
+  Star,
+  Tag,
+} from "lucide-react";
 
 import { ContactAvatar } from "@/components/contact-avatar";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { CADENCE_PRESETS } from "@/lib/cadence/engine";
+import { suggestTagsAction } from "@/server/ai";
 import { bulkSetCadenceAction } from "@/server/cadence";
 import { bulkAddTagAction, bulkSetArchivedAction } from "@/server/contacts";
 import { cn } from "@/lib/utils";
@@ -37,10 +46,12 @@ export function ContactsList({
   rows,
   allTags,
   archivedView,
+  aiEnabled = false,
 }: {
   rows: ContactRow[];
   allTags: { id: number; name: string; color: string }[];
   archivedView: boolean;
+  aiEnabled?: boolean;
 }) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -100,6 +111,21 @@ export function ContactsList({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          {aiEnabled && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={pending}
+              onClick={() =>
+                run(async () => {
+                  await suggestTagsAction({ contactIds: [...selected] });
+                })
+              }
+            >
+              <Sparkles className="size-3.5" />
+              Suggest tags
+            </Button>
+          )}
           {allTags.length > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

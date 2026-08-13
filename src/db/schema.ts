@@ -657,6 +657,54 @@ export const contactRelationships = sqliteTable(
   ]
 );
 
+// AI audit log (SCHEMA.md `ai_calls`, SPEC §11): one row per model call,
+// prompt/response verbatim, token counts, latency — the audit screen's
+// source of truth. No AI call ever skips this table.
+export const aiCalls = sqliteTable(
+  "ai_calls",
+  {
+    id: integer("id").primaryKey(),
+    // 'nl_search' | 'auto_tag' | 'openers' | 'summarize'
+    feature: text("feature").notNull(),
+    model: text("model").notNull(),
+    prompt: text("prompt").notNull(),
+    response: text("response"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    latencyMs: integer("latency_ms"),
+    // 'success' | 'error'
+    status: text("status").notNull(),
+    error: text("error"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("idx_ai_calls_feature").on(t.feature, t.createdAt)]
+);
+
+// AI suggestion queue (SCHEMA.md `ai_suggestions`, SPEC §11): output always
+// lands here for review — "AI never writes user data directly" is enforced
+// by making this the only path.
+export const aiSuggestions = sqliteTable(
+  "ai_suggestions",
+  {
+    id: integer("id").primaryKey(),
+    // 'tag' for now; generic for future suggestion kinds.
+    kind: text("kind").notNull(),
+    contactId: integer("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    // {tagName, isNewTag, confidence, rationale}
+    payloadJson: text("payload_json").notNull(),
+    aiCallId: integer("ai_call_id").references(() => aiCalls.id, {
+      onDelete: "set null",
+    }),
+    // 'pending' | 'approved' | 'rejected'
+    status: text("status").notNull(),
+    createdAt: integer("created_at").notNull(),
+    resolvedAt: integer("resolved_at"),
+  },
+  (t) => [index("idx_ai_suggestions_status").on(t.status, t.createdAt)]
+);
+
 export type Contact = typeof contacts.$inferSelect;
 export type NewContact = typeof contacts.$inferInsert;
 export type ContactEmail = typeof contactEmails.$inferSelect;

@@ -6,14 +6,21 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, Briefcase, X } from "lucide-react";
 
 import { ContactAvatar } from "@/components/contact-avatar";
+import { OpenersDialog } from "@/components/openers-dialog";
 import { Button } from "@/components/ui/button";
 import { actOnChangeAction, dismissChangeAction } from "@/server/changes";
 import type { OpenChange } from "@/server/today-data";
 
 // "Reason to reach out" cards (SPEC §5): job/title changes detected by
-// imports, with log-interaction and dismiss. The AI opener arrives in
-// Phase 10.
-export function TodayChanges({ items }: { items: OpenChange[] }) {
+// imports, with log-interaction, dismiss, and — when AI is configured —
+// openers grounded in the detected change (SPEC §11).
+export function TodayChanges({
+  items,
+  aiEnabled = false,
+}: {
+  items: OpenChange[];
+  aiEnabled?: boolean;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const run = (fn: () => Promise<unknown>) =>
@@ -54,6 +61,13 @@ export function TodayChanges({ items }: { items: OpenChange[] }) {
               </span>
             ) : null}
           </span>
+          {aiEnabled && (
+            <OpenersDialog
+              contactId={c.contactId}
+              changeId={c.id}
+              label="Openers"
+            />
+          )}
           <Button
             variant="outline"
             size="sm"

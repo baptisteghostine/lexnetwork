@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { eq } from "drizzle-orm";
 
+import { AiSearch } from "@/components/ai-search";
 import { ContactsList } from "@/components/contacts-list";
+import { aiEnabled } from "@/server/ai-client";
 import { FilterBar } from "@/components/filter-bar";
 import { Button } from "@/components/ui/button";
 import { db } from "@/db/client";
@@ -104,6 +106,8 @@ export default async function ContactsPage({
     tagsByContact.set(t.contactId, list);
   }
 
+  const ai = aiEnabled();
+
   return (
     <div>
       <header className="flex items-center justify-between border-b border-border px-5 py-2.5">
@@ -139,6 +143,8 @@ export default async function ContactsPage({
         </div>
       </header>
 
+      {ai && <AiSearch />}
+
       <FilterBar
         filter={filter}
         sortParam={sortParam === "name" ? "" : sortParam}
@@ -167,6 +173,7 @@ export default async function ContactsPage({
           <ContactsList
             archivedView={archivedView}
             allTags={allTags}
+            aiEnabled={ai}
             rows={rows.map((c) => ({
               id: c.id,
               displayName: c.displayName,

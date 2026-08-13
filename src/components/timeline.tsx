@@ -11,6 +11,7 @@ import {
   Trash2,
 } from "lucide-react";
 
+import { AiNoteSummary } from "@/components/ai-note-summary";
 import { NoteEditor } from "@/components/note-editor";
 import { Button } from "@/components/ui/button";
 import { createNoteAction, deleteInteractionAction } from "@/server/notes";
@@ -72,9 +73,13 @@ type FilterKey = (typeof FILTERS)[number]["key"];
 export function Timeline({
   items,
   newestNoteId,
+  aiEnabled = false,
+  summarizeThreshold = 1500,
 }: {
   items: TimelineItem[];
   newestNoteId: number | null;
+  aiEnabled?: boolean;
+  summarizeThreshold?: number;
 }) {
   const [pending, startTransition] = useTransition();
   const [filter, setFilter] = useState<FilterKey>("all");
@@ -157,20 +162,30 @@ export function Timeline({
                 />
               </div>
             ) : (
-              <NoteEditor
-                noteId={item.note.id}
-                initialBody={item.note.bodyMd}
-                countsForTouch={item.note.countsForTouch}
-                attachments={item.attachments.map((a) => ({
-                  id: a.id,
-                  filename: a.filename,
-                  mime: a.mime,
-                  url: `/api/attachments/${a.id}`,
-                  isImage: a.mime.startsWith("image/"),
-                }))}
-                createdAt={item.note.createdAt}
-                startInEdit={item.note.id === newestNoteId}
-              />
+              <>
+                {aiEnabled && (
+                  <AiNoteSummary
+                    noteId={item.note.id}
+                    bodyLength={item.note.bodyMd.length}
+                    summary={item.note.summaryAi}
+                    threshold={summarizeThreshold}
+                  />
+                )}
+                <NoteEditor
+                  noteId={item.note.id}
+                  initialBody={item.note.bodyMd}
+                  countsForTouch={item.note.countsForTouch}
+                  attachments={item.attachments.map((a) => ({
+                    id: a.id,
+                    filename: a.filename,
+                    mime: a.mime,
+                    url: `/api/attachments/${a.id}`,
+                    isImage: a.mime.startsWith("image/"),
+                  }))}
+                  createdAt={item.note.createdAt}
+                  startInEdit={item.note.id === newestNoteId}
+                />
+              </>
             )}
           </li>
         ) : (

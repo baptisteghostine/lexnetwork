@@ -8,6 +8,7 @@ import { TodayQueue, type DueItem } from "@/components/today-queue";
 import { TodayReminders } from "@/components/today-reminders";
 import { requireAuth } from "@/lib/auth";
 import { now as currentTime } from "@/lib/time";
+import { aiEnabled } from "@/server/ai-client";
 import { getTodayData } from "@/server/today-data";
 
 export const dynamic = "force-dynamic";
@@ -71,7 +72,7 @@ export default async function TodayPage() {
             <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Network updates
             </h2>
-            <TodayChanges items={data.changes} />
+            <TodayChanges items={data.changes} aiEnabled={aiEnabled()} />
           </section>
         )}
         {data.birthdays.length > 0 && (

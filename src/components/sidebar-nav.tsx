@@ -11,6 +11,7 @@ import {
   History,
   Import,
   Settings,
+  Sparkles,
   Sun,
   Tags,
   Users,
@@ -28,6 +29,7 @@ const ITEMS = [
   { href: "/groups", label: "Groups", icon: FolderTree },
   { href: "/imports", label: "Imports", icon: Import },
   { href: "/duplicates", label: "Duplicates", icon: Copy },
+  { href: "/ai", label: "AI", icon: Sparkles },
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
