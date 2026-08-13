@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   Bell,
+  Bookmark,
   FolderTree,
   Import,
   Search,
@@ -58,6 +59,9 @@ export function CommandPalette() {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<ContactHit[]>([]);
   const [noteHits, setNoteHits] = useState<NoteHit[]>([]);
+  const [savedViews, setSavedViews] = useState<{ id: number; name: string }[]>(
+    []
+  );
   const [active, setActive] = useState(0);
   const chordAt = useRef<number>(0);
   const requestSeq = useRef(0);
@@ -97,6 +101,21 @@ export function CommandPalette() {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, router]);
 
+  // Saved views load once per palette open (run-a-view actions).
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    fetch("/api/views")
+      .then((r) => (r.ok ? r.json() : { views: [] }))
+      .then((data: { views: { id: number; name: string }[] }) => {
+        if (!cancelled) setSavedViews(data.views ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
   // Debounced contact search; sequence guard drops stale responses.
   // (Empty-query clearing happens in the change handler, not here.)
   useEffect(() => {
@@ -124,9 +143,15 @@ export function CommandPalette() {
   }, [query, open]);
 
   const q = query.trim().toLowerCase();
-  const actions = [NEW_CONTACT, ...NAV].filter(
-    (a) => !q || a.label.toLowerCase().includes(q)
-  );
+  const actions = [
+    NEW_CONTACT,
+    ...savedViews.map((v) => ({
+      label: `View: ${v.name}`,
+      href: `/contacts?view=${v.id}`,
+      icon: Bookmark,
+    })),
+    ...NAV,
+  ].filter((a) => !q || a.label.toLowerCase().includes(q));
   const total = hits.length + noteHits.length + actions.length;
 
   const go = (index: number) => {

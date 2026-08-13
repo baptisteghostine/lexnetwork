@@ -1,16 +1,21 @@
 "use client";
 
+import { useState, useTransition } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Bell,
+  Bookmark,
   FolderTree,
   Import,
   Settings,
   Sun,
   Tags,
   Users,
+  X,
 } from "lucide-react";
+
+import { reorderViewsAction, setViewPinnedAction } from "@/server/views";
 
 const ITEMS = [
   { href: "/today", label: "Today", icon: Sun },
@@ -22,10 +27,24 @@ const ITEMS = [
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
-export function SidebarNav({ dueCount }: { dueCount: number }) {
+type ViewLink = { id: number; name: string };
+
+export function SidebarNav({
+  dueCount,
+  views,
+}: {
+  dueCount: number;
+  views: ViewLink[];
+}) {
   const pathname = usePathname();
+  const search = useSearchParams();
+  const router = useRouter();
+  const [, startTransition] = useTransition();
+  const [dragId, setDragId] = useState<number | null>(null);
+  const activeViewId = Number(search.get("view"));
+
   return (
-    <nav className="flex-1 space-y-0.5 px-2">
+    <nav className="flex-1 space-y-0.5 overflow-y-auto px-2">
       {ITEMS.map(({ href, label, icon: Icon }) => {
         const active =
           pathname === href || pathname.startsWith(`${href}/`);
@@ -56,6 +75,65 @@ export function SidebarNav({ dueCount }: { dueCount: number }) {
           </Link>
         );
       })}
+
+      {/* Saved views live in the sidebar, Dex-style (above Groups' page
+          link they'd sit in Dex; here below the fixed nav). */}
+      {views.length > 0 && (
+        <div className="pt-3">
+          <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Views
+          </p>
+          {views.map((v) => {
+            const active =
+              pathname === "/contacts" && activeViewId === v.id;
+            return (
+              <Link
+                key={v.id}
+                href={`/contacts?view=${v.id}`}
+                draggable
+                onDragStart={() => setDragId(v.id)}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (dragId === null || dragId === v.id) return;
+                  const ids = views.map((x) => x.id);
+                  const from = ids.indexOf(dragId);
+                  const to = ids.indexOf(v.id);
+                  ids.splice(from, 1);
+                  ids.splice(to, 0, dragId);
+                  setDragId(null);
+                  startTransition(async () => {
+                    await reorderViewsAction(ids);
+                    router.refresh();
+                  });
+                }}
+                className={`group flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] transition-colors [&_svg]:size-3.5 ${
+                  active
+                    ? "bg-accent font-medium text-primary [&_svg]:text-primary"
+                    : "text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+                }`}
+              >
+                <Bookmark />
+                <span className="min-w-0 flex-1 truncate">{v.name}</span>
+                <button
+                  aria-label={`Unpin view ${v.name}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    startTransition(async () => {
+                      await setViewPinnedAction(v.id, false);
+                      router.refresh();
+                    });
+                  }}
+                  className="opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+                >
+                  <X className="size-3" />
+                </button>
+              </Link>
+            );
+          })}
+        </div>
+      )}
     </nav>
   );
 }

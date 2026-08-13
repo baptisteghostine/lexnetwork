@@ -12,20 +12,26 @@ const DB_PATH = path.join(DATA_DIR, "rolo.db");
 
 export type Db = BetterSQLite3Database<typeof schema>;
 
-function open(): Db {
+function open(): { db: Db; raw: Database.Database } {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   const sqlite = new Database(DB_PATH);
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("synchronous = NORMAL");
   sqlite.pragma("foreign_keys = ON");
   sqlite.pragma("busy_timeout = 5000");
-  return drizzle(sqlite, { schema });
+  return { db: drizzle(sqlite, { schema }), raw: sqlite };
 }
 
 // Survive Next.js dev-server HMR without leaking connections.
-const globalForDb = globalThis as unknown as { __roloDb?: Db };
+const globalForDb = globalThis as unknown as {
+  __roloDb?: { db: Db; raw: Database.Database };
+};
 
-export const db: Db = globalForDb.__roloDb ?? open();
-if (process.env.NODE_ENV !== "production") globalForDb.__roloDb = db;
+const opened = globalForDb.__roloDb ?? open();
+if (process.env.NODE_ENV !== "production") globalForDb.__roloDb = opened;
+
+export const db: Db = opened.db;
+// For compiled dynamic SQL (filter engine) — same single connection.
+export const rawDb: Database.Database = opened.raw;
 
 export { DATA_DIR, DB_PATH };
