@@ -1,0 +1,26 @@
+BEGIN:VCARD
+VERSION:3.0
+N:Doe;Jane;Middle;;
+FN:Jane Doe
+ORG:Acme Corp;Engineering
+TITLE:VP Engineering
+EMAIL;TYPE=WORK:jane.doe@acme.example
+EMAIL;TYPE=HOME:jane@personal.example
+TEL;TYPE=CELL:+41 79 123 45 67
+BDAY:1988-06-15
+URL:https://www.linkedin.com/in/jane-doe-example
+NOTE:Met at ETH reunion\, great chat about robotics.
+ADR;TYPE=HOME:;;Bahnhofstrasse 1;Zurich;ZH;8001;Switzerland
+END:VCARD
+BEGIN:VCARD
+VERSION:4.0
+N:Smith;Bob;;;
+FN:Bob Smith
+ORG:Globex
+EMAIL:bob.smith@globex.example
+TEL;TYPE=cell:+14155550100
+BDAY:--1201
+URL:https://github.com/bobsmith-example
+NOTE:This note is folded across two physical lines to
+  test line unfolding in the parser.
+END:VCARD

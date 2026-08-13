@@ -1,0 +1,5 @@
+First Name,Middle Name,Last Name,Phonetic First Name,Phonetic Middle Name,Phonetic Last Name,Name Prefix,Name Suffix,Nickname,File As,Organization Name,Organization Title,Organization Department,Birthday,Notes,Photo,Labels,E-mail 1 - Label,E-mail 1 - Value,E-mail 2 - Label,E-mail 2 - Value,Phone 1 - Label,Phone 1 - Value,Website 1 - Label,Website 1 - Value
+Jane,,Doe,,,,,,,,Acme Corp,VP Engineering,,1988-06-15,Met at ETH reunion,,* myContacts,Work,jane.doe@acme.example,Home,jane@personal.example,Mobile,+41 79 123 45 67,Profile,https://www.linkedin.com/in/jane-doe-example
+Bob,,Smith,,,,,,,,Globex,Designer,,--12-01,,,* myContacts,Work,bob.smith@globex.example,,,Mobile,+1 415 555 0100,,
+"Chloé","","Van Damme, Jr.",,,,,,,,"Widgets, Inc.","Head of ""Special"" Projects",,,"Line one
+Line two",,* myContacts,Home,chloe@vandamme.example,,,,,,,
