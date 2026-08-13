@@ -3,6 +3,7 @@ import Link from "next/link";
 import { and, asc, eq, isNotNull, isNull, lte, sql } from "drizzle-orm";
 
 import { CommandPalette } from "@/components/command-palette";
+import { ShortcutOverlay } from "@/components/shortcut-overlay";
 import { SidebarNav } from "@/components/sidebar-nav";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
@@ -83,6 +84,7 @@ export default async function AppLayout({
       </aside>
       <main className="min-w-0 flex-1">{children}</main>
       <CommandPalette />
+      <ShortcutOverlay />
     </div>
   );
 }

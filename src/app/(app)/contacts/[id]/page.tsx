@@ -5,8 +5,13 @@ import { CircleAlert, Star } from "lucide-react";
 import { CadenceControl } from "@/components/cadence-control";
 import { ContactActions } from "@/components/contact-actions";
 import { ContactAvatar } from "@/components/contact-avatar";
+import { CustomFieldValues } from "@/components/custom-field-values";
 import { LogInteraction } from "@/components/log-interaction";
 import { AddNoteButton, Timeline } from "@/components/timeline";
+import {
+  getCustomFieldValues,
+  listCustomFields,
+} from "@/server/custom-fields";
 import { requireAuth } from "@/lib/auth";
 import { DAY_MS } from "@/lib/cadence/engine";
 import { now as currentTime } from "@/lib/time";
@@ -57,6 +62,8 @@ export default async function ContactPage({
     .filter((t): t is NonNullable<typeof t> => Boolean(t));
   const groupIds = new Set(getContactGroupIds(contactId));
   const contactGroups = listGroups().filter((g) => groupIds.has(g.id));
+  const customFields = await listCustomFields();
+  const customValues = await getCustomFieldValues(contactId);
 
   const birthday =
     contact.birthdayMonth && contact.birthdayDay
@@ -241,6 +248,17 @@ export default async function ContactPage({
               </Field>
             ) : null}
           </dl>
+
+          {customFields.length > 0 ? (
+            <>
+              <Separator />
+              <CustomFieldValues
+                contactId={contact.id}
+                fields={customFields}
+                values={customValues}
+              />
+            </>
+          ) : null}
 
           {contact.descriptionMd ? (
             <>
