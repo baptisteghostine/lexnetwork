@@ -242,6 +242,27 @@ Re-running any import with the same file: 100% unchanged, zero writes. An identi
 - [ ] Two consecutive syncs with no new mail: second run's stats are all-zero (cursor works; no rescan).
 - [ ] Calendar meeting from yesterday with a contact attendee appears on their timeline after sync; a declined meeting does not.
 
+## 9a. LinkedIn automatic sync (Member Data Portability API)
+
+*Added 2026-08-13 at the owner's request ("I really want the possibility to update automatically"), amending the LinkedIn invariant in CLAUDE.md. The invariant's spirit holds: official, owner-consented channels only — this API is LinkedIn's DMA-mandated self-serve product, the export ZIP as an authorized endpoint.*
+
+### Behavior
+- The owner creates their own LinkedIn developer app with the **Member Data Portability API (Member)** product (EEA/CH members only), enters its client id/secret in Settings, and connects via OAuth (`r_dma_portability_self_serve` scope).
+- Sync pulls the **CONNECTIONS** snapshot (`GET /rest/memberSnapshotData?q=criteria&domain=CONNECTIONS`, `LinkedIn-Version` header, `start` pagination) and feeds the records — which mirror Connections.csv — into the **same import core as the ZIP** (`executeLinkedInRows`): same identity ladder, provenance rules, job-change detection, `contact_changes` rows, Today cards.
+- Runs weekly as a `linkedin_sync` job, plus a "Sync connections now" button in Settings.
+- **Domains are discovered, never assumed.** LinkedIn varies the snapshot domain set per product/version; the observed list is stored on the account row and shown in Settings. If CONNECTIONS isn't offered, sync reports exactly that and the ZIP path carries on unaffected.
+- The ZIP import remains first-class: it is the only source of **message history** (the snapshot's CONNECTIONS domain has no conversations), and the fallback for non-EEA accounts or missing domains.
+
+### Edge cases
+- Self-serve tokens have no refresh token and last ~60 days: expiry flips the account to an error status with a "reconnect" message — never silent.
+- LinkedIn prepares the snapshot archive asynchronously after first consent: connect succeeds with an empty domain list and a hint to retry shortly; every sync re-discovers domains.
+- Records with no name and no profile URL are dropped (no identity to match or create).
+
+### Acceptance criteria
+- [ ] Auth URL requests exactly `r_dma_portability_self_serve`; snapshot requests carry `LinkedIn-Version` (test on the request builders).
+- [ ] Snapshot CONNECTIONS records map to the ZIP row shape across header variants (test) and a re-sync of identical data is all-unchanged/zero-writes (same idempotence AC as §8).
+- [ ] A token without the CONNECTIONS domain produces a failed `linkedin_api_sync` run whose error says so, and no writes.
+
 ---
 
 ## 10. Deduplication & Merge
@@ -328,3 +349,4 @@ All features: model from `ANTHROPIC_MODEL` env var; every call logged to `ai_cal
 4. **Geocoding provider** (§1/§7): CONFIRMED — Nominatim (OpenStreetMap) with heavy caching, off by default; radius filter disabled with tooltip until enabled in settings.
 5. **Notes counting as interactions** (§3): default toggle stands as specced — on for notes created via Today's "log interaction", off for plain notes.
 6. **Auth setup** (owner decision): first-run setup screen creates the password (hash in `settings`), changeable in settings; recovery via documented CLI reset script. No password env var.
+7. **LinkedIn automatic sync** (owner decision, 2026-08-13): add the Member Data Portability API as a second official ingestion channel (§9a); the scraping/automation prohibition stands.

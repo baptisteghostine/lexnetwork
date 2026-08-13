@@ -89,7 +89,9 @@ Multi-user auth, roles/permissions, teams, deal pipelines/stages/revenue, email 
 
 **Privacy invariants:** Gmail sync is `gmail.metadata` scope only — sender/recipients, subject, thread id, timestamp. Never fetch, store, or log message bodies. No third-party network calls except integrations the owner explicitly configured (Google APIs, Anthropic API, geocoding if configured).
 
-**LinkedIn invariant:** LinkedIn data enters only via the official data-export ZIP the owner uploads. Making that monthly import effortless is a first-class product problem, not a fallback.
+**LinkedIn invariant** (amended 2026-08-13, owner request): LinkedIn data enters only through official, owner-consented channels — the data-export ZIP the owner uploads, and the Member Data Portability API (the DMA self-serve product, EEA/CH members) connected by the owner in Settings. Both feed the same import engine. Scraping, browser automation, and unofficial endpoints remain forbidden. The ZIP ritual stays first-class: it is the only source of message history and the fallback when the API isn't available.
+
+**Outbound HTTP** goes through `src/lib/net/fetch.ts` (`outboundFetch`) — a host allowlist enforcing the privacy invariant. Never call `fetch` directly for external hosts; add a host to the allowlist only alongside an owner-configurable integration.
 
 ## Working Agreements
 

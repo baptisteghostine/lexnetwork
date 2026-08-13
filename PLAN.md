@@ -24,9 +24,24 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   Today "Network updates" cards + digest section, messages → counting
   interactions, work-history end-dating, unmatched-conversation picker
   (0007/0008; interactions.sync_run_id backfilled per SCHEMA.md)
-- ⬜ **Phase 8 → 11** — next up: Google sync (Gmail metadata + Calendar)
+- ✅ **Hardening pass** (post-7) — CAS job/reminder claims, bounded contacts
+  list with total count, archived-aware search candidates
+- ✅ **Phase 8** — Google sync (0009): OAuth, Gmail metadata backfill +
+  historyId incremental (metadata-only enforced by builders + tests, no `q`
+  param — client-side window cutoff), Calendar window + syncToken sync,
+  calendar_events agenda cache + Today agenda section, Settings →
+  Integrations panel (creds, status, cursors, sync-now), outbound-host
+  allowlist fetch wrapper + encrypted tokens at rest (both pulled forward
+  from Phase 11). **Plus §9a (owner request): LinkedIn Member Data
+  Portability API** — official EEA self-serve product, weekly CONNECTIONS
+  snapshot into the same import core as the ZIP, runtime domain discovery.
+  Deferred from Phase 8 scope: optional contacts.readonly People import
+  (separate consent, not yet built); live-API manual test still pending —
+  all engines are fixture-tested, the real-account pass happens on first
+  deploy (SPEC §9 documents this as the phase's known risk).
+- ⬜ **Phase 9 → 11** — next up: dedupe & merge
 
-158 unit tests passing as of Phase 7. Open questions from SPEC.md's decision
+202 unit tests passing as of Phase 8. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---
