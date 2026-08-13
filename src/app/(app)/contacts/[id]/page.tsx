@@ -7,6 +7,8 @@ import { ContactActions } from "@/components/contact-actions";
 import { ContactAvatar } from "@/components/contact-avatar";
 import { CustomFieldValues } from "@/components/custom-field-values";
 import { LogInteraction } from "@/components/log-interaction";
+import { RelationshipsCard } from "@/components/relationships-card";
+import { readRelationships } from "@/server/relationships";
 import { AddNoteButton, Timeline } from "@/components/timeline";
 import {
   getCustomFieldValues,
@@ -73,6 +75,7 @@ export default async function ContactPage({
   const contactGroups = listGroups().filter((g) => groupIds.has(g.id));
   const customFields = await listCustomFields();
   const customValues = await getCustomFieldValues(contactId);
+  const relationships = await readRelationships(contactId);
 
   const birthday =
     contact.birthdayMonth && contact.birthdayDay
@@ -320,6 +323,9 @@ export default async function ContactPage({
               />
             </>
           ) : null}
+
+          <Separator />
+          <RelationshipsCard contactId={contact.id} edges={relationships} />
 
           {contact.descriptionMd ? (
             <>

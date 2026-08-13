@@ -17,6 +17,7 @@ import { getAccount } from "@/server/sync/accounts";
 import { runCalendarSync } from "@/server/sync/calendar";
 import { runGmailSync } from "@/server/sync/gmail";
 import { runLinkedInSync } from "@/server/sync/linkedin";
+import { runDedupeScan } from "@/server/dedupe-scan";
 import {
   getVoyagerSession,
   isVoyagerEnabled,
@@ -49,6 +50,9 @@ const HANDLERS: Record<string, Handler> = {
   linkedin_voyager_sync: async () => {
     await runVoyagerSync();
   },
+  dedupe_scan: async () => {
+    runDedupeScan();
+  },
 };
 
 function providerActive(provider: "google" | "linkedin"): boolean {
@@ -60,7 +64,12 @@ function providerActive(provider: "google" | "linkedin"): boolean {
 // LinkedIn snapshots move slowly — weekly (SPEC §9a/§9b). Each entry's
 // `connected` gate decides whether its job should exist at all.
 const SYNC_JOBS: {
-  kind: "gmail_sync" | "calendar_sync" | "linkedin_sync" | "linkedin_voyager_sync";
+  kind:
+    | "gmail_sync"
+    | "calendar_sync"
+    | "linkedin_sync"
+    | "linkedin_voyager_sync"
+    | "dedupe_scan";
   connected: () => boolean;
   intervalMs: number;
 }[] = [
@@ -75,6 +84,9 @@ const SYNC_JOBS: {
     connected: () => isVoyagerEnabled() && getVoyagerSession() !== null,
     intervalMs: 7 * 24 * 3600 * 1000,
   },
+  // Dedupe is always on (SPEC §10): the queue only fills as sources add
+  // overlapping contacts, and an empty scan is cheap.
+  { kind: "dedupe_scan", connected: () => true, intervalMs: 24 * 3600 * 1000 },
 ];
 
 /**

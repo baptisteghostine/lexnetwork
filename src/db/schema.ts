@@ -585,6 +585,78 @@ export const interactions = sqliteTable(
   ]
 );
 
+// Dedupe suggestion queue (SCHEMA.md `duplicate_candidates`, SPEC §10).
+// Dismissal memory lives here: 'dismissed' rows persist and suppress
+// re-suggestion; 'merged' rows record the pair's resolution.
+export const duplicateCandidates = sqliteTable(
+  "duplicate_candidates",
+  {
+    id: integer("id").primaryKey(),
+    // Canonical a < b.
+    contactAId: integer("contact_a_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    contactBId: integer("contact_b_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    score: real("score").notNull(),
+    // e.g. ["email_match","jw:0.93","same_company"]
+    reasonsJson: text("reasons_json").notNull(),
+    // 'open' | 'dismissed' | 'merged'
+    status: text("status").notNull(),
+    createdAt: integer("created_at").notNull(),
+    resolvedAt: integer("resolved_at"),
+  },
+  (t) => [
+    uniqueIndex("uq_duplicate_pair").on(t.contactAId, t.contactBId),
+    index("idx_duplicates_status").on(t.status, t.score),
+  ]
+);
+
+// Merge audit + undo source of truth (SCHEMA.md `merge_log`). Deliberately
+// no FKs on contact ids: the winner may itself merge away later and the
+// log must stay immutable — the undo path verifies referents in code.
+export const mergeLog = sqliteTable(
+  "merge_log",
+  {
+    id: integer("id").primaryKey(),
+    winnerContactId: integer("winner_contact_id").notNull(),
+    loserContactId: integer("loser_contact_id").notNull(),
+    // Full loser row + all child rows, enough to rebuild it byte-identical.
+    loserSnapshotJson: text("loser_snapshot_json").notNull(),
+    // Id lists per table moved to the winner, for repointing back on undo.
+    repointedJson: text("repointed_json").notNull(),
+    fieldDecisionsJson: text("field_decisions_json").notNull(),
+    mergedAt: integer("merged_at").notNull(),
+    undoneAt: integer("undone_at"),
+  },
+  (t) => [index("idx_merge_log_time").on(t.mergedAt)]
+);
+
+// Related-contacts edges (SCHEMA.md `contact_relationships`). Canonical
+// contact_a_id < contact_b_id; direction-bearing labels set `directed`
+// with the convention that the relation reads A→B ("A introduced_by B").
+export const contactRelationships = sqliteTable(
+  "contact_relationships",
+  {
+    id: integer("id").primaryKey(),
+    contactAId: integer("contact_a_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    contactBId: integer("contact_b_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    directed: integer("directed", { mode: "boolean" }).notNull().default(false),
+    note: text("note"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("uq_relationship").on(t.contactAId, t.contactBId, t.label),
+    index("idx_relationships_b").on(t.contactBId),
+  ]
+);
+
 export type Contact = typeof contacts.$inferSelect;
 export type NewContact = typeof contacts.$inferInsert;
 export type ContactEmail = typeof contactEmails.$inferSelect;

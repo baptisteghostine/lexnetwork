@@ -50,9 +50,19 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   pre-Phase-5 build was superseded in the branch consolidation. Off by
   default; ToS tradeoff and no-evasion constraints recorded in CLAUDE.md
   §LinkedIn and SPEC §9b. Awaits its first live run with a real session.
-- ⬜ **Phase 9 → 11** — next up: dedupe & merge
+- ✅ **Phase 9** — dedupe & merge (0010: duplicate_candidates, merge_log,
+  contact_relationships). Matcher per SPEC §10 (normalized-email 1.0 with
+  gmail rules, E.164 0.95, nickname-aware Jaro-Winkler bands with
+  company/org-domain/group corroboration, bucketed blocking for 10k-scale),
+  daily `dedupe_scan` job + scan-now, suggestion queue at /duplicates with
+  dismissal memory, field-by-field merge screen with provenance and union
+  preview, repoint-everything merge transaction (snapshot → repoint →
+  cascade), full undo with conflicting-edit refusal, related-contacts
+  edges on the profile. Ordering deviation for directed relationship
+  edges recorded in SCHEMA.md.
+- ⬜ **Phase 10 → 11** — next up: AI layer
 
-240 unit tests passing as of §9b. Open questions from SPEC.md's decision
+265 unit tests passing as of Phase 9. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---

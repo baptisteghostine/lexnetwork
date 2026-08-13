@@ -164,8 +164,8 @@ Everything externally-sourced or manually logged (notes live in `notes`):
 
 ## contact_relationships
 
-`id, contact_a_id FK CASCADE, contact_b_id FK CASCADE, label TEXT ('introduced_by','colleague','spouse','friend','knows'…free text allowed), note TEXT, created_at`.
-- Stored canonicalized `contact_a_id < contact_b_id`, `UNIQUE(contact_a_id, contact_b_id, label)`, index on `contact_b_id`. Direction-bearing labels ('introduced_by') store direction in a `directed INTEGER` flag + convention that A→B; UI renders both ways.
+`id, contact_a_id FK CASCADE, contact_b_id FK CASCADE, label TEXT ('introduced_by','colleague','spouse','friend','knows'…free text allowed), directed INTEGER 0/1, note TEXT, created_at`.
+- `UNIQUE(contact_a_id, contact_b_id, label)`, index on `contact_b_id`. Ordering rule (amended in Phase 9 — the original "always canonicalize a<b + directed flag" was self-contradictory, since forcing a<b can flip a directed edge's meaning): **undirected edges are stored canonicalized `contact_a_id < contact_b_id`; directed edges store semantic order**, reading A→B ("A introduced_by B"). UI renders both ways.
 
 ## integration_accounts
 
@@ -195,6 +195,7 @@ Covers **both** API syncs and file imports (one lifecycle: started → stats →
 
 `id, winner_contact_id INTEGER NOT NULL (no FK — winner may itself later merge away; keep the log immutable), loser_contact_id INTEGER NOT NULL, loser_snapshot_json TEXT NOT NULL (full loser row + all child rows), repointed_json TEXT NOT NULL (id lists per table moved to winner), field_decisions_json TEXT NOT NULL, merged_at INTEGER NOT NULL, undone_at INTEGER`.
 - Everything needed for undo is in the log itself; no soft-deleted ghost contact rows.
+- `field_decisions_json` holds `{decisions, winnerBefore, winnerAfter}` — the winner's full pre-merge row (undo restores it byte-identical) and post-merge row (undo compares profile columns against it and refuses when they've since been edited).
 
 ## duplicate_candidates  *(added table — dedupe queue)*
 

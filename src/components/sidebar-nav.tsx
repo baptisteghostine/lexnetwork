@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Bell,
   Bookmark,
+  Copy,
   FolderTree,
   History,
   Import,
@@ -26,6 +27,7 @@ const ITEMS = [
   { href: "/tags", label: "Tags", icon: Tags },
   { href: "/groups", label: "Groups", icon: FolderTree },
   { href: "/imports", label: "Imports", icon: Import },
+  { href: "/duplicates", label: "Duplicates", icon: Copy },
   { href: "/settings", label: "Settings", icon: Settings },
 ] as const;
 
@@ -33,9 +35,11 @@ type ViewLink = { id: number; name: string };
 
 export function SidebarNav({
   dueCount,
+  duplicateCount,
   views,
 }: {
   dueCount: number;
+  duplicateCount: number;
   views: ViewLink[];
 }) {
   const pathname = usePathname();
@@ -63,7 +67,8 @@ export function SidebarNav({
           >
             <Icon />
             <span className="flex-1">{label}</span>
-            {href === "/today" && dueCount > 0 ? (
+            {(href === "/today" && dueCount > 0) ||
+            (href === "/duplicates" && duplicateCount > 0) ? (
               <span
                 className={`rounded-full px-1.5 py-px text-[10px] font-semibold tabular-nums ${
                   active
@@ -71,7 +76,7 @@ export function SidebarNav({
                     : "bg-muted text-muted-foreground"
                 }`}
               >
-                {dueCount}
+                {href === "/today" ? dueCount : duplicateCount}
               </span>
             ) : null}
           </Link>

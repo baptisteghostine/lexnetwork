@@ -8,7 +8,7 @@ import { SidebarNav } from "@/components/sidebar-nav";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { db } from "@/db/client";
-import { contacts, reminders, views } from "@/db/schema";
+import { contacts, duplicateCandidates, reminders, views } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
 import { now as currentTime } from "@/lib/time";
 import { logoutAction } from "@/server/auth";
@@ -48,6 +48,12 @@ export default async function AppLayout({
       )
       .get()?.n ?? 0;
   const dueCount = dueContactCount + dueReminderCount;
+  const duplicateCount =
+    db
+      .select({ n: sql<number>`count(*)` })
+      .from(duplicateCandidates)
+      .where(eq(duplicateCandidates.status, "open"))
+      .get()?.n ?? 0;
   const pinnedViews = db
     .select({ id: views.id, name: views.name })
     .from(views)
@@ -68,7 +74,11 @@ export default async function AppLayout({
             Rolo
           </Link>
         </div>
-        <SidebarNav dueCount={dueCount} views={pinnedViews} />
+        <SidebarNav
+          dueCount={dueCount}
+          duplicateCount={duplicateCount}
+          views={pinnedViews}
+        />
         <div className="flex items-center justify-between gap-1 border-t border-border p-2">
           <form action={logoutAction} className="flex-1">
             <Button
