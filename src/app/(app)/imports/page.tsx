@@ -6,6 +6,7 @@ import { db } from "@/db/client";
 import { syncRuns } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
 import type { ImportStats } from "@/lib/imports/types";
+import { reclaimStaleRuns } from "@/server/import-engine";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,7 @@ const KIND_LABEL: Record<string, string> = {
 export default async function ImportsPage() {
   // Pages guard themselves — see contacts/page.tsx for why.
   await requireAuth();
+  reclaimStaleRuns();
   const runs = db
     .select({
       id: syncRuns.id,

@@ -3,7 +3,7 @@ import "server-only";
 import fs from "node:fs";
 import path from "node:path";
 
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, lt } from "drizzle-orm";
 
 import { DATA_DIR, db } from "@/db/client";
 import {
@@ -343,6 +343,27 @@ function applyPlan(
 }
 
 // ---------- orchestration ----------
+
+// A run older than this still marked 'running' means the process died
+// mid-import (rows are applied per-row transactionally, so partial work
+// is consistent — the run just never got its final status).
+const STALE_RUN_MS = 60 * 60 * 1000;
+
+export function reclaimStaleRuns(): void {
+  db.update(syncRuns)
+    .set({
+      status: "failed",
+      error: "Interrupted — the app stopped before this run finished.",
+      finishedAt: Date.now(),
+    })
+    .where(
+      and(
+        eq(syncRuns.status, "running"),
+        lt(syncRuns.startedAt, Date.now() - STALE_RUN_MS)
+      )
+    )
+    .run();
+}
 
 export type ImportRunResult =
   | { duplicateOf: number }

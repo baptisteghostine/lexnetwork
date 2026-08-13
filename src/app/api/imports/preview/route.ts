@@ -18,6 +18,22 @@ import { getSetting } from "@/lib/settings";
 const MAX_BYTES = 50 * 1024 * 1024;
 const TMP_DIR = path.join(DATA_DIR, "imports", "tmp");
 
+// Uploads are only deleted on a successful apply; dry runs and abandoned
+// previews would otherwise accumulate forever.
+const MAX_UPLOAD_AGE_MS = 24 * 60 * 60 * 1000;
+
+function cleanStaleUploads(): void {
+  const cutoff = Date.now() - MAX_UPLOAD_AGE_MS;
+  for (const name of fs.readdirSync(TMP_DIR)) {
+    const p = path.join(TMP_DIR, name);
+    try {
+      if (fs.statSync(p).mtimeMs < cutoff) fs.rmSync(p, { force: true });
+    } catch {
+      // Raced with another cleanup or the run step — nothing to do.
+    }
+  }
+}
+
 // Parse an uploaded file, stash it for the run step, return preview data.
 export async function POST(req: NextRequest) {
   if (!(await isAuthenticated())) {
@@ -40,6 +56,7 @@ export async function POST(req: NextRequest) {
 
   const token = crypto.randomBytes(16).toString("hex");
   fs.mkdirSync(TMP_DIR, { recursive: true });
+  cleanStaleUploads();
   fs.writeFileSync(path.join(TMP_DIR, token), buf);
   fs.writeFileSync(
     path.join(TMP_DIR, `${token}.meta.json`),
