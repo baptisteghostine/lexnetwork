@@ -5,18 +5,21 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull, ne } from "drizzle-orm"
 import { db } from "@/db/client";
 import {
   attachments,
+  contactChanges,
   contactEmails,
   contactFieldSources,
   contactPhones,
   contacts,
   contactSocials,
   contactTags,
+  education,
   groupMembers,
   groups,
   interactions,
   noteMentions,
   notes,
   tags,
+  workHistory,
 } from "@/db/schema";
 
 export type ContactSort = "name" | "company" | "recent";
@@ -92,6 +95,18 @@ export function getContactDetail(contactId: number) {
       .where(eq(contactTags.contactId, contactId))
       .all()
       .map((r) => r.tagId),
+    workHistory: db
+      .select()
+      .from(workHistory)
+      .where(eq(workHistory.contactId, contactId))
+      .orderBy(desc(workHistory.isCurrent), desc(workHistory.startDate))
+      .all(),
+    education: db
+      .select()
+      .from(education)
+      .where(eq(education.contactId, contactId))
+      .orderBy(desc(education.endYear))
+      .all(),
     // field → where its current value came from (SPEC §1 hover provenance).
     provenance: Object.fromEntries(
       db
@@ -141,7 +156,12 @@ export type TimelineInteraction = {
   at: number;
   interaction: typeof interactions.$inferSelect;
 };
-export type TimelineItem = TimelineNote | TimelineInteraction;
+export type TimelineChange = {
+  type: "change";
+  at: number;
+  change: typeof contactChanges.$inferSelect;
+};
+export type TimelineItem = TimelineNote | TimelineInteraction | TimelineChange;
 
 export function getContactTimeline(contactId: number): TimelineItem[] {
   const ownNotes = db
@@ -229,6 +249,15 @@ export function getContactTimeline(contactId: number): TimelineItem[] {
         interaction: i,
       })
     ),
+    // Field changes belong on the timeline (SPEC §2) — dismissed or not.
+    ...db
+      .select()
+      .from(contactChanges)
+      .where(eq(contactChanges.contactId, contactId))
+      .all()
+      .map(
+        (c): TimelineChange => ({ type: "change", at: c.detectedAt, change: c })
+      ),
   ];
   items.sort((a, b) => b.at - a.at);
   return items;

@@ -30,6 +30,12 @@ export function buildTodayDigest(now: number): DigestEmail {
       daysOverdue: c.daysOverdue,
       starred: c.starred,
     })),
+    changes: data.changes.map((c) => ({
+      displayName: c.contactName,
+      field: c.field,
+      oldValue: c.oldValue,
+      newValue: c.newValue,
+    })),
     birthdays: data.birthdays.map((b) => ({
       displayName: b.displayName,
       daysUntil: b.daysUntil,

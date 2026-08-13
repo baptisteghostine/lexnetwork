@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import {
   Bell,
+  Briefcase,
   Calendar,
   Handshake,
   Mail,
@@ -86,7 +87,11 @@ export function Timeline({
     );
   }
   const visible = items.filter((i) =>
-    filter === "all" ? true : filter === "notes" ? i.type === "note" : i.type === "interaction"
+    filter === "all"
+      ? true
+      : filter === "notes"
+        ? i.type === "note"
+        : i.type === "interaction" || i.type === "change"
   );
   return (
     <div className="space-y-2">
@@ -112,7 +117,24 @@ export function Timeline({
       ) : null}
       <ol className="space-y-2">
         {visible.map((item) =>
-        item.type === "note" ? (
+        item.type === "change" ? (
+          <li
+            key={`c${item.change.id}`}
+            className="flex items-center gap-2.5 rounded-md border border-border/60 px-3 py-2"
+          >
+            <span className="text-muted-foreground">
+              <Briefcase className="size-3.5" />
+            </span>
+            <span className="text-[13px] font-medium capitalize">
+              {item.change.field} change
+            </span>
+            <span className="truncate text-[13px] text-muted-foreground">
+              {item.change.oldValue ?? "—"} → {item.change.newValue ?? "—"}
+            </span>
+            <span className="flex-1" />
+            <When at={item.at} />
+          </li>
+        ) : item.type === "note" ? (
           <li key={`n${item.note.id}`}>
             {item.mentionedOnly ? (
               <div className="rounded-md border border-dashed border-border p-3">

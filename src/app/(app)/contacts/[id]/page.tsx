@@ -48,7 +48,16 @@ export default async function ContactPage({
     ? getContactDetail(contactId)
     : null;
   if (!detail) notFound();
-  const { contact, emails, phones, socials, tagIds, provenance } = detail;
+  const {
+    contact,
+    emails,
+    phones,
+    socials,
+    tagIds,
+    provenance,
+    workHistory,
+    education,
+  } = detail;
   const timeline = getContactTimeline(contactId);
   // A just-created empty note opens directly in edit mode.
   const newestEmptyNote = timeline.find(
@@ -248,6 +257,58 @@ export default async function ContactPage({
               </Field>
             ) : null}
           </dl>
+
+          {workHistory.length > 0 ? (
+            <>
+              <Separator />
+              <div className="space-y-1.5">
+                <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Work history
+                </h3>
+                {workHistory.map((w) => (
+                  <div key={w.id} className="text-[13px]">
+                    <span className="font-medium">{w.company}</span>
+                    {w.title ? (
+                      <span className="text-muted-foreground"> · {w.title}</span>
+                    ) : null}
+                    <span className="block text-[11px] text-muted-foreground">
+                      {w.isCurrent
+                        ? `${w.startDate ?? "…"} – now`
+                        : `${w.startDate ?? "…"} – ${w.endDate ?? "…"}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : null}
+
+          {education.length > 0 ? (
+            <>
+              <Separator />
+              <div className="space-y-1.5">
+                <h3 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Education
+                </h3>
+                {education.map((e) => (
+                  <div key={e.id} className="text-[13px]">
+                    <span className="font-medium">{e.school}</span>
+                    {e.degree || e.field ? (
+                      <span className="text-muted-foreground">
+                        {" "}
+                        · {[e.degree, e.field].filter(Boolean).join(", ")}
+                      </span>
+                    ) : null}
+                    {e.endYear ? (
+                      <span className="block text-[11px] text-muted-foreground">
+                        {e.startYear ? `${e.startYear} – ` : ""}
+                        {e.endYear}
+                      </span>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : null}
 
           {customFields.length > 0 ? (
             <>

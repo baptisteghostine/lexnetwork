@@ -12,6 +12,12 @@ export type DigestInput = {
     daysOverdue: number;
     starred: boolean;
   }[];
+  changes: {
+    displayName: string;
+    field: "company" | "title";
+    oldValue: string | null;
+    newValue: string | null;
+  }[];
   birthdays: { displayName: string; daysUntil: number; turns: number | null }[];
 };
 
@@ -51,6 +57,8 @@ export function buildDigest(input: DigestInput): DigestEmail {
       `${input.dueContacts.length} due`,
     input.reminders.length &&
       `${input.reminders.length} reminder${input.reminders.length > 1 ? "s" : ""}`,
+    input.changes.length &&
+      `${input.changes.length} job change${input.changes.length > 1 ? "s" : ""}`,
     input.birthdays.length &&
       `${input.birthdays.length} birthday${input.birthdays.length > 1 ? "s" : ""}`,
   ].filter(Boolean) as string[];
@@ -116,6 +124,31 @@ export function buildDigest(input: DigestInput): DigestEmail {
           .map(
             (c) =>
               `- ${c.starred ? "* " : ""}${c.displayName}${c.daysOverdue > 0 ? ` — ${c.daysOverdue}d overdue` : " — due today"}`
+          )
+          .join("\n")
+    );
+  }
+
+  if (input.changes.length) {
+    parts.push(
+      section(
+        "Job changes — reasons to reach out",
+        input.changes
+          .map((c) =>
+            row(
+              `${esc(c.displayName)} <span style="color:${MUTED}">${esc(c.oldValue ?? "—")} →</span> ${esc(c.newValue ?? "—")}`,
+              c.field
+            )
+          )
+          .join("")
+      )
+    );
+    textParts.push(
+      "JOB CHANGES\n" +
+        input.changes
+          .map(
+            (c) =>
+              `- ${c.displayName}: ${c.oldValue ?? "—"} → ${c.newValue ?? "—"} (${c.field})`
           )
           .join("\n")
     );

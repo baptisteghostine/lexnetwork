@@ -36,7 +36,12 @@ export async function acceptConflictAction(
   if (field === "birthday" && !birthday) {
     return { error: "Unparseable birthday value." };
   }
-  const source = run.kind === "vcard_import" ? "vcard" : "csv";
+  const source =
+    run.kind === "vcard_import"
+      ? "vcard"
+      : run.kind === "linkedin_import"
+        ? "linkedin"
+        : "csv";
 
   db.transaction(() => {
     applyScalarWrite(contactId, field, value, birthday, now);

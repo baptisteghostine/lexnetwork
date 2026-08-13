@@ -15,6 +15,14 @@ const FIXTURE: DigestInput = {
     { displayName: "Ana Silva", title: "Product Lead", company: "Anthropic", daysOverdue: 2, starred: true },
     { displayName: "Diego Fernandez", title: "Angel Investor", company: null, daysOverdue: 9, starred: false },
   ],
+  changes: [
+    {
+      displayName: "Ana Silva",
+      field: "company",
+      oldValue: "Stripe",
+      newValue: "Anthropic",
+    },
+  ],
   birthdays: [{ displayName: "Lucia Moreno", daysUntil: 1, turns: 35 }],
 };
 
@@ -33,7 +41,11 @@ describe("buildDigest", () => {
       expect(email.text).toContain(name);
     }
     // Counts in the subject match the fixture exactly.
-    expect(email.subject).toBe("Rolo: 2 due · 2 reminders · 1 birthday — Thu, Aug 13");
+    expect(email.subject).toBe(
+      "Rolo: 2 due · 2 reminders · 1 job change · 1 birthday — Thu, Aug 13"
+    );
+    // The job-change section carries the move itself.
+    expect(email.text).toContain("Ana Silva: Stripe → Anthropic");
   });
 
   it("flags overdue and age details", () => {
@@ -58,6 +70,7 @@ describe("buildDigest", () => {
       ...FIXTURE,
       reminders: [],
       dueContacts: [],
+      changes: [],
       birthdays: [],
     });
     expect(email.empty).toBe(true);

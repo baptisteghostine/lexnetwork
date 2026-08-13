@@ -1,7 +1,12 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 
 import { db } from "@/db/client";
-import { contactEmails, contacts, reminders } from "@/db/schema";
+import {
+  contactChanges,
+  contactEmails,
+  contacts,
+  reminders,
+} from "@/db/schema";
 import { upcomingBirthdays, type Feb29Rule, type UpcomingBirthday } from "@/lib/birthdays";
 import { DAY_MS } from "@/lib/cadence/engine";
 import { getSetting } from "@/lib/settings";
@@ -35,10 +40,22 @@ export type DueContact = {
   primaryEmail: string | null;
 };
 
+export type OpenChange = {
+  id: number;
+  contactId: number;
+  contactName: string;
+  contactHasPhoto: boolean;
+  field: "company" | "title";
+  oldValue: string | null;
+  newValue: string | null;
+  detectedAt: number;
+};
+
 export type TodayData = {
   timezone: string;
   reminders: DueReminder[];
   dueContacts: DueContact[];
+  changes: OpenChange[];
   birthdays: UpcomingBirthday[];
 };
 
@@ -112,6 +129,54 @@ export function getTodayData(now: number): TodayData {
     }
   }
 
+  // (3) Job changes — open "reason to reach out" cards (SPEC §5). UI
+  // collapses to the latest change per contact+field; company changes
+  // rank above title-only ones.
+  const changeRows = db
+    .select({
+      id: contactChanges.id,
+      contactId: contactChanges.contactId,
+      field: contactChanges.field,
+      oldValue: contactChanges.oldValue,
+      newValue: contactChanges.newValue,
+      detectedAt: contactChanges.detectedAt,
+      contactName: contacts.displayName,
+      photoPath: contacts.photoPath,
+      archivedAt: contacts.archivedAt,
+    })
+    .from(contactChanges)
+    .innerJoin(contacts, eq(contacts.id, contactChanges.contactId))
+    .where(
+      and(
+        isNull(contactChanges.dismissedAt),
+        isNull(contactChanges.actedAt),
+        isNull(contacts.archivedAt)
+      )
+    )
+    .orderBy(desc(contactChanges.detectedAt))
+    .all();
+  const latestPerField = new Map<string, (typeof changeRows)[number]>();
+  for (const r of changeRows) {
+    const key = `${r.contactId}:${r.field}`;
+    if (!latestPerField.has(key)) latestPerField.set(key, r);
+  }
+  const changes: OpenChange[] = [...latestPerField.values()]
+    .sort(
+      (a, b) =>
+        Number(b.field === "company") - Number(a.field === "company") ||
+        b.detectedAt - a.detectedAt
+    )
+    .map((r) => ({
+      id: r.id,
+      contactId: r.contactId,
+      contactName: r.contactName,
+      contactHasPhoto: r.photoPath !== null,
+      field: r.field as "company" | "title",
+      oldValue: r.oldValue,
+      newValue: r.newValue,
+      detectedAt: r.detectedAt,
+    }));
+
   // (4) Birthdays this week.
   const birthdayRows = db
     .select({
@@ -152,6 +217,7 @@ export function getTodayData(now: number): TodayData {
       contactName: r.contactName ?? null,
       contactHasPhoto: r.contactPhoto !== null && r.contactPhoto !== undefined,
     })),
+    changes,
     dueContacts: due.map((c) => ({
       contactId: c.id,
       displayName: c.displayName,

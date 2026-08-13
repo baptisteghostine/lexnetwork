@@ -1,11 +1,13 @@
 import Link from "next/link";
-import { desc } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 import { ImportFlow } from "@/components/import-flow";
+import { LinkedInImportCard } from "@/components/linkedin-import-card";
 import { db } from "@/db/client";
 import { syncRuns } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
 import type { ImportStats } from "@/lib/imports/types";
+import { now as currentTime } from "@/lib/time";
 import { reclaimStaleRuns } from "@/server/import-engine";
 
 export const dynamic = "force-dynamic";
@@ -34,11 +36,30 @@ export default async function ImportsPage() {
     .limit(50)
     .all();
 
+  const lastLinkedIn = db
+    .select({ startedAt: syncRuns.startedAt })
+    .from(syncRuns)
+    .where(
+      and(
+        eq(syncRuns.kind, "linkedin_import"),
+        eq(syncRuns.status, "success")
+      )
+    )
+    .orderBy(desc(syncRuns.startedAt))
+    .get();
+
   return (
     <div>
       <header className="border-b border-border px-5 py-2.5">
         <h1 className="text-sm font-semibold">Imports</h1>
       </header>
+      <LinkedInImportCard
+        daysAgo={
+          lastLinkedIn
+            ? Math.floor((currentTime() - lastLinkedIn.startedAt) / 86_400_000)
+            : null
+        }
+      />
       <ImportFlow />
       {runs.length > 0 && (
         <section className="max-w-3xl space-y-2 px-5 pb-6">

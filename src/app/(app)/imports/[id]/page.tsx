@@ -4,10 +4,12 @@ import { eq } from "drizzle-orm";
 
 import { ConflictList } from "@/components/conflict-list";
 import { StatsRow } from "@/components/import-flow";
+import { LinkedInReportView } from "@/components/linkedin-report";
 import { db } from "@/db/client";
 import { syncRuns } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
 import type { ImportStats, RowPlan } from "@/lib/imports/types";
+import type { LinkedInReport } from "@/server/linkedin-import";
 
 export const dynamic = "force-dynamic";
 
@@ -24,12 +26,41 @@ export default async function ImportReportPage({
     .get();
   if (!run) notFound();
 
+  // LinkedIn runs store a structured report, CSV/vCard runs a plan list.
+  const parsedReport: unknown = run.reportJson
+    ? JSON.parse(run.reportJson)
+    : null;
+  if (
+    parsedReport !== null &&
+    !Array.isArray(parsedReport) &&
+    (parsedReport as { kind?: string }).kind === "linkedin"
+  ) {
+    return (
+      <div>
+        <header className="flex items-center justify-between border-b border-border px-5 py-2.5">
+          <h1 className="text-sm font-semibold">
+            LinkedIn import — {run.fileName ?? ""}
+          </h1>
+          <span className="text-[11px] text-muted-foreground">
+            {new Date(run.startedAt).toLocaleString(undefined, {
+              dateStyle: "medium",
+              timeStyle: "short",
+            })}{" "}
+            · {run.status}
+          </span>
+        </header>
+        <LinkedInReportView
+          runId={run.id}
+          report={parsedReport as LinkedInReport}
+        />
+      </div>
+    );
+  }
+
   const stats = run.statsJson
     ? (JSON.parse(run.statsJson) as ImportStats)
     : null;
-  const plans = run.reportJson
-    ? (JSON.parse(run.reportJson) as RowPlan[])
-    : [];
+  const plans = (parsedReport as RowPlan[] | null) ?? [];
 
   const conflictRows = plans.flatMap((p) =>
     p.contactId !== null

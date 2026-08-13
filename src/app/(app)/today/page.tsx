@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Cake, Star } from "lucide-react";
 
 import { ContactAvatar } from "@/components/contact-avatar";
+import { TodayChanges } from "@/components/today-changes";
 import { TodayQueue, type DueItem } from "@/components/today-queue";
 import { TodayReminders } from "@/components/today-reminders";
 import { requireAuth } from "@/lib/auth";
@@ -31,6 +32,8 @@ export default async function TodayPage() {
     data.reminders.length > 0 &&
       `${data.reminders.length} reminder${data.reminders.length > 1 ? "s" : ""}`,
     `${items.length} due`,
+    data.changes.length > 0 &&
+      `${data.changes.length} job change${data.changes.length > 1 ? "s" : ""}`,
     data.birthdays.length > 0 &&
       `${data.birthdays.length} birthday${data.birthdays.length > 1 ? "s" : ""}`,
   ].filter(Boolean);
@@ -60,6 +63,14 @@ export default async function TodayPage() {
           </h2>
           <TodayQueue items={items} />
         </section>
+        {data.changes.length > 0 && (
+          <section className="space-y-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Network updates
+            </h2>
+            <TodayChanges items={data.changes} />
+          </section>
+        )}
         {data.birthdays.length > 0 && (
           <section className="space-y-2">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
