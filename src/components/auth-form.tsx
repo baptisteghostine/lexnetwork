@@ -7,7 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { AuthFormState } from "@/server/auth";
 
-type Field = { name: string; label: string; autoFocus?: boolean };
+type Field = {
+  name: string;
+  label: string;
+  autoFocus?: boolean;
+  /** "new-password" on first-run setup, "current-password" when logging in. */
+  autoComplete?: "new-password" | "current-password";
+};
 
 export function AuthForm({
   action,
@@ -29,7 +35,7 @@ export function AuthForm({
             name={f.name}
             type="password"
             autoFocus={f.autoFocus}
-            autoComplete="current-password"
+            autoComplete={f.autoComplete ?? "current-password"}
             required
           />
         </div>

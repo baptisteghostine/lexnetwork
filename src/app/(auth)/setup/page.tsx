@@ -22,8 +22,17 @@ export default function SetupPage() {
       <AuthForm
         action={setupPasswordAction}
         fields={[
-          { name: "password", label: "Password", autoFocus: true },
-          { name: "confirm", label: "Confirm password" },
+          {
+            name: "password",
+            label: "Password",
+            autoFocus: true,
+            autoComplete: "new-password",
+          },
+          {
+            name: "confirm",
+            label: "Confirm password",
+            autoComplete: "new-password",
+          },
         ]}
         submitLabel="Create password"
       />
