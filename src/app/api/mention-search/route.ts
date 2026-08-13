@@ -1,4 +1,4 @@
-import { like } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
 import { db } from "@/db/client";
@@ -12,14 +12,15 @@ export async function GET(req: NextRequest) {
   }
   const kind = req.nextUrl.searchParams.get("kind");
   const q = (req.nextUrl.searchParams.get("q") ?? "").trim();
-  // Escape LIKE wildcards in user input.
-  const pattern = `%${q.replaceAll(/[%_]/g, (c) => `\\${c}`)}%`;
+  // Escape LIKE wildcards in user input; the ESCAPE clause below is what
+  // makes the backslashes meaningful to SQLite.
+  const pattern = `%${q.replaceAll(/[%_\\]/g, (c) => `\\${c}`)}%`;
 
   if (kind === "group") {
     const rows = db
       .select({ id: groups.id, name: groups.name, emoji: groups.emoji })
       .from(groups)
-      .where(like(groups.name, pattern))
+      .where(sql`${groups.name} LIKE ${pattern} ESCAPE '\\'`)
       .limit(8)
       .all();
     return NextResponse.json({
@@ -38,7 +39,7 @@ export async function GET(req: NextRequest) {
       company: contacts.company,
     })
     .from(contacts)
-    .where(like(contacts.displayName, pattern))
+    .where(sql`${contacts.displayName} LIKE ${pattern} ESCAPE '\\'`)
     .orderBy(contacts.displayName)
     .limit(8)
     .all();
