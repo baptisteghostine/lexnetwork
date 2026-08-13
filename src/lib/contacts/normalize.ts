@@ -22,12 +22,13 @@ export function normalizeEmail(email: string): string {
 
 /**
  * Derived display_name (see SCHEMA.md contacts): "First Last" → single name
- * → primary email → "Unnamed".
+ * → primary email → primary phone → "Unnamed".
  */
 export function deriveDisplayName(input: {
   firstName?: string | null;
   lastName?: string | null;
   primaryEmail?: string | null;
+  primaryPhone?: string | null;
 }): string {
   const first = input.firstName?.trim() ?? "";
   const last = input.lastName?.trim() ?? "";
@@ -35,6 +36,8 @@ export function deriveDisplayName(input: {
   if (name) return name;
   const email = input.primaryEmail?.trim();
   if (email) return email;
+  const phone = input.primaryPhone?.trim();
+  if (phone) return phone;
   return "Unnamed";
 }
 

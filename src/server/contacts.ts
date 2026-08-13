@@ -119,6 +119,7 @@ function scalarValues(p: ContactPayload) {
       firstName: p.firstName,
       lastName: p.lastName,
       primaryEmail: p.emails[0]?.email ?? null,
+      primaryPhone: p.phones[0]?.phone ?? null,
     }),
   };
 }

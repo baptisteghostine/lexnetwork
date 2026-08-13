@@ -44,6 +44,14 @@ describe("deriveDisplayName", () => {
   it("falls back to primary email", () => {
     expect(deriveDisplayName({ primaryEmail: "x@y.com" })).toBe("x@y.com");
   });
+  it("falls back to primary phone when there is no name or email", () => {
+    expect(deriveDisplayName({ primaryPhone: "+41 79 123 45 67" })).toBe(
+      "+41 79 123 45 67"
+    );
+    expect(
+      deriveDisplayName({ primaryEmail: "x@y.com", primaryPhone: "+417912345" })
+    ).toBe("x@y.com");
+  });
   it("falls back to Unnamed", () => {
     expect(deriveDisplayName({})).toBe("Unnamed");
   });

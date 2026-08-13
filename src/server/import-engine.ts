@@ -320,10 +320,17 @@ function applyPlan(
       .where(eq(contactEmails.contactId, contactId))
       .orderBy(contactEmails.priority)
       .get();
+    const primaryPhone = db
+      .select({ phoneRaw: contactPhones.phoneRaw })
+      .from(contactPhones)
+      .where(eq(contactPhones.contactId, contactId))
+      .orderBy(contactPhones.priority)
+      .get();
     const displayName = deriveDisplayName({
       firstName: final.firstName,
       lastName: final.lastName,
       primaryEmail: primaryEmail?.email ?? null,
+      primaryPhone: primaryPhone?.phoneRaw ?? null,
     });
     if (displayName !== final.displayName) {
       db.update(contacts)

@@ -18,7 +18,7 @@ Tables the brief listed are all here, plus **four additions** (each flagged inli
 | id | INTEGER PK | |
 | first_name | TEXT | nullable |
 | last_name | TEXT | nullable |
-| display_name | TEXT NOT NULL | maintained by app on write: `first last` → else email → else "Unnamed"; avoids COALESCE soup in every query and is what FTS indexes |
+| display_name | TEXT NOT NULL | maintained by app on write: `first last` → else email → else phone → else "Unnamed"; avoids COALESCE soup in every query and is what FTS indexes |
 | photo_path | TEXT | relative path under `data/attachments/` |
 | title | TEXT | current title (denormalized from work_history's current row when imports write both) |
 | company | TEXT | current company, same note |
