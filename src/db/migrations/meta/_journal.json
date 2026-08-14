@@ -85,6 +85,13 @@
       "when": 1786659819183,
       "tag": "0011_curly_grim_reaper",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1786699951101,
+      "tag": "0012_fts_diacritics",
+      "breakpoints": true
     }
   ]
 }

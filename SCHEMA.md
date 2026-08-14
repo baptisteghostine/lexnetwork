@@ -234,10 +234,13 @@ Two external-content virtual tables (index only; content stays in the base table
 CREATE VIRTUAL TABLE contacts_fts USING fts5(
   display_name, company, title, location, bio,
   content='contacts', content_rowid='id',
-  tokenize='trigram'
+  tokenize='trigram remove_diacritics 1'
 );
 -- trigram tokenizer => substring + typo-tolerant matching on short fields,
 -- at the cost of a bigger index. Fine at personal scale (<100k rows).
+-- remove_diacritics folds "björn" → "bjorn" at index time (migration 0012)
+-- because the query side strips diacritics — both sides must agree or
+-- accented names are unfindable.
 
 CREATE VIRTUAL TABLE notes_fts USING fts5(
   body_md,
