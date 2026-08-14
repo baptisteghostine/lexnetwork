@@ -66,3 +66,50 @@ describe("nextOccurrence", () => {
     ).toBeNull();
   });
 });
+
+describe("nextOccurrence — owner timezone (the UTC-fields trap)", () => {
+  it("weekly Tuesday 8pm EST stays on local Tuesdays", () => {
+    // Tue 2026-01-13 20:00 America/New_York = Wed 2026-01-14 01:00 UTC.
+    const dtstart = Date.UTC(2026, 0, 14, 1, 0);
+    const next = nextOccurrence(
+      "FREQ=WEEKLY;BYDAY=TU",
+      dtstart,
+      dtstart,
+      "America/New_York"
+    );
+    // Next local Tuesday 8pm: Tue Jan 20 20:00 EST = Wed Jan 21 01:00 UTC.
+    expect(next).toBe(Date.UTC(2026, 0, 21, 1, 0));
+    // Without the timezone the same rule lands on UTC-Tuesdays — i.e.
+    // local *Mondays* — which is exactly the bug this pins.
+    expect(nextOccurrence("FREQ=WEEKLY;BYDAY=TU", dtstart, dtstart)).toBe(
+      Date.UTC(2026, 0, 20, 1, 0)
+    );
+  });
+
+  it("BYMONTHDAY=1 at 00:30 local for a UTC+2 owner fires on the 1st, not the 2nd", () => {
+    // 2026-06-01 00:30 Europe/Athens (UTC+3 in summer) = 2026-05-31 21:30 UTC.
+    const dtstart = Date.UTC(2026, 4, 31, 21, 30);
+    const next = nextOccurrence(
+      "FREQ=MONTHLY;BYMONTHDAY=1",
+      dtstart,
+      dtstart,
+      "Europe/Athens"
+    );
+    // Next: 2026-07-01 00:30 local = 2026-06-30 21:30 UTC.
+    expect(next).toBe(Date.UTC(2026, 5, 30, 21, 30));
+  });
+
+  it("occurrences keep local wall time across a DST transition", () => {
+    // Weekly Tuesday 9:00 Europe/London starting Tue 2026-03-24 (GMT, UTC+0).
+    const dtstart = Date.UTC(2026, 2, 24, 9, 0);
+    // DST starts Sun 2026-03-29; next Tuesday is Mar 31 (BST, UTC+1):
+    // 9:00 local = 8:00 UTC.
+    const next = nextOccurrence(
+      "FREQ=WEEKLY;BYDAY=TU",
+      dtstart,
+      dtstart,
+      "Europe/London"
+    );
+    expect(next).toBe(Date.UTC(2026, 2, 31, 8, 0));
+  });
+});

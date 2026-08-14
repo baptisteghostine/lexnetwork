@@ -1,5 +1,7 @@
 import { RRule } from "rrule";
 
+import { fromFakeUtc, toFakeUtc } from "@/lib/time";
+
 // Dependency justification (PLAN Phase 5): RFC 5545 recurrence is a
 // solved-problem minefield — rrule is the standard implementation.
 
@@ -51,23 +53,31 @@ export function sanitizeRrule(input: string): string | null {
  * `dtstartMs` (the defining reminder's due_at). Returns null when the rule
  * is exhausted (UNTIL passed / COUNT consumed) — SPEC §4: the series
  * auto-completes. Inclusive of dtstart itself when it lies after `afterMs`.
+ *
+ * `tz` is the owner's timezone: rrule evaluates BYDAY/BYMONTHDAY against a
+ * Date's UTC fields, so the instants are projected to "fake UTC" wall-clock
+ * dates first and mapped back after — otherwise "every Tuesday 8pm" for a
+ * UTC+1 owner materializes on Wednesdays (or drifts an hour across DST).
+ * Defaults to UTC when omitted, which preserves the old behavior for
+ * UTC-aligned inputs.
  */
 export function nextOccurrence(
   rruleStr: string,
   dtstartMs: number,
-  afterMs: number
+  afterMs: number,
+  tz = "UTC"
 ): number | null {
   let rule: RRule;
   try {
     rule = new RRule({
       ...RRule.parseString(rruleStr),
-      dtstart: new Date(dtstartMs),
+      dtstart: new Date(toFakeUtc(tz, dtstartMs)),
     });
   } catch {
     return null;
   }
-  const next = rule.after(new Date(afterMs), false);
-  return next ? next.getTime() : null;
+  const next = rule.after(new Date(toFakeUtc(tz, afterMs)), false);
+  return next ? fromFakeUtc(tz, next.getTime()) : null;
 }
 
 /** Human summary for list rows ("every month on the 2nd Tuesday"). */

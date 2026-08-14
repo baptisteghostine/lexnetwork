@@ -3,6 +3,8 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { interactions, reminders } from "@/db/schema";
 import { nextOccurrence } from "@/lib/reminders/engine";
+import { getSetting } from "@/lib/settings";
+import { fallbackTimezone } from "@/lib/time";
 
 // Firing and occurrence materialization (SPEC §4). Exactly-once across
 // crashes is anchored on the persisted fired_at column: the scheduler
@@ -54,7 +56,10 @@ export function materializeNext(definerId: number, afterMs: number): void {
   if (live) return;
 
   const now = Date.now();
-  const nextAt = nextOccurrence(definer.rrule, definer.dueAt, afterMs);
+  // Recurrence is wall-clock math in the owner's timezone (SPEC §4) — a
+  // weekly Tuesday-8pm rule must land on local Tuesdays, whatever UTC says.
+  const tz = getSetting<string>("timezone") ?? fallbackTimezone();
+  const nextAt = nextOccurrence(definer.rrule, definer.dueAt, afterMs, tz);
   if (nextAt === null) {
     db.update(reminders)
       .set({ completedAt: now, updatedAt: now })

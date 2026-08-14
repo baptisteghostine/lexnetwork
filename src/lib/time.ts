@@ -84,6 +84,25 @@ export function nextLocalHour(
   return afterMs + 24 * 60 * 60_000;
 }
 
+/**
+ * "Fake UTC" projection: a UTC timestamp whose Y/M/D/H/M fields equal the
+ * local wall-clock reading of `epochMs` in `tz`. Libraries that do
+ * calendar math in UTC (rrule) get fed these, then results map back via
+ * fromFakeUtc — the standard rrule timezone recipe.
+ */
+export function toFakeUtc(tz: string, epochMs: number): number {
+  return epochMs + tzOffsetMs(tz, epochMs);
+}
+
+/** Inverse of toFakeUtc: the real instant whose local reading is `fakeMs`. */
+export function fromFakeUtc(tz: string, fakeMs: number): number {
+  // Fixed-point on the offset; a second pass handles DST boundaries where
+  // the offset at the guess differs from the offset at fakeMs.
+  let real = fakeMs - tzOffsetMs(tz, fakeMs);
+  real = fakeMs - tzOffsetMs(tz, real);
+  return real;
+}
+
 /** Local YYYY-MM-DD of `epochMs` in `tz` (dedupe keys, digest dates). */
 export function localDateKey(tz: string, epochMs: number): string {
   const p = localParts(tz, epochMs);
