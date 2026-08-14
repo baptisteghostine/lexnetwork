@@ -43,3 +43,55 @@ describe("outbound host allowlist (CLAUDE.md privacy invariant)", () => {
     );
   });
 });
+
+describe("redirect handling — every hop is allowlist-checked", () => {
+  function redirectResponse(location: string, status = 302): Response {
+    return new Response(null, { status, headers: { location } });
+  }
+
+  it("a redirect to a non-allowlisted host is blocked, not followed", async () => {
+    const calls: string[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      calls.push(String(url));
+      return redirectResponse("https://evil.example.com/capture");
+    }) as typeof fetch;
+    try {
+      await expect(
+        outboundFetch("https://www.linkedin.com/some/path")
+      ).rejects.toBeInstanceOf(OutboundBlockedError);
+      expect(calls).toEqual(["https://www.linkedin.com/some/path"]);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it("a redirect to an allowlisted host is followed, without auth headers cross-origin", async () => {
+    const seen: { url: string; auth: string | null }[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (
+      url: string | URL | Request,
+      init?: RequestInit
+    ) => {
+      const auth = new Headers(init?.headers).get("authorization");
+      seen.push({ url: String(url), auth });
+      if (seen.length === 1) {
+        return redirectResponse("https://api.linkedin.com/rest/landing");
+      }
+      return new Response("ok", { status: 200 });
+    }) as typeof fetch;
+    try {
+      const res = await outboundFetch("https://www.linkedin.com/start", {
+        headers: { authorization: "Bearer secret" },
+      });
+      expect(res.status).toBe(200);
+      expect(seen[0].auth).toBe("Bearer secret");
+      expect(seen[1]).toEqual({
+        url: "https://api.linkedin.com/rest/landing",
+        auth: null,
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+});
