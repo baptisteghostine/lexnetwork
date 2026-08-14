@@ -1,6 +1,8 @@
 // The keep-in-touch engine (SPEC §3). Pure functions — every DB write path
 // funnels through recompute.ts, which calls into here.
 
+import { fromFakeUtc, toFakeUtc } from "@/lib/time";
+
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const CADENCE_PRESETS = [
@@ -65,8 +67,14 @@ export function snoozeUntil(preset: SnoozePreset, now: number): number {
     case "1w":
       return now + 7 * DAY_MS;
     case "1m": {
+      // Calendar month with day clamping: Jan 31 + 1m = end of February,
+      // not March 3 (raw setMonth overflows short months).
       const d = new Date(now);
+      const day = d.getDate();
+      d.setDate(1);
       d.setMonth(d.getMonth() + 1);
+      const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+      d.setDate(Math.min(day, lastDay));
       return d.getTime();
     }
   }
@@ -82,6 +90,12 @@ export type SnoozeAllOptions = {
   perDayFloor?: number;
   /** Local hour assignments land on (the digest hour). Default 8. */
   digestHour?: number;
+  /**
+   * IANA timezone the weekday/hour math runs in (SPEC §3: owner-local, like
+   * every day-boundary rule). Defaults to UTC — callers must pass the
+   * owner's zone or a UTC-offset owner gets weekend/off-hour assignments.
+   */
+  timezone?: string;
 };
 
 export type DueContact = {
@@ -112,16 +126,21 @@ export function planSnoozeAll(
     return a.id - b.id; // total order → deterministic
   });
 
-  // Weekdays (Mon–Fri) starting tomorrow, local time, at the digest hour.
+  // Weekdays (Mon–Fri) starting tomorrow, in the owner's timezone, at the
+  // digest hour. Work in "fake UTC" (UTC fields = owner wall clock) so the
+  // weekday test and hour are the owner's, then map each slot back to a
+  // real instant — offsets are re-resolved per slot, so DST inside the
+  // horizon lands each assignment at the right local hour.
+  const tz = opts.timezone ?? "UTC";
   const slots: number[] = [];
-  const cursor = new Date(opts.now);
-  cursor.setHours(digestHour, 0, 0, 0);
+  const cursor = new Date(toFakeUtc(tz, opts.now));
+  cursor.setUTCHours(digestHour, 0, 0, 0);
   for (let i = 1; i <= horizonDays; i++) {
     const day = new Date(cursor);
-    day.setDate(day.getDate() + i);
-    const dow = day.getDay();
+    day.setUTCDate(day.getUTCDate() + i);
+    const dow = day.getUTCDay();
     if (dow === 0 || dow === 6) continue;
-    slots.push(day.getTime());
+    slots.push(fromFakeUtc(tz, day.getTime()));
   }
   if (slots.length === 0) return []; // degenerate horizon
 

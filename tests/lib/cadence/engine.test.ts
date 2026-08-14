@@ -103,10 +103,15 @@ describe("snoozeUntil", () => {
     expect(snoozeUntil("3d", JAN_1)).toBe(JAN_1 + 3 * DAY_MS);
     expect(snoozeUntil("1w", JAN_1)).toBe(JAN_1 + 7 * DAY_MS);
   });
-  it("+1m is calendar-aware", () => {
+  it("+1m clamps to the end of shorter months", () => {
     const jan31 = new Date(2026, 0, 31, 12).getTime();
     const result = new Date(snoozeUntil("1m", jan31));
-    expect(result.getMonth()).toBe(2); // Jan 31 + 1 month → Mar 3 (JS rollover)
+    expect(result.getMonth()).toBe(1); // Jan 31 + 1 month → Feb 28, not Mar 3
+    expect(result.getDate()).toBe(28);
+    const aug31 = new Date(2026, 7, 31, 12).getTime();
+    const sep = new Date(snoozeUntil("1m", aug31));
+    expect(sep.getMonth()).toBe(8);
+    expect(sep.getDate()).toBe(30);
   });
 });
 
@@ -165,5 +170,48 @@ describe("planSnoozeAll (SPEC §3 AC: 40 due, 5 starred, 21-day horizon)", () =>
 
   it("second run after applying is a no-op (nothing due anymore)", () => {
     expect(planSnoozeAll([], { now: NOW })).toEqual([]);
+  });
+});
+
+describe("planSnoozeAll — owner timezone", () => {
+  // Mon 2026-08-10 12:00 UTC. In Pacific/Honolulu (UTC-10, no DST) that is
+  // Mon 02:00 local.
+  const NOW = Date.UTC(2026, 7, 10, 12, 0, 0);
+  const due = Array.from({ length: 10 }, (_, i) => ({
+    id: i + 1,
+    starred: false,
+    nextTouchAt: NOW - i * 1000,
+  }));
+
+  function localParts(tz: string, ms: number) {
+    const dtf = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      weekday: "short",
+      hour: "2-digit",
+      hour12: false,
+    });
+    const p: Record<string, string> = {};
+    for (const part of dtf.formatToParts(ms)) p[part.type] = part.value;
+    return { weekday: p.weekday, hour: Number(p.hour) % 24 };
+  }
+
+  it("assignments land on owner-local weekdays at the owner-local digest hour", () => {
+    const plan = planSnoozeAll(due, { now: NOW, timezone: "Pacific/Honolulu" });
+    for (const p of plan) {
+      const local = localParts("Pacific/Honolulu", p.snoozedUntil);
+      expect(["Mon", "Tue", "Wed", "Thu", "Fri"]).toContain(local.weekday);
+      expect(local.hour).toBe(8);
+      // In UTC these instants read 18:00 — a server-local plan would have
+      // put them at 08:00 UTC = Sunday 22:00 in Honolulu.
+    }
+  });
+
+  it("UTC default matches UTC wall clock", () => {
+    const plan = planSnoozeAll(due, { now: NOW });
+    for (const p of plan) {
+      const d = new Date(p.snoozedUntil);
+      expect([0, 6]).not.toContain(d.getUTCDay());
+      expect(d.getUTCHours()).toBe(8);
+    }
   });
 });

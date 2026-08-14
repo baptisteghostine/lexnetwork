@@ -13,6 +13,7 @@ import {
   type SnoozePreset,
 } from "@/lib/cadence/engine";
 import { recomputeContact } from "@/lib/cadence/recompute";
+import { ownerTimezone } from "@/server/today-data";
 import { getSetting } from "@/lib/settings";
 
 function revalidateCadenceViews(contactId?: number) {
@@ -121,6 +122,7 @@ export async function snoozeAllAction(): Promise<{ moved: number }> {
       horizonDays: getSetting<number>("snooze_all.horizon_days") ?? 21,
       perDayFloor: getSetting<number>("snooze_all.per_day_floor") ?? 3,
       digestHour: getSetting<number>("digest.hour") ?? 8,
+      timezone: ownerTimezone(),
     }
   );
 
