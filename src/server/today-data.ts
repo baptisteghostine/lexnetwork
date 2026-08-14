@@ -6,12 +6,13 @@ import {
   contactChanges,
   contactEmails,
   contacts,
+  interactions,
   reminders,
 } from "@/db/schema";
 import { upcomingBirthdays, type Feb29Rule, type UpcomingBirthday } from "@/lib/birthdays";
 import { DAY_MS } from "@/lib/cadence/engine";
 import { getSetting } from "@/lib/settings";
-import { fallbackTimezone, localParts, tzOffsetMs } from "@/lib/time";
+import { fallbackTimezone, fromFakeUtc, localParts } from "@/lib/time";
 
 // The one source of truth for "what is due right now" — the Today page
 // and the digest email both render exactly this (SPEC §3 digest AC).
@@ -212,8 +213,21 @@ export function getTodayData(now: number): TodayData {
     .all();
 
   const local = localParts(timezone, now);
+  // SPEC §6 "important only": ≥1 recorded interaction ever, of ANY kind —
+  // last_interaction_at alone misses inbound-only correspondents.
+  const everInteracted = new Set(
+    db
+      .selectDistinct({ contactId: interactions.contactId })
+      .from(interactions)
+      .all()
+      .map((r) => r.contactId)
+  );
   const birthdays = upcomingBirthdays(
-    birthdayRows.map((c) => ({ ...c, hasPhoto: c.photoPath !== null })),
+    birthdayRows.map((c) => ({
+      ...c,
+      hasInteraction: everInteracted.has(c.id),
+      hasPhoto: c.photoPath !== null,
+    })),
     { year: local.year, month: local.month, day: local.day },
     {
       windowDays: 7,
@@ -223,11 +237,18 @@ export function getTodayData(now: number): TodayData {
   );
 
   // (5) Today's calendar agenda (SPEC §9): synced events overlapping the
-  // owner's local day, declined ones excluded.
-  const offset = tzOffsetMs(timezone, now);
-  const localNow = now + offset;
-  const dayStart = localNow - (localNow % DAY_MS) - offset;
-  const dayEnd = dayStart + DAY_MS;
+  // owner's local day, declined ones excluded. Day bounds come from the
+  // local calendar date mapped back per-instant (fromFakeUtc), so DST
+  // transition days keep their real 23/25-hour shape instead of shifting
+  // the window by an hour.
+  const dayStart = fromFakeUtc(
+    timezone,
+    Date.UTC(local.year, local.month - 1, local.day)
+  );
+  const dayEnd = fromFakeUtc(
+    timezone,
+    Date.UTC(local.year, local.month - 1, local.day + 1)
+  );
   const agenda: AgendaItem[] = db
     .select()
     .from(calendarEvents)

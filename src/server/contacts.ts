@@ -19,6 +19,7 @@ import {
   contactTags,
   groupMembers,
   notes,
+  reminders,
 } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
 import {
@@ -399,6 +400,24 @@ export async function deleteContactAction(
         .map((f) => f.path)
     : [];
   if (row.photoPath) files.push(row.photoPath);
+  // SPEC §4: a surviving reminder becomes standalone *with a note in its
+  // body* — "Send Sarah the deck" firing later must still say who Sarah
+  // was. The FK only nulls contact_id; the annotation is on us.
+  const attachedReminders = db
+    .select({ id: reminders.id, body: reminders.body })
+    .from(reminders)
+    .where(eq(reminders.contactId, contactId))
+    .all();
+  for (const r of attachedReminders) {
+    const note = `(Was attached to deleted contact "${row.displayName}".)`;
+    db.update(reminders)
+      .set({
+        body: r.body ? `${r.body}\n\n${note}` : note,
+        updatedAt: Date.now(),
+      })
+      .where(eq(reminders.id, r.id))
+      .run();
+  }
   db.delete(contacts).where(eq(contacts.id, contactId)).run();
   for (const rel of files) {
     fs.rmSync(path.join(DATA_DIR, rel), { force: true });

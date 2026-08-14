@@ -13,8 +13,8 @@ export default function SetupPage() {
       <div className="space-y-1">
         <h1 className="text-lg font-semibold">Welcome to Rolo</h1>
         <p className="text-xs text-muted-foreground">
-          Create the password that protects this instance. You can change it
-          later in settings; if you lose it, run{" "}
+          Create the password that protects this instance. To change or reset
+          it later, run{" "}
           <code className="font-mono">npm run reset-password</code> on the
           server.
         </p>

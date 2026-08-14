@@ -154,6 +154,28 @@ export async function runAiBatchTag(
     }
     const now = Date.now();
     for (const s of suggestions) {
+      // Re-running a batch before the queue is reviewed must not stack
+      // duplicate pending rows for the same contact+tag.
+      const pendingDup = db
+        .select({ id: aiSuggestions.id, payloadJson: aiSuggestions.payloadJson })
+        .from(aiSuggestions)
+        .where(
+          and(
+            eq(aiSuggestions.contactId, s.contactId),
+            eq(aiSuggestions.status, "pending"),
+            eq(aiSuggestions.kind, "tag")
+          )
+        )
+        .all()
+        .some((row) => {
+          try {
+            const p = JSON.parse(row.payloadJson) as { tagName?: string };
+            return p.tagName?.toLowerCase() === s.tagName.toLowerCase();
+          } catch {
+            return false;
+          }
+        });
+      if (pendingDup) continue;
       db.insert(aiSuggestions)
         .values({
           kind: "tag",

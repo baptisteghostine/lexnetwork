@@ -53,6 +53,9 @@ export function TodayQueue({ items }: { items: DueItem[] }) {
         target.tagName === "INPUT" || target.tagName === "TEXTAREA";
 
       if (mode.kind === "snooze") {
+        // A focused input (command palette, search) owns its keystrokes —
+        // typing "marketing" must not snooze the selected contact a month.
+        if (inField || e.metaKey || e.ctrlKey || e.altKey) return;
         const presets: Record<string, "1d" | "3d" | "1w" | "1m"> = {
           "1": "1d",
           "3": "3d",

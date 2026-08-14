@@ -39,7 +39,11 @@ export async function GET(req: NextRequest) {
       company: contacts.company,
     })
     .from(contacts)
-    .where(sql`${contacts.displayName} LIKE ${pattern} ESCAPE '\\'`)
+    // Archived contacts are hidden from every default surface (SPEC §1) —
+    // mention autocomplete was the one query that still returned them.
+    .where(
+      sql`${contacts.displayName} LIKE ${pattern} ESCAPE '\\' AND ${contacts.archivedAt} IS NULL`
+    )
     .orderBy(contacts.displayName)
     .limit(8)
     .all();

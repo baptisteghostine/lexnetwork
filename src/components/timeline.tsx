@@ -17,6 +17,21 @@ import { Button } from "@/components/ui/button";
 import { createNoteAction, deleteInteractionAction } from "@/server/notes";
 import type { TimelineItem } from "@/server/queries";
 
+/** SPEC §2/§9: email rows carry an "open in Gmail" link built from the
+ * stored thread id — there is no body to show, only a way back to it. */
+function gmailThreadUrl(meta: string | null): string | null {
+  if (!meta) return null;
+  try {
+    const parsed = JSON.parse(meta) as { threadId?: unknown };
+    return typeof parsed.threadId === "string" &&
+      /^[a-zA-Z0-9_-]+$/.test(parsed.threadId)
+      ? `https://mail.google.com/mail/u/0/#all/${parsed.threadId}`
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export function AddNoteButton({ contactId }: { contactId: number }) {
   const [pending, startTransition] = useTransition();
   return (
@@ -204,6 +219,17 @@ export function Timeline({
                 {item.interaction.title}
               </span>
             ) : null}
+            {item.interaction.kind === "email" &&
+              gmailThreadUrl(item.interaction.meta) && (
+                <a
+                  href={gmailThreadUrl(item.interaction.meta)!}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="whitespace-nowrap text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                >
+                  Open in Gmail
+                </a>
+              )}
             <span className="flex-1" />
             <When at={item.at} />
             {item.interaction.source === "user" && (

@@ -10,6 +10,10 @@ export type BirthdayContact = {
   birthdayYear: number | null;
   starred: boolean;
   lastInteractionAt: number | null;
+  /** SPEC §6 "important only": ≥1 recorded interaction EVER — any kind,
+   * counting or not. lastInteractionAt alone drops inbound-only
+   * correspondents (it tracks counting interactions only). */
+  hasInteraction?: boolean;
   hasPhoto?: boolean;
 };
 
@@ -74,7 +78,9 @@ export function upcomingBirthdays(
 
   for (const c of contacts) {
     if (!c.birthdayMonth || !c.birthdayDay) continue;
-    if (opts.importantOnly && !c.starred && c.lastInteractionAt === null) {
+    const everInteracted =
+      (c.hasInteraction ?? false) || c.lastInteractionAt !== null;
+    if (opts.importantOnly && !c.starred && !everInteracted) {
       continue;
     }
     // Check this year and next (window can straddle New Year).

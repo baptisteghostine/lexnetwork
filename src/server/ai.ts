@@ -1,6 +1,6 @@
 "use server";
 
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
@@ -331,9 +331,11 @@ export async function resolveSuggestionsAction(input: {
     if (input.approve) {
       approveSuggestion(id);
     } else {
+      // Only pending rows can be rejected — a stale UI must not flip an
+      // already-approved suggestion.
       db.update(aiSuggestions)
         .set({ status: "rejected", resolvedAt: Date.now() })
-        .where(eq(aiSuggestions.id, id))
+        .where(and(eq(aiSuggestions.id, id), eq(aiSuggestions.status, "pending")))
         .run();
     }
   }
