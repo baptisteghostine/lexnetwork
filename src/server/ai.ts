@@ -217,11 +217,14 @@ export async function suggestTagsAction(input: {
     : (idsInput.safeParse(input.contactIds ?? []).data ?? []);
   if (ids.length === 0) return { error: "No contacts to tag." };
   const now = Date.now();
+  // Millisecond-granular key: a coarser (per-minute) key made a second
+  // batch queued in the same minute silently no-op while still reporting
+  // "queued" — two rapid batches are cheaper than one lost one.
   enqueueJob({
     kind: "ai_batch_tag",
     runAt: now,
     payloadJson: JSON.stringify({ contactIds: ids }),
-    dedupeKey: `ai_batch_tag:${Math.floor(now / 60_000)}`,
+    dedupeKey: `ai_batch_tag:${now}`,
   });
   revalidatePath("/ai");
   return { queued: ids.length };

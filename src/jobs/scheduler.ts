@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNotNull, lt, lte, or } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, lt, lte, ne, or } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import { jobs } from "@/db/schema";
@@ -151,15 +151,32 @@ export function enqueueJob(opts: {
 export function ensureDigestJob(now: number): void {
   const tz = ownerTimezone();
   const hour = getSetting<number>("digest.hour") ?? 8;
-  const runAt = nextLocalHour(tz, hour, now);
-  const dedupeKey = `digest:${localDateKey(tz, runAt)}`;
+  let runAt = nextLocalHour(tz, hour, now);
+  let dedupeKey = `digest:${localDateKey(tz, runAt)}`;
+  // A finished (success/dead) row already holding the target day's key
+  // means that day's digest is spoken for — e.g. the owner moved the hour
+  // later on a day whose digest already went out. Aim for the next day
+  // instead of colliding with the UNIQUE dedupe key.
+  const taken = db
+    .select({ id: jobs.id })
+    .from(jobs)
+    .where(and(eq(jobs.dedupeKey, dedupeKey), ne(jobs.status, "pending")))
+    .get();
+  if (taken) {
+    runAt = nextLocalHour(tz, hour, runAt);
+    dedupeKey = `digest:${localDateKey(tz, runAt)}`;
+  }
   const pending = db
     .select()
     .from(jobs)
     .where(and(eq(jobs.kind, "digest"), eq(jobs.status, "pending")))
     .get();
   if (pending) {
-    if (pending.runAt !== runAt) {
+    // Never re-aim a row that is due-but-unfired (restart between the
+    // digest hour and the first tick would skip that day's digest
+    // entirely) or one mid-retry-backoff (attempts > 0) — the tick loop
+    // owns both. Only a future, untouched row follows settings changes.
+    if (pending.runAt > now && pending.attempts === 0 && pending.runAt !== runAt) {
       db.update(jobs)
         .set({ runAt, dedupeKey })
         .where(eq(jobs.id, pending.id))
@@ -170,7 +187,14 @@ export function ensureDigestJob(now: number): void {
   enqueueJob({ kind: "digest", runAt, dedupeKey });
 }
 
-/** Startup crash recovery (SCHEMA.md): expired 'running' leases re-run. */
+/**
+ * Crash recovery (SCHEMA.md): expired 'running' leases re-run. Called at
+ * startup AND every tick — a crash followed by a fast restart leaves the
+ * row inside its lease window at startup, so someone has to look again
+ * once the lease expires. The UPDATE re-checks status and started_at so a
+ * job that legitimately finished (or was reclaimed by another process)
+ * between the SELECT and the UPDATE isn't clobbered back to pending.
+ */
 export function reclaimStaleJobs(now: number): void {
   const running = db
     .select()
@@ -180,6 +204,13 @@ export function reclaimStaleJobs(now: number): void {
   for (const j of running) {
     const decision = reclaimDecision(j, now, LEASE_MS);
     if (decision === "keep") continue;
+    const guard = and(
+      eq(jobs.id, j.id),
+      eq(jobs.status, "running"),
+      j.startedAt === null
+        ? isNull(jobs.startedAt)
+        : eq(jobs.startedAt, j.startedAt)
+    );
     db.update(jobs)
       .set(
         decision === "pending"
@@ -188,9 +219,13 @@ export function reclaimStaleJobs(now: number): void {
               status: "dead",
               finishedAt: now,
               lastError: "Lease expired — process died mid-run.",
+              // Dead rows must not squat on their dedupe key, or the next
+              // enqueue of this kind silently no-ops for up to the prune
+              // window.
+              dedupeKey: null,
             }
       )
-      .where(eq(jobs.id, j.id))
+      .where(guard)
       .run();
   }
 }
@@ -241,6 +276,11 @@ async function runDueJobs(now: number): Promise<void> {
                 status: "dead",
                 finishedAt: outcome.finishedAt,
                 lastError: outcome.lastError,
+                // Release the dedupe key: a dead gmail_sync/calendar_sync
+                // row otherwise blocks every re-enqueue of that kind (same
+                // key recomputed from the unchanged last success) until
+                // pruning, stopping the sync for up to 7 days.
+                dedupeKey: null,
               }
       )
       .where(eq(jobs.id, j.id))
@@ -268,6 +308,7 @@ function pruneOldJobs(now: number): void {
 async function tick(): Promise<void> {
   const now = Date.now();
   try {
+    reclaimStaleJobs(now);
     fireDueReminders(now);
     await runDueJobs(now);
     pruneOldJobs(now);
