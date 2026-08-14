@@ -1,5 +1,7 @@
 // Seeds 25 realistic fake contacts for local development.
 // Usage: npm run seed   (idempotent: skips if any contacts exist, --force wipes)
+//        npm run seed -- --count 10000   (synthetic contacts on top of the
+//        curated 25 — the Phase 11 performance-pass dataset)
 import { eq } from "drizzle-orm";
 
 import { db } from "../src/db/client";
@@ -17,6 +19,13 @@ import {
 } from "../src/lib/contacts/normalize";
 
 const force = process.argv.includes("--force");
+const countFlag = process.argv.indexOf("--count");
+const targetCount =
+  countFlag !== -1 ? Number(process.argv[countFlag + 1]) : null;
+if (targetCount !== null && (!Number.isInteger(targetCount) || targetCount < 1)) {
+  console.error("--count needs a positive integer");
+  process.exit(1);
+}
 
 const existing = db.select({ id: contacts.id }).from(contacts).all();
 if (existing.length > 0 && !force) {
@@ -181,6 +190,76 @@ withCadence.forEach((c, i) => {
     .run();
 });
 
+// Synthetic bulk contacts beyond the curated 25 — realistic enough for
+// query-plan behavior (names/companies repeat, some emails, cadences,
+// tags), cheap enough to generate 10k in seconds.
+const extra = targetCount !== null ? Math.max(0, targetCount - PEOPLE.length) : 0;
+if (extra > 0) {
+  const FIRST = ["Alex", "Sam", "Jordan", "Casey", "Riley", "Morgan", "Quinn", "Avery", "Rowan", "Elliot", "Noor", "Ines", "Mateo", "Yuki", "Amara", "Tomas", "Freya", "Idris", "Lena", "Omar"];
+  const LAST = ["Anderson", "Baker", "Chen", "Diaz", "Evans", "Fischer", "Garcia", "Haddad", "Ivanov", "Jensen", "Kumar", "Larsen", "Meyer", "Nakamura", "Okoro", "Petrov", "Quintana", "Rossi", "Sato", "Tanaka"];
+  const COMPANIES = ["Acme Corp", "Globex", "Initech", "Umbrella Labs", "Stark Industries", "Wayne Enterprises", "Hooli", "Pied Piper", "Vandelay Industries", "Wonka Ltd", null];
+  const TITLES = ["Engineer", "Designer", "Founder", "PM", "Analyst", "Consultant", "Director", null];
+  const CITIES = ["Berlin", "London", "Zurich", "Lisbon", "Paris", "Amsterdam", "New York", "Tokyo", null];
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  db.transaction(() => {
+    for (let i = 0; i < extra; i++) {
+      const first = FIRST[i % FIRST.length];
+      const last = LAST[Math.floor(i / FIRST.length) % LAST.length];
+      const cadenceDays = i % 5 === 0 ? [7, 30, 90][i % 3] : null;
+      const assignedAt =
+        cadenceDays !== null ? now - ((i % 120) + 1) * DAY_MS : null;
+      const row = db
+        .insert(contacts)
+        .values({
+          firstName: first,
+          lastName: `${last} ${i}`,
+          displayName: deriveDisplayName({
+            firstName: first,
+            lastName: `${last} ${i}`,
+          }),
+          title: TITLES[i % TITLES.length],
+          company: COMPANIES[i % COMPANIES.length],
+          location: CITIES[i % CITIES.length],
+          starred: i % 50 === 0,
+          cadenceDays,
+          cadenceAssignedAt: assignedAt,
+          nextTouchAt:
+            cadenceDays !== null && assignedAt !== null
+              ? assignedAt + cadenceDays * DAY_MS
+              : null,
+          createdAt: now - (i % 365) * DAY_MS,
+          updatedAt: now,
+        })
+        .returning({ id: contacts.id })
+        .get();
+      if (i % 2 === 0) {
+        const email = `${first}.${last}${i}@example.com`.toLowerCase();
+        db.insert(contactEmails)
+          .values({
+            contactId: row.id,
+            email,
+            emailNormalized: normalizeEmail(email),
+            priority: 0,
+            source: "user",
+            createdAt: now,
+          })
+          .run();
+      }
+      if (i % 7 === 0) {
+        db.insert(contactTags)
+          .values({
+            contactId: row.id,
+            tagId: tagIds[TAGS[i % TAGS.length].name],
+            createdAt: now,
+          })
+          .run();
+      }
+    }
+  });
+}
+
 console.log(
-  `Seeded ${PEOPLE.length} contacts and ${TAGS.length} tags (8 with overdue cadences).`
+  `Seeded ${PEOPLE.length + extra} contacts and ${TAGS.length} tags` +
+    (extra > 0 ? ` (${extra} synthetic).` : " (8 with overdue cadences).")
 );
