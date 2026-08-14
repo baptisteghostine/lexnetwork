@@ -1,6 +1,6 @@
 import "server-only";
 
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { getSetting, setSetting } from "@/lib/settings";
@@ -39,13 +39,17 @@ export async function requireAuth(): Promise<void> {
 
 export async function startSession(): Promise<void> {
   const jar = await cookies();
+  // Phase 11 deploy hardening: `next start` never terminates TLS itself, so
+  // HTTPS always means a reverse proxy in front — which announces itself
+  // via X-Forwarded-Proto. Mark the cookie Secure exactly then; a plain
+  // http LAN/dev deployment still gets a working login.
+  const proto = (await headers()).get("x-forwarded-proto") ?? "";
   jar.set(SESSION_COOKIE, createSessionToken(getSessionSecret()), {
     httpOnly: true,
     sameSite: "lax",
     path: "/",
     maxAge: SESSION_TTL_MS / 1000,
-    // secure: intentionally unset for now — revisit in Phase 11 deploy
-    // hardening (VPS deployments will sit behind TLS at the reverse proxy).
+    secure: proto.split(",")[0]?.trim() === "https",
   });
 }
 
