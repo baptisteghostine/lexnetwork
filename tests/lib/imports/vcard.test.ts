@@ -58,3 +58,20 @@ describe("parseVcards", () => {
     expect(parseVcards("not a vcard at all")).toEqual([]);
   });
 });
+
+describe("value escaping (RFC 6350)", () => {
+  it("escaped semicolons stay inside their component", () => {
+    const [row] = parseVcards(
+      "BEGIN:VCARD\nVERSION:3.0\nN:Sm\\;ith;John;;;\nFN:John Sm;ith\nEND:VCARD\n"
+    );
+    expect(row.firstName).toBe("John");
+    expect(row.lastName).toBe("Sm;ith");
+  });
+
+  it("escaped backslash before n is not a newline", () => {
+    const [row] = parseVcards(
+      "BEGIN:VCARD\nVERSION:3.0\nFN:X\nNOTE:path C:\\\\network\\\\notes\nEND:VCARD\n"
+    );
+    expect(row.bio).toBe("path C:\\network\\notes");
+  });
+});

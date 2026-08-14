@@ -70,12 +70,35 @@ function findUnquotedColon(line: string): number {
 }
 
 function unescape(v: string): string {
-  return v
-    .replaceAll("\\n", "\n")
-    .replaceAll("\\N", "\n")
-    .replaceAll("\\,", ",")
-    .replaceAll("\\;", ";")
-    .replaceAll("\\\\", "\\");
+  // Single pass, so an escaped backslash can never re-trigger later rules
+  // ("\\\\n" is a literal backslash + n, not backslash + newline).
+  return v.replace(/\\(.)/g, (_, c: string) =>
+    c === "n" || c === "N" ? "\n" : c
+  );
+}
+
+/**
+ * Split a compound value on *unescaped* semicolons (RFC 6350): "Sm\;ith"
+ * is one component containing a semicolon, not two. Must run before
+ * unescape — splitting the unescaped text re-breaks on freed semicolons.
+ */
+function splitEscaped(value: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i];
+    if (ch === "\\" && i + 1 < value.length) {
+      cur += ch + value[i + 1];
+      i++;
+    } else if (ch === ";") {
+      out.push(cur);
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  out.push(cur);
+  return out;
 }
 
 function cardToRow(props: VProp[]): ImportRow {
@@ -84,7 +107,7 @@ function cardToRow(props: VProp[]): ImportRow {
     const typeLabel = p.params.TYPE?.split(",")[0]?.toLowerCase();
     switch (p.name) {
       case "N": {
-        const parts = p.value.split(";").map(unescape);
+        const parts = splitEscaped(p.value).map(unescape);
         // N: family;given;middle;prefix;suffix — middle names ignored.
         if (parts[1]) row.firstName = parts[1].trim();
         if (parts[0]) row.lastName = parts[0].trim();
@@ -94,7 +117,7 @@ function cardToRow(props: VProp[]): ImportRow {
         row.fullName = unescape(p.value).trim();
         break;
       case "ORG":
-        row.company = unescape(p.value.split(";")[0]).trim();
+        row.company = unescape(splitEscaped(p.value)[0]).trim();
         break;
       case "TITLE":
         row.title = unescape(p.value).trim();
@@ -134,8 +157,8 @@ function cardToRow(props: VProp[]): ImportRow {
         row.bio = unescape(p.value).trim().slice(0, 1000);
         break;
       case "ADR": {
-        // street;ext;city;region;postcode;country → "city, region, country"
-        const parts = p.value.split(";").map((s) => unescape(s).trim());
+        // pobox;ext;street;city;region;postcode;country → "city, region, country"
+        const parts = splitEscaped(p.value).map((s) => unescape(s).trim());
         const loc = [parts[3], parts[4], parts[6]].filter(Boolean).join(", ");
         if (loc && !row.location) row.location = loc;
         break;
