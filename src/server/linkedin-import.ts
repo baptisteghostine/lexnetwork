@@ -93,14 +93,32 @@ function linkedinUrlMap(): Map<string, number> {
   return map;
 }
 
-/** Active contacts by normalized full name; null marks ambiguous names. */
-function nameMap(): Map<string, number | null> {
+/**
+ * Active contacts by normalized full name; null marks ambiguous names.
+ * `linkedInSourcedOnly` restricts the pool to contacts carrying a LinkedIn
+ * profile URL — SPEC §8 scopes message counterpart name-matching to
+ * "LinkedIn-sourced contacts", so a same-named contact from another source
+ * doesn't silently absorb a stranger's conversation.
+ */
+function nameMap(linkedInSourcedOnly = false): Map<string, number | null> {
   const map = new Map<string, number | null>();
-  const rows = db
-    .select({ id: contacts.id, displayName: contacts.displayName })
-    .from(contacts)
-    .where(isNull(contacts.archivedAt))
-    .all();
+  let rows: { id: number; displayName: string }[];
+  if (linkedInSourcedOnly) {
+    rows = db
+      .selectDistinct({ id: contacts.id, displayName: contacts.displayName })
+      .from(contacts)
+      .innerJoin(contactSocials, eq(contactSocials.contactId, contacts.id))
+      .where(
+        and(isNull(contacts.archivedAt), eq(contactSocials.platform, "linkedin"))
+      )
+      .all();
+  } else {
+    rows = db
+      .select({ id: contacts.id, displayName: contacts.displayName })
+      .from(contacts)
+      .where(isNull(contacts.archivedAt))
+      .all();
+  }
   for (const r of rows) {
     const key = r.displayName.trim().toLowerCase().replace(/\s+/g, " ");
     map.set(key, map.has(key) ? null : r.id);
@@ -440,6 +458,31 @@ export function executeLinkedInRows(opts: {
               .run();
             upsertProvenance(cid, w.field, runId, now);
           }
+          // Derived display_name must follow name writes: a contact created
+          // email-only ("ana@x.com") who matched by email and just gained
+          // first/last names should stop displaying as her address.
+          if (plan.writes.some((w) => w.field === "first_name" || w.field === "last_name")) {
+            const final = db.select().from(contacts).where(eq(contacts.id, cid)).get();
+            if (final) {
+              const primaryEmail = db
+                .select({ email: contactEmails.email })
+                .from(contactEmails)
+                .where(eq(contactEmails.contactId, cid))
+                .orderBy(contactEmails.priority)
+                .get();
+              const displayName = deriveDisplayName({
+                firstName: final.firstName,
+                lastName: final.lastName,
+                primaryEmail: primaryEmail?.email ?? null,
+              });
+              if (displayName !== final.displayName) {
+                db.update(contacts)
+                  .set({ displayName })
+                  .where(eq(contacts.id, cid))
+                  .run();
+              }
+            }
+          }
           for (const change of plan.changes) {
             db.insert(contactChanges)
               .values({
@@ -494,7 +537,7 @@ export function executeLinkedInRows(opts: {
     list.push(m);
     byConversation.set(m.conversationId, list);
   }
-  const freshNames = nameMap();
+  const freshNames = nameMap(true);
   for (const [conversationId, msgs] of byConversation) {
     // Counterpart identity: profile URL first, else exact unique name.
     const url = msgs.find((m) => m.counterpartProfileUrl)?.counterpartProfileUrl;
@@ -529,9 +572,19 @@ export function executeLinkedInRows(opts: {
   report.messageContacts = touched.size;
   for (const id of touched) recomputeContact(id);
 
+  // Fail loud with a reason (CLAUDE.md): zero parsed rows means the file
+  // shape drifted, not that the network emptied; all-errors means every
+  // row failed to apply. Both must say so, not sit as failed-with-null.
+  const failure =
+    report.stats.total === 0
+      ? "No connections parsed — Connections.csv is missing or its header has drifted; the messages (if any) were still processed."
+      : report.stats.errors === report.stats.total
+        ? `All ${report.stats.total} row(s) failed to apply.`
+        : null;
   db.update(syncRuns)
     .set({
-      status: report.stats.errors === report.stats.total ? "failed" : "success",
+      status: failure ? "failed" : "success",
+      error: failure,
       statsJson: JSON.stringify(report.stats),
       reportJson: JSON.stringify(report),
       finishedAt: Date.now(),

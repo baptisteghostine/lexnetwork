@@ -54,7 +54,10 @@ export function extractArchiveFiles(zip: Uint8Array): LinkedInArchiveFiles {
 
 /**
  * Canonical form of a LinkedIn profile URL — the identity key. Strips
- * protocol/www/query/fragment/trailing slash, lowercases.
+ * protocol/www/query/fragment/trailing slash, lowercases, folds country
+ * subdomains (uk.linkedin.com) into linkedin.com, and percent-decodes the
+ * path. Every source of profile URLs (ZIP, §9a snapshot, Voyager) must
+ * produce byte-identical keys here or the same person imports twice.
  */
 export function normalizeLinkedInUrl(url: string): string | null {
   const trimmed = url.trim();
@@ -64,7 +67,15 @@ export function normalizeLinkedInUrl(url: string): string | null {
   const cut = s.search(/[?#]/);
   if (cut >= 0) s = s.slice(0, cut);
   s = s.replace(/\/+$/, "");
+  // Country/language subdomains address the same profile.
+  s = s.replace(/^[a-z]{2,3}(?:-[a-z]{2})?\.linkedin\.com\//, "linkedin.com/");
   if (!s.includes("linkedin.com/")) return null;
+  // One canonical byte form for non-ASCII identifiers: percent-decoded.
+  try {
+    s = decodeURIComponent(s);
+  } catch {
+    // Malformed escapes: keep the raw form rather than dropping identity.
+  }
   return s;
 }
 

@@ -94,3 +94,36 @@ describe("credential redaction", () => {
     );
   });
 });
+
+describe("parseCookieBlob — real paste shapes (SPEC §9b AC)", () => {
+  const LI_AT = "AQEDATaBbCcDdEeFfGgHhIiJjKkLlMm";
+
+  it("accepts the two bare values on their own", () => {
+    const s = parseCookieBlob(`${LI_AT}\n"ajax:1234567890"`);
+    expect(s).toEqual({ liAt: LI_AT, jsessionId: "ajax:1234567890" });
+  });
+
+  it("accepts bare values in either order", () => {
+    const s = parseCookieBlob(`ajax:1234567890\n${LI_AT}`);
+    expect(s).toEqual({ liAt: LI_AT, jsessionId: "ajax:1234567890" });
+  });
+
+  it("accepts tab-separated devtools table rows", () => {
+    const s = parseCookieBlob(
+      `li_at\t${LI_AT}\nJSESSIONID\t"ajax:1234567890"`
+    );
+    expect(s).toEqual({ liAt: LI_AT, jsessionId: "ajax:1234567890" });
+  });
+
+  it("accepts a header pasted with its literal Cookie: prefix", () => {
+    const s = parseCookieBlob(
+      `Cookie: li_at=${LI_AT}; JSESSIONID="ajax:1234567890"`
+    );
+    expect(s).toEqual({ liAt: LI_AT, jsessionId: "ajax:1234567890" });
+  });
+
+  it("still rejects a paste missing either cookie", () => {
+    expect(parseCookieBlob(LI_AT)).toBeNull();
+    expect(parseCookieBlob("ajax:1234567890")).toBeNull();
+  });
+});

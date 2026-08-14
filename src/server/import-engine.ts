@@ -494,9 +494,19 @@ export function executeImport(opts: {
 
   const stats = summarize(plans);
   if (runId !== null) {
+    // Fail loud with a reason: zero rows = the file yielded nothing
+    // importable (empty/headers-only/drifted shape), all-errors = every
+    // row failed. Neither is a quiet failed-with-null-error.
+    const failure =
+      stats.total === 0
+        ? "No importable rows — the file is empty or its shape wasn't recognized."
+        : stats.errors === stats.total
+          ? `All ${stats.total} row(s) failed to apply.`
+          : null;
     db.update(syncRuns)
       .set({
-        status: stats.errors === stats.total ? "failed" : "success",
+        status: failure ? "failed" : "success",
+        error: failure,
         statsJson: JSON.stringify(stats),
         reportJson: JSON.stringify(plans.slice(0, 5000)),
         finishedAt: Date.now(),

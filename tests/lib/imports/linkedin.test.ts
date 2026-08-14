@@ -203,3 +203,19 @@ describe("normalizeForChange", () => {
     );
   });
 });
+
+describe("normalizeLinkedInUrl — one key per person across sources", () => {
+  it("folds country subdomains into linkedin.com", () => {
+    expect(normalizeLinkedInUrl("https://uk.linkedin.com/in/ana-silva")).toBe(
+      "linkedin.com/in/ana-silva"
+    );
+    expect(normalizeLinkedInUrl("https://www.linkedin.com/in/ana-silva")).toBe(
+      "linkedin.com/in/ana-silva"
+    );
+  });
+  it("percent-encoded and raw UTF-8 identifiers converge", () => {
+    expect(
+      normalizeLinkedInUrl("https://www.linkedin.com/in/jos%C3%A9-garc%C3%ADa")
+    ).toBe(normalizeLinkedInUrl("https://www.linkedin.com/in/josé-garcía"));
+  });
+});
