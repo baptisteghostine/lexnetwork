@@ -46,18 +46,40 @@ export async function acceptConflictAction(
   db.transaction(() => {
     applyScalarWrite(contactId, field, value, birthday, now);
     upsertProvenance(contactId, field, source, runId, now);
-    // Mark the conflict accepted in the stored report.
-    const plans = JSON.parse(run.reportJson as string) as RowPlan[];
-    for (const p of plans) {
-      if (p.contactId !== contactId) continue;
-      for (const c of p.conflicts) {
+    // Mark the conflict accepted in the stored report. Two report shapes
+    // exist: CSV/vCard runs store a RowPlan[] array; LinkedIn runs store a
+    // LinkedInReport object with a flat `conflicts` list.
+    const parsedReport = JSON.parse(run.reportJson as string) as unknown;
+    const markAccepted = (
+      conflicts: { field: string; incoming: string; contactId?: number }[],
+      matchContact: boolean
+    ) => {
+      for (const c of conflicts) {
+        if (matchContact && c.contactId !== contactId) continue;
         if (c.field === field && c.incoming === value) {
           (c as { accepted?: boolean }).accepted = true;
         }
       }
+    };
+    if (Array.isArray(parsedReport)) {
+      for (const p of parsedReport as RowPlan[]) {
+        if (p.contactId !== contactId) continue;
+        markAccepted(p.conflicts, false);
+      }
+    } else if (
+      typeof parsedReport === "object" &&
+      parsedReport !== null &&
+      Array.isArray((parsedReport as { conflicts?: unknown }).conflicts)
+    ) {
+      markAccepted(
+        (parsedReport as {
+          conflicts: { field: string; incoming: string; contactId: number }[];
+        }).conflicts,
+        true
+      );
     }
     db.update(syncRuns)
-      .set({ reportJson: JSON.stringify(plans) })
+      .set({ reportJson: JSON.stringify(parsedReport) })
       .where(eq(syncRuns.id, runId))
       .run();
   });
