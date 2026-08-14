@@ -29,8 +29,9 @@ export type LinkedInRowPlan = {
   changes: { field: "company" | "title"; old: string; new: string }[];
 };
 
-/** SPEC §5: trim, collapse whitespace, case-insensitive; companies also
- * lose legal suffixes (Inc/LLC/Ltd/GmbH & friends) and trailing commas. */
+/** SPEC §5: trim, collapse whitespace, case- and punctuation-insensitive;
+ * companies also lose legal suffixes (Inc/LLC/Ltd/GmbH & friends) and
+ * trailing commas — "Sr. Engineer" → "Sr Engineer" is not a change. */
 export function normalizeForChange(
   field: LinkedInScalarField,
   value: string
@@ -42,7 +43,7 @@ export function normalizeForChange(
       .replace(/[,.]?\s+(inc|llc|ltd|gmbh|ag|sa|corp|co)\.?$/i, "")
       .trim();
   }
-  return s;
+  return s.replace(/[.,'’]/g, "").replace(/\s+/g, " ").trim();
 }
 
 function incomingScalars(

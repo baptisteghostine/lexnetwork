@@ -41,6 +41,11 @@ describe("normalizeForCompare", () => {
       normalizeForCompare("title", "vp engineering")
     );
   });
+  it("punctuation-only differences are not changes (SPEC §5)", () => {
+    expect(normalizeForCompare("title", "Sr. Engineer")).toBe(
+      normalizeForCompare("title", "Sr Engineer")
+    );
+  });
   it("strips legal suffixes for company only", () => {
     expect(normalizeForCompare("company", "Acme, Inc.")).toBe("acme");
     expect(normalizeForCompare("company", "Google")).toBe(

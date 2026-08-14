@@ -188,8 +188,18 @@ describe("normalizeForChange", () => {
   it("strips legal suffixes for companies only", () => {
     expect(normalizeForChange("company", "Google LLC")).toBe("google");
     expect(normalizeForChange("company", "Veltra, Inc.")).toBe("veltra");
+    // "Inc" survives in titles (no legal-suffix stripping) — only the
+    // punctuation goes.
     expect(normalizeForChange("title", "VP, Inc Programs")).toBe(
-      "vp, inc programs"
+      "vp inc programs"
+    );
+  });
+  it("punctuation-only differences are not changes (SPEC §5)", () => {
+    expect(normalizeForChange("title", "Sr. Engineer")).toBe(
+      normalizeForChange("title", "Sr Engineer")
+    );
+    expect(normalizeForChange("company", "O'Reilly Media")).toBe(
+      normalizeForChange("company", "OReilly Media")
     );
   });
 });

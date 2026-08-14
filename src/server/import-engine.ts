@@ -7,6 +7,7 @@ import { and, eq, isNull, lt } from "drizzle-orm";
 
 import { DATA_DIR, db } from "@/db/client";
 import {
+  contactChanges,
   contactEmails,
   contactFieldSources,
   contactPhones,
@@ -224,6 +225,26 @@ function applyPlan(
   for (const w of plan.writes) {
     applyScalarWrite(contactId, w.field, w.incoming, row.birthday, now);
     upsertProvenance(contactId, w.field, source, runId, now);
+    // SPEC §5: every import carrying title/company emits a change row when
+    // it overwrites a real prior value (filling an empty field is new info,
+    // not a change; the planner already filtered normalization-only diffs).
+    if (
+      (w.field === "title" || w.field === "company") &&
+      w.previous !== null &&
+      w.previous !== ""
+    ) {
+      db.insert(contactChanges)
+        .values({
+          contactId,
+          field: w.field,
+          oldValue: w.previous,
+          newValue: w.incoming,
+          source,
+          syncRunId: runId,
+          detectedAt: now,
+        })
+        .run();
+    }
   }
 
   const existingEmailCount = db

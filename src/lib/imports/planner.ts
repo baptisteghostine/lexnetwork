@@ -26,12 +26,13 @@ export type StoredSnapshot = {
 const LEGAL_SUFFIX_RE =
   /[\s,]+(inc\.?|llc|ltd\.?|gmbh|ag|sa|sarl|s\.a\.|corp\.?|co\.?|plc)$/i;
 
-/** Equality normalization: case/whitespace-insensitive; company also drops
- * legal suffixes (SPEC §5: "google" → "Google" is not a change). */
+/** Equality normalization: case/whitespace/punctuation-insensitive; company
+ * also drops legal suffixes (SPEC §5: "google" → "Google" and
+ * "Sr. Engineer" → "Sr Engineer" are not changes). */
 export function normalizeForCompare(field: ScalarField, value: string): string {
   let v = value.trim().replace(/\s+/g, " ").toLowerCase();
   if (field === "company") v = v.replace(LEGAL_SUFFIX_RE, "").trim();
-  return v;
+  return v.replace(/[.,'’]/g, "").replace(/\s+/g, " ").trim();
 }
 
 export function birthdayString(b: NonNullable<ImportRow["birthday"]>): string {
