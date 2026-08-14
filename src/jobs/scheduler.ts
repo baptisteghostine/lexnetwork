@@ -1,7 +1,8 @@
 import { and, asc, desc, eq, isNotNull, isNull, lt, lte, ne, or } from "drizzle-orm";
 
-import { db } from "@/db/client";
+import { DATA_DIR, db, rawDb } from "@/db/client";
 import { jobs } from "@/db/schema";
+import { runBackup } from "@/lib/backup/run";
 import {
   applyOutcome,
   LEASE_MS,
@@ -57,6 +58,9 @@ const HANDLERS: Record<string, Handler> = {
   dedupe_scan: async () => {
     runDedupeScan();
   },
+  backup: async () => {
+    runBackup(rawDb, DATA_DIR);
+  },
 };
 
 function providerActive(provider: "google" | "linkedin"): boolean {
@@ -73,7 +77,8 @@ const SYNC_JOBS: {
     | "calendar_sync"
     | "linkedin_sync"
     | "linkedin_voyager_sync"
-    | "dedupe_scan";
+    | "dedupe_scan"
+    | "backup";
   connected: () => boolean;
   intervalMs: number;
 }[] = [
@@ -91,6 +96,9 @@ const SYNC_JOBS: {
   // Dedupe is always on (SPEC §10): the queue only fills as sources add
   // overlapping contacts, and an empty scan is cheap.
   { kind: "dedupe_scan", connected: () => true, intervalMs: 24 * 3600 * 1000 },
+  // Nightly backup (SPEC §13) — always on; first run fires at first boot,
+  // then every 24h from the last success, like dedupe_scan.
+  { kind: "backup", connected: () => true, intervalMs: 24 * 3600 * 1000 },
 ];
 
 /**

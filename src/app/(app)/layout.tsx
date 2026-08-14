@@ -7,8 +7,9 @@ import { ShortcutOverlay } from "@/components/shortcut-overlay";
 import { SidebarNav } from "@/components/sidebar-nav";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
-import { db } from "@/db/client";
+import { db, rawDb } from "@/db/client";
 import { contacts, duplicateCandidates, reminders, views } from "@/db/schema";
+import { readBackupStatus } from "@/lib/backup/run";
 import { requireAuth } from "@/lib/auth";
 import { now as currentTime } from "@/lib/time";
 import { logoutAction } from "@/server/auth";
@@ -62,6 +63,9 @@ export default async function AppLayout({
     .all();
   const initialDark =
     (await cookies()).get("rolo-theme")?.value === "dark";
+  // SPEC §13: a failed nightly backup shows a banner — data safety is not
+  // allowed to fail silently.
+  const backupFailure = readBackupStatus(rawDb).failing;
 
   return (
     <div className="flex min-h-screen">
@@ -92,7 +96,17 @@ export default async function AppLayout({
           <ThemeToggle initialDark={initialDark} />
         </div>
       </aside>
-      <main className="min-w-0 flex-1">{children}</main>
+      <main className="min-w-0 flex-1">
+        {backupFailure ? (
+          <div className="border-b border-red-200 bg-red-50 px-5 py-1.5 text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+            The last backup failed.{" "}
+            <Link href="/settings" className="underline">
+              See details in Settings → Data.
+            </Link>
+          </div>
+        ) : null}
+        {children}
+      </main>
       <CommandPalette />
       <ShortcutOverlay />
     </div>
