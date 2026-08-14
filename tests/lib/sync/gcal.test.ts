@@ -6,6 +6,7 @@ import {
   eventCountsAsMeeting,
   parseCalendarEvent,
   parseEventsPage,
+  storedEventCountsAsMeeting,
   type CalendarEventParsed,
 } from "../../../src/lib/sync/gcal";
 
@@ -128,5 +129,43 @@ describe("parseEventsPage", () => {
   it("surfaces the nextSyncToken from the final page", () => {
     const page = parseEventsPage({ items: [], nextSyncToken: "sync-tok" });
     expect(page.nextSyncToken).toBe("sync-tok");
+  });
+});
+
+describe("storedEventCountsAsMeeting", () => {
+  const stored = {
+    status: "confirmed",
+    myResponse: "accepted" as string | null,
+    startsAt: NOW - 2 * 60 * 60 * 1000,
+    endsAt: NOW - 60 * 60 * 1000,
+  };
+  it("an elapsed confirmed event counts", () => {
+    expect(storedEventCountsAsMeeting(stored, NOW)).toBe(true);
+  });
+  it("an event synced while future counts once it has elapsed", () => {
+    const before = stored.startsAt - 60 * 60 * 1000;
+    expect(storedEventCountsAsMeeting(stored, before)).toBe(false);
+    expect(storedEventCountsAsMeeting(stored, NOW)).toBe(true);
+  });
+  it("declined and tentative events never count", () => {
+    expect(storedEventCountsAsMeeting({ ...stored, myResponse: "declined" }, NOW)).toBe(false);
+    expect(storedEventCountsAsMeeting({ ...stored, status: "tentative" }, NOW)).toBe(false);
+  });
+  it("an event rescheduled into the future stops counting", () => {
+    const future = {
+      ...stored,
+      startsAt: NOW + 60 * 60 * 1000,
+      endsAt: NOW + 2 * 60 * 60 * 1000,
+    };
+    expect(storedEventCountsAsMeeting(future, NOW)).toBe(false);
+  });
+  it("falls back to startsAt when endsAt is null", () => {
+    expect(storedEventCountsAsMeeting({ ...stored, endsAt: null }, NOW)).toBe(true);
+    expect(
+      storedEventCountsAsMeeting(
+        { ...stored, startsAt: NOW + 1000, endsAt: null },
+        NOW
+      )
+    ).toBe(false);
   });
 });

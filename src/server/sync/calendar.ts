@@ -1,6 +1,6 @@
 import "server-only";
 
-import { eq, isNotNull } from "drizzle-orm";
+import { and, eq, gte, inArray, lte } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import {
@@ -16,8 +16,10 @@ import { outboundFetch } from "@/lib/net/fetch";
 import {
   buildEventsIncrementalUrl,
   buildEventsWindowUrl,
-  eventCountsAsMeeting,
+  CALENDAR_FUTURE_WINDOW_MS,
+  CALENDAR_PAST_WINDOW_MS,
   parseEventsPage,
+  storedEventCountsAsMeeting,
   type CalendarEventParsed,
 } from "@/lib/sync/gcal";
 import {
@@ -70,14 +72,42 @@ function matchAttendees(
     });
 }
 
+/**
+ * Delete the meeting interactions recorded for an event that no longer
+ * happened (cancelled, or removed server-side), returning the contacts
+ * whose cadence needs recomputing.
+ */
+function deleteMeetingInteractions(eventKeys: string[], touched: Set<number>): void {
+  for (let i = 0; i < eventKeys.length; i += 200) {
+    const chunk = eventKeys.slice(i, i + 200);
+    const rows = db
+      .select({ contactId: interactions.contactId })
+      .from(interactions)
+      .where(
+        and(eq(interactions.source, "calendar"), inArray(interactions.sourceKey, chunk))
+      )
+      .all();
+    if (rows.length === 0) continue;
+    for (const r of rows) touched.add(r.contactId);
+    db.delete(interactions)
+      .where(
+        and(eq(interactions.source, "calendar"), inArray(interactions.sourceKey, chunk))
+      )
+      .run();
+  }
+}
+
 function upsertEvent(
   accountId: number,
   e: CalendarEventParsed,
   matched: { email: string; name: string | null; contactId: number | null }[],
-  now: number
+  now: number,
+  touched: Set<number>
 ): void {
   if (e.status === "cancelled") {
     db.delete(calendarEvents).where(eq(calendarEvents.eventKey, e.eventKey)).run();
+    // A meeting already promoted to an interaction never happened after all.
+    deleteMeetingInteractions([e.eventKey], touched);
     return;
   }
   db.insert(calendarEvents)
@@ -111,6 +141,146 @@ function upsertEvent(
     .run();
 }
 
+type StoredAttendee = { email: string; name: string | null; contactId: number | null };
+
+function parseStoredAttendees(json: string | null): StoredAttendee[] {
+  if (!json) return [];
+  try {
+    const raw = JSON.parse(json);
+    return Array.isArray(raw) ? (raw as StoredAttendee[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Reconcile meeting interactions against the whole event cache, not just
+ * this run's deltas. Incremental sync typically delivers an event once, at
+ * creation, while it is still in the future — nothing redelivers it after
+ * it occurs, so promotion to an interaction has to happen here, on every
+ * tick. The same pass demotes events that stopped counting (declined after
+ * the fact, or rescheduled back into the future).
+ */
+function reconcileMeetingInteractions(
+  now: number,
+  stats: CalendarSyncStats,
+  touched: Set<number>
+): void {
+  const rows = db
+    .select({
+      eventKey: calendarEvents.eventKey,
+      summary: calendarEvents.summary,
+      startsAt: calendarEvents.startsAt,
+      endsAt: calendarEvents.endsAt,
+      status: calendarEvents.status,
+      myResponse: calendarEvents.myResponse,
+      attendees: calendarEvents.attendees,
+    })
+    .from(calendarEvents)
+    .all();
+
+  for (const row of rows) {
+    const attendees = parseStoredAttendees(row.attendees);
+    const matchedIds = [
+      ...new Set(
+        attendees
+          .map((a) => a.contactId)
+          .filter((id): id is number => typeof id === "number")
+      ),
+    ];
+    const counts =
+      attendees.length > 0 && storedEventCountsAsMeeting(row, now);
+
+    if (!counts) {
+      // Declined, tentative, or moved back into the future — a previously
+      // recorded interaction claims a meeting that didn't (yet) happen.
+      deleteMeetingInteractions([row.eventKey], touched);
+      continue;
+    }
+
+    const existing = db
+      .select({
+        id: interactions.id,
+        contactId: interactions.contactId,
+        occurredAt: interactions.occurredAt,
+        title: interactions.title,
+      })
+      .from(interactions)
+      .where(
+        and(
+          eq(interactions.source, "calendar"),
+          eq(interactions.sourceKey, row.eventKey)
+        )
+      )
+      .all();
+    const byContact = new Map(existing.map((r) => [r.contactId, r]));
+
+    for (const contactId of matchedIds) {
+      const have = byContact.get(contactId);
+      if (!have) {
+        db.insert(interactions)
+          .values({
+            contactId,
+            kind: "meeting",
+            direction: null,
+            occurredAt: row.startsAt,
+            title: row.summary,
+            meta: JSON.stringify({ eventId: row.eventKey }),
+            source: "calendar",
+            sourceKey: row.eventKey,
+            countsForTouch: true,
+            createdAt: Date.now(),
+          })
+          .run();
+        stats.meetingsAdded++;
+        touched.add(contactId);
+      } else if (have.occurredAt !== row.startsAt || have.title !== row.summary) {
+        // Rescheduled (still in the past) or retitled: refresh in place.
+        db.update(interactions)
+          .set({ occurredAt: row.startsAt, title: row.summary })
+          .where(eq(interactions.id, have.id))
+          .run();
+        touched.add(contactId);
+      }
+    }
+    // An attendee removed from the event no longer met anyone.
+    for (const r of existing) {
+      if (!matchedIds.includes(r.contactId)) {
+        db.delete(interactions).where(eq(interactions.id, r.id)).run();
+        touched.add(r.contactId);
+      }
+    }
+  }
+}
+
+/**
+ * After a full-window (re-)list: stored events inside the window that the
+ * listing didn't return were deleted (or moved out of the window) while no
+ * valid syncToken was watching — drop them and their interactions.
+ */
+function pruneUnseenWindowEvents(
+  now: number,
+  seenKeys: Set<string>,
+  touched: Set<number>
+): void {
+  const windowStart = now - CALENDAR_PAST_WINDOW_MS;
+  const windowEnd = now + CALENDAR_FUTURE_WINDOW_MS;
+  const stored = db
+    .select({ eventKey: calendarEvents.eventKey })
+    .from(calendarEvents)
+    .where(
+      and(gte(calendarEvents.startsAt, windowStart), lte(calendarEvents.startsAt, windowEnd))
+    )
+    .all();
+  const stale = stored.map((r) => r.eventKey).filter((k) => !seenKeys.has(k));
+  if (stale.length === 0) return;
+  for (let i = 0; i < stale.length; i += 200) {
+    const chunk = stale.slice(i, i + 200);
+    db.delete(calendarEvents).where(inArray(calendarEvents.eventKey, chunk)).run();
+  }
+  deleteMeetingInteractions(stale, touched);
+}
+
 /** One sync tick. Returns null when no active Google account exists. */
 export async function runCalendarSync(): Promise<CalendarSyncStats | null> {
   const account = getAccount("google");
@@ -142,6 +312,11 @@ export async function runCalendarSync(): Promise<CalendarSyncStats | null> {
     let nextSyncToken: string | null = null;
     let pageToken: string | undefined;
 
+    // Event keys seen during a full-window run — anything stored inside the
+    // window but absent from the listing was deleted server-side while the
+    // syncToken was invalid, and must be pruned along with its interactions.
+    const seenKeys = new Set<string>();
+
     const consumePages = async (incremental: boolean): Promise<void> => {
       do {
         const url = incremental
@@ -150,43 +325,8 @@ export async function runCalendarSync(): Promise<CalendarSyncStats | null> {
         const page = parseEventsPage(await gcalJson(url, token));
         for (const e of page.events) {
           stats.eventsSeen++;
-          const matched = matchAttendees(e);
-          upsertEvent(account.id, e, matched, now);
-          if (eventCountsAsMeeting(e, now)) {
-            for (const m of matched) {
-              if (m.contactId === null) continue;
-              const res = db
-                .insert(interactions)
-                .values({
-                  contactId: m.contactId,
-                  kind: "meeting",
-                  direction: null,
-                  occurredAt: e.startsAt,
-                  title: e.summary,
-                  meta: JSON.stringify({ eventId: e.eventKey }),
-                  source: "calendar",
-                  sourceKey: e.eventKey,
-                  countsForTouch: true,
-                  createdAt: Date.now(),
-                })
-                .onConflictDoUpdate({
-                  target: [
-                    interactions.contactId,
-                    interactions.source,
-                    interactions.sourceKey,
-                  ],
-                  // Partial unique index — the target must repeat its WHERE.
-                  targetWhere: isNotNull(interactions.sourceKey),
-                  // Rescheduled events keep one row with fresh timing.
-                  set: { occurredAt: e.startsAt, title: e.summary },
-                })
-                .run();
-              if (res.changes > 0) {
-                stats.meetingsAdded++;
-                touched.add(m.contactId);
-              }
-            }
-          }
+          if (!incremental) seenKeys.add(e.eventKey);
+          upsertEvent(account.id, e, matchAttendees(e), now, touched);
         }
         pageToken = page.nextPageToken ?? undefined;
         if (page.nextSyncToken) nextSyncToken = page.nextSyncToken;
@@ -212,6 +352,9 @@ export async function runCalendarSync(): Promise<CalendarSyncStats | null> {
     } else {
       await consumePages(false);
     }
+
+    if (stats.fullWindow) pruneUnseenWindowEvents(now, seenKeys, touched);
+    reconcileMeetingInteractions(now, stats, touched);
 
     for (const id of touched) recomputeContact(id);
     stats.contactsTouched = touched.size;

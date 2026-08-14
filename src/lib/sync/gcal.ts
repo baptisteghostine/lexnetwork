@@ -149,3 +149,22 @@ export function eventCountsAsMeeting(
     e.attendees.some((a) => !a.self)
   );
 }
+
+/**
+ * Same predicate over a stored `calendar_events` row. Incremental sync only
+ * delivers *changed* events, so an event synced while still in the future is
+ * typically never seen again — whether it has since occurred must be decided
+ * from the cache on every tick, not from the delta stream. Stored attendee
+ * lists exclude the owner, so "has a non-self attendee" = non-empty list
+ * (checked by the caller, which holds the parsed list).
+ */
+export function storedEventCountsAsMeeting(
+  row: { status: string; myResponse: string | null; startsAt: number; endsAt: number | null },
+  now: number
+): boolean {
+  return (
+    row.status === "confirmed" &&
+    row.myResponse !== "declined" &&
+    (row.endsAt ?? row.startsAt) < now
+  );
+}
