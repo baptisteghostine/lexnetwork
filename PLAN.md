@@ -88,7 +88,7 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   imports emit contact_changes; dedupe scoring order-independence +
   prefix blocking; merge transfers dismissal memory and undo survives
   deleted referents; FTS diacritic folding; saved-view sort, OR chips,
-  include-archived search. 313 unit tests. Still awaiting first live
+  include-archived search. 314 unit tests. Still awaiting first live
   passes: Google sync, Voyager sync, and the AI layer (need the owner's
   accounts/keys). Known limitations left open: crashed import runs get
   no partial report; digest "changes since last digest" wording still
