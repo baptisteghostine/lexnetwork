@@ -26,6 +26,15 @@ const devProxyOrigins =
     : [];
 
 const nextConfig: NextConfig = {
+  // Self-contained production build for the Docker image (SPEC §13 deploy):
+  // .next/standalone runs with `node server.js`, no node_modules install.
+  output: "standalone",
+  // Native module — must be required at runtime, not bundled, and its
+  // prebuilt binding traced into the standalone output.
+  serverExternalPackages: ["better-sqlite3"],
+  outputFileTracingIncludes: {
+    "**": ["./node_modules/better-sqlite3/prebuilds/**"],
+  },
   experimental: {
     serverActions: {
       allowedOrigins: [...devProxyOrigins, ...configuredOrigins],

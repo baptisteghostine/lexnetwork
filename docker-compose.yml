@@ -1,0 +1,20 @@
+# Rolo on a small VPS: `docker compose up -d`. See DEPLOY.md.
+services:
+  rolo:
+    build: .
+    ports:
+      - "${ROLO_PORT:-3000}:3000"
+    volumes:
+      # Everything worth keeping lives here: rolo.db, attachments/, backups/.
+      - ./data:/app/data
+    environment:
+      # Reverse-proxy host(s), comma-separated `host[:port]` — required for
+      # Server Actions behind a proxy (see next.config.ts).
+      - ROLO_ALLOWED_ORIGINS=${ROLO_ALLOWED_ORIGINS:-}
+      # Optional: pin the session-cookie/token-box secret. When unset a
+      # generated secret persists in data/secret.key.
+      - SESSION_SECRET=${SESSION_SECRET:-}
+      # AI layer (optional) — both must be set for AI affordances to appear.
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-}
+    restart: unless-stopped
