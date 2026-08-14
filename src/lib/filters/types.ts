@@ -46,6 +46,68 @@ export function emptyFilterSet(): FilterSet {
   return { v: 1, clauses: [] };
 }
 
+const isNum = (v: unknown): v is number =>
+  typeof v === "number" && Number.isFinite(v);
+const isStr = (v: unknown): v is string => typeof v === "string";
+const isBool = (v: unknown): v is boolean => typeof v === "boolean";
+const isIdArray = (v: unknown): v is number[] =>
+  Array.isArray(v) && v.length > 0 && v.every(isNum);
+
+/**
+ * Per-clause shape validation (SCHEMA.md: "validated at read time" —
+ * JSON-in-TEXT rots quietly). A clause failing this would crash the SQL
+ * compiler (e.g. `ids: null`), so malformed clauses are dropped rather
+ * than 500ing /contacts on a poison ?f= param or saved view.
+ */
+function isValidClause(raw: unknown): raw is FilterClause {
+  if (typeof raw !== "object" || raw === null) return false;
+  const c = raw as Record<string, unknown>;
+  switch (c.dim) {
+    case "group":
+    case "tag":
+      return isIdArray(c.ids);
+    case "lastInteraction":
+      return (
+        (c.op === "before" || c.op === "after" || c.op === "never") &&
+        (c.at === undefined || isNum(c.at))
+      );
+    case "titleContains":
+    case "educationContains":
+      return isStr(c.value) && c.value.length > 0;
+    case "company":
+      return (
+        (c.mode === "current" || c.mode === "past" || c.mode === "ex" || c.mode === "any") &&
+        isStr(c.value) &&
+        c.value.length > 0
+      );
+    case "locationRadius":
+      return isNum(c.lat) && isNum(c.lng) && isNum(c.km) && c.km > 0;
+    case "hasLinkedin":
+    case "starred":
+    case "archived":
+      return isBool(c.value);
+    case "createdAt":
+      return (
+        (c.from === undefined || isNum(c.from)) &&
+        (c.to === undefined || isNum(c.to))
+      );
+    case "cadence":
+      return c.value === "set" || c.value === "unset";
+    case "dueStatus":
+      return c.value === "due" || c.value === "overdue" || c.value === "not_due";
+    case "customField":
+      return (
+        isNum(c.fieldId) &&
+        ["contains", "equals", "gt", "lt", "before", "after", "includes"].includes(
+          c.op as string
+        ) &&
+        (isStr(c.value) || isNum(c.value))
+      );
+    default:
+      return false;
+  }
+}
+
 /** Lenient parse of stored/URL filter JSON; null when unusable. */
 export function parseFilterSet(raw: unknown): FilterSet | null {
   if (typeof raw === "string") {
@@ -63,5 +125,6 @@ export function parseFilterSet(raw: unknown): FilterSet | null {
   ) {
     return null;
   }
-  return raw as FilterSet;
+  const clauses = ((raw as { clauses: unknown[] }).clauses).filter(isValidClause);
+  return { v: 1, clauses };
 }

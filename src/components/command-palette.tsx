@@ -65,6 +65,7 @@ export function CommandPalette() {
     []
   );
   const [active, setActive] = useState(0);
+  const [includeArchived, setIncludeArchived] = useState(false);
   const chordAt = useRef<number>(0);
   const requestSeq = useRef(0);
 
@@ -126,7 +127,9 @@ export function CommandPalette() {
     const seq = ++requestSeq.current;
     const t = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+        const res = await fetch(
+          `/api/search?q=${encodeURIComponent(q)}${includeArchived ? "&archived=1" : ""}`
+        );
         if (!res.ok) return;
         const data = (await res.json()) as {
           results: ContactHit[];
@@ -142,7 +145,7 @@ export function CommandPalette() {
       }
     }, 120);
     return () => clearTimeout(t);
-  }, [query, open]);
+  }, [query, open, includeArchived]);
 
   const q = query.trim().toLowerCase();
   const actions = [
@@ -222,6 +225,18 @@ export function CommandPalette() {
               placeholder="Search contacts or jump anywhere…"
               className="h-11 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
             />
+            <button
+              type="button"
+              onClick={() => setIncludeArchived((v) => !v)}
+              className={`whitespace-nowrap rounded border px-1.5 py-0.5 text-[10px] ${
+                includeArchived
+                  ? "border-foreground/40 text-foreground"
+                  : "border-border text-muted-foreground hover:text-foreground"
+              }`}
+              title="Include archived contacts in results"
+            >
+              {includeArchived ? "archived: on" : "archived: off"}
+            </button>
             <kbd className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
               esc
             </kbd>

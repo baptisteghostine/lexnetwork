@@ -74,6 +74,22 @@ export function FilterBar({
   const add = (clause: FilterClause) => {
     setInput(null);
     setText("");
+    // SPEC §7: OR within a dimension, AND across. A second tag/group pick
+    // extends the existing clause's id list ("conference OR nyc") instead
+    // of adding a second clause that would AND them into "both tags".
+    if (clause.dim === "tag" || clause.dim === "group") {
+      const existing = filter.clauses.findIndex((c) => c.dim === clause.dim);
+      if (existing >= 0) {
+        const prior = filter.clauses[existing] as { dim: "tag" | "group"; ids: number[] };
+        const merged = [...new Set([...prior.ids, ...clause.ids])];
+        apply(
+          filter.clauses.map((c, i) =>
+            i === existing ? { ...prior, ids: merged } : c
+          )
+        );
+        return;
+      }
+    }
     apply([...filter.clauses, clause]);
   };
 

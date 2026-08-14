@@ -30,18 +30,22 @@ export type NoteHit = {
 
 export type SearchResults = { contacts: ContactHit[]; notes: NoteHit[] };
 
-function contactCandidateIds(query: string): Set<number> {
+function contactCandidateIds(query: string, includeArchived: boolean): Set<number> {
   const ids = new Set<number>();
   // Archived contacts are excluded inside each candidate query, before its
   // LIMIT — filtering after the cap would let archived rows crowd live ones
-  // out of the candidate set on a heavily-archived database.
+  // out of the candidate set on a heavily-archived database. The "include
+  // archived" toggle (SPEC §1) widens the pool to everything.
+  const pool = includeArchived
+    ? sql`(SELECT id FROM contacts)`
+    : sql`(SELECT id FROM contacts WHERE archived_at IS NULL)`;
   const match = ftsQueryForContacts(query);
   if (match !== null) {
     try {
       const rows = db.all<{ id: number }>(
         sql`SELECT rowid AS id FROM contacts_fts
             WHERE contacts_fts MATCH ${match}
-              AND rowid IN (SELECT id FROM contacts WHERE archived_at IS NULL)
+              AND rowid IN ${pool}
             LIMIT 80`
       );
       for (const r of rows) ids.add(r.id);
@@ -57,14 +61,14 @@ function contactCandidateIds(query: string): Set<number> {
     const nameRows = db.all<{ id: number }>(
       sql`SELECT id FROM contacts
           WHERE display_name LIKE ${pattern} ESCAPE '\\'
-            AND archived_at IS NULL
+            AND id IN ${pool}
           LIMIT 20`
     );
     for (const r of nameRows) ids.add(r.id);
     const emailRows = db.all<{ contact_id: number }>(
       sql`SELECT contact_id FROM contact_emails
           WHERE email_normalized LIKE ${pattern} ESCAPE '\\'
-            AND contact_id IN (SELECT id FROM contacts WHERE archived_at IS NULL)
+            AND contact_id IN ${pool}
           LIMIT 20`
     );
     for (const r of emailRows) ids.add(r.contact_id);
@@ -72,8 +76,12 @@ function contactCandidateIds(query: string): Set<number> {
   return ids;
 }
 
-export function searchContacts(query: string, limit = 10): ContactHit[] {
-  const ids = [...contactCandidateIds(query)];
+export function searchContacts(
+  query: string,
+  limit = 10,
+  includeArchived = false
+): ContactHit[] {
+  const ids = [...contactCandidateIds(query, includeArchived)];
   if (ids.length === 0) return [];
   const rows = db
     .select({
@@ -112,7 +120,11 @@ export function searchContacts(query: string, limit = 10): ContactHit[] {
   }));
 }
 
-export function searchNotes(query: string, limit = 8): NoteHit[] {
+export function searchNotes(
+  query: string,
+  limit = 8,
+  includeArchived = false
+): NoteHit[] {
   const match = ftsQueryForNotes(query);
   if (match === null) return [];
   let hits: { id: number; snippet: string }[] = [];
@@ -160,20 +172,31 @@ export function searchNotes(query: string, limit = 8): NoteHit[] {
     if (cid !== undefined && cid !== null) contactByNote.set(n.id, cid);
   }
   const contactIds = [...new Set(contactByNote.values())];
+  const contactRows = contactIds.length
+    ? db
+        .select({
+          id: contacts.id,
+          displayName: contacts.displayName,
+          archivedAt: contacts.archivedAt,
+        })
+        .from(contacts)
+        .where(inArray(contacts.id, contactIds))
+        .all()
+    : [];
+  // Archiving hides the contact from search (SPEC §1) — their notes too,
+  // unless the archived toggle is on.
+  const visible = new Set(
+    contactRows
+      .filter((c) => includeArchived || c.archivedAt === null)
+      .map((c) => c.id)
+  );
   const names = new Map(
-    contactIds.length
-      ? db
-          .select({ id: contacts.id, displayName: contacts.displayName })
-          .from(contacts)
-          .where(inArray(contacts.id, contactIds))
-          .all()
-          .map((c) => [c.id, c.displayName] as const)
-      : []
+    contactRows.map((c) => [c.id, c.displayName] as const)
   );
   const out: NoteHit[] = [];
   for (const h of hits) {
     const contactId = contactByNote.get(h.id);
-    if (contactId === undefined) continue;
+    if (contactId === undefined || !visible.has(contactId)) continue;
     out.push({
       noteId: h.id,
       contactId,
@@ -185,8 +208,15 @@ export function searchNotes(query: string, limit = 8): NoteHit[] {
   return out;
 }
 
-export function searchAll(query: string): SearchResults {
+export function searchAll(
+  query: string,
+  opts?: { includeArchived?: boolean }
+): SearchResults {
   const q = query.trim();
   if (!q) return { contacts: [], notes: [] };
-  return { contacts: searchContacts(q), notes: searchNotes(q) };
+  const includeArchived = opts?.includeArchived ?? false;
+  return {
+    contacts: searchContacts(q, 10, includeArchived),
+    notes: searchNotes(q, 8, includeArchived),
+  };
 }

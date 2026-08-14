@@ -12,6 +12,8 @@ export async function GET(req: NextRequest) {
   }
   const q = (req.nextUrl.searchParams.get("q") ?? "").trim();
   if (!q) return NextResponse.json({ results: [], notes: [] });
-  const { contacts, notes } = searchAll(q);
+  // SPEC §1: archived contacts are findable only with the toggle on.
+  const includeArchived = req.nextUrl.searchParams.get("archived") === "1";
+  const { contacts, notes } = searchAll(q, { includeArchived });
   return NextResponse.json({ results: contacts, notes });
 }

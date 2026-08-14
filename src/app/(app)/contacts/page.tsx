@@ -47,9 +47,10 @@ export default async function ContactsPage({
   // every protected page guards itself.
   await requireAuth();
   const params = await searchParams;
-  const sortParam = ["name", "company", "recent"].includes(String(params.sort))
-    ? String(params.sort)
-    : "name";
+  const explicitSort = ["name", "company", "recent"].includes(
+    String(params.sort)
+  );
+  let sortParam = explicitSort ? String(params.sort) : "name";
 
   // Filter source of truth: saved view > ?f= > legacy archived toggle.
   let filter: FilterSet | null = null;
@@ -60,6 +61,18 @@ export default async function ContactsPage({
     if (v) {
       filter = parseFilterSet(v.filterJson);
       activeView = { id: v.id, name: v.name };
+      // A view is "filter set + sort + name" (SPEC §7) — its saved sort
+      // applies unless the owner clicked an explicit sort in the header.
+      if (!explicitSort && v.sortJson) {
+        try {
+          const saved = JSON.parse(v.sortJson) as { key?: string };
+          if (saved.key === "company" || saved.key === "recent") {
+            sortParam = saved.key;
+          }
+        } catch {
+          // Unparseable saved sort — keep the default.
+        }
+      }
     }
   }
   if (!filter && typeof params.f === "string") {
