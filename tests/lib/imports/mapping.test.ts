@@ -8,6 +8,7 @@ import {
   guessMapping,
   headerSignature,
   isImportableRow,
+  parseBirthdayCell,
 } from "@/lib/imports/mapping";
 
 const googleCsv = parseCsv(
@@ -84,5 +85,32 @@ describe("headerSignature", () => {
       headerSignature([...googleCsv.headers])
     );
     expect(headerSignature(["a", "b"])).not.toBe(headerSignature(["a", "c"]));
+  });
+});
+
+describe("parseBirthdayCell — date order", () => {
+  it("follows day-first order for non-US owners", () => {
+    expect(parseBirthdayCell("07/03/1990", true)).toEqual({
+      year: 1990,
+      month: 3,
+      day: 7,
+    });
+    expect(parseBirthdayCell("07/03/1990", false)).toEqual({
+      year: 1990,
+      month: 7,
+      day: 3,
+    });
+  });
+  it("an unambiguous day (>12) wins regardless of locale", () => {
+    expect(parseBirthdayCell("25/03/1990", false)).toEqual({
+      year: 1990,
+      month: 3,
+      day: 25,
+    });
+    expect(parseBirthdayCell("03/25/1990", true)).toEqual({
+      year: 1990,
+      month: 3,
+      day: 25,
+    });
   });
 });

@@ -51,7 +51,7 @@ export type RowPlan = {
   status: "new" | "updated" | "unchanged" | "conflict" | "error";
   /** Existing contact matched by the identity ladder (null → insert). */
   contactId: number | null;
-  matchedBy: "email" | "phone" | "name" | null;
+  matchedBy: "url" | "email" | "phone" | "name" | null;
   displayName: string;
   writes: FieldWrite[];
   conflicts: FieldConflict[];

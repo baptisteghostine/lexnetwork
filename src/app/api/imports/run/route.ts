@@ -13,7 +13,7 @@ import {
   type Mapping,
 } from "@/lib/imports/mapping";
 import { parseVcards } from "@/lib/imports/vcard";
-import { setSetting } from "@/lib/settings";
+import { getSetting, setSetting } from "@/lib/settings";
 import { executeImport } from "@/server/import-engine";
 
 const TMP_DIR = path.join(DATA_DIR, "imports", "tmp");
@@ -59,7 +59,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "mapping required" }, { status: 400 });
     }
     const table = parseCsv(text);
-    rows = applyMapping(table.headers, table.rows, mapping as Mapping);
+    // Slashed birthday dates follow the owner's region: a non-US phone
+    // region reads 07/03 as 7 March (day-first), matching how the owner's
+    // exports are actually written.
+    const region = getSetting<string>("phone_default_region");
+    rows = applyMapping(table.headers, table.rows, mapping as Mapping, {
+      dmyDates: !!region && region !== "US",
+    });
   }
 
   const result = executeImport({

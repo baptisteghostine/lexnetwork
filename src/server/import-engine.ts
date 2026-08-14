@@ -19,6 +19,7 @@ import {
   deriveDisplayName,
   normalizeEmail,
 } from "@/lib/contacts/normalize";
+import { normalizeLinkedInUrl } from "@/lib/imports/linkedin";
 import { toE164 } from "@/lib/imports/phone";
 import { planRow, type StoredSnapshot } from "@/lib/imports/planner";
 import { isImportableRow } from "@/lib/imports/mapping";
@@ -47,7 +48,29 @@ function phoneRegion(): string | undefined {
 function matchContact(
   row: ImportRow,
   e164: (raw: string) => string | null
-): { contactId: number; matchedBy: "email" | "phone" | "name" } | null {
+): { contactId: number; matchedBy: "url" | "email" | "phone" | "name" } | null {
+  // Rung 1 of the SPEC §8 ladder: a source-stable external id. For file
+  // imports that is a profile URL the row carries — matching it first
+  // keeps a re-import from duplicating a name-only contact whose URL we
+  // already stored (two John Smiths, one of them ours).
+  for (const s of row.socials) {
+    const exact = db
+      .select({ contactId: contactSocials.contactId })
+      .from(contactSocials)
+      .where(eq(contactSocials.url, s.url))
+      .get();
+    if (exact) return { contactId: exact.contactId, matchedBy: "url" };
+    const norm = normalizeLinkedInUrl(s.url);
+    if (norm) {
+      const stored = db
+        .select({ contactId: contactSocials.contactId, url: contactSocials.url })
+        .from(contactSocials)
+        .where(eq(contactSocials.platform, "linkedin"))
+        .all();
+      const hit = stored.find((r) => normalizeLinkedInUrl(r.url) === norm);
+      if (hit) return { contactId: hit.contactId, matchedBy: "url" };
+    }
+  }
   for (const e of row.emails) {
     const hit = db
       .select({ contactId: contactEmails.contactId })
@@ -460,7 +483,18 @@ export function executeImport(opts: {
       plan.matchedBy = match?.matchedBy ?? null;
 
       if (opts.dryRun && plan.status === "new") {
-        const keys = row.emails.map((e) => normalizeEmail(e.email));
+        // SPEC §8: a second in-file row resolving to the same contact diffs
+        // against the first's result — the preview must predict that with
+        // every identity key the confirm run will match on (email, E.164
+        // phone, social URL), not just emails.
+        const keys = [
+          ...row.emails.map((e) => `e:${normalizeEmail(e.email)}`),
+          ...row.phones
+            .map((p) => e164(p.phone))
+            .filter((n): n is string => !!n)
+            .map((n) => `p:${n}`),
+          ...row.socials.map((s) => `u:${normalizeLinkedInUrl(s.url) ?? s.url}`),
+        ];
         const dupKey = keys.find((k) => provisionalKeys.has(k));
         if (dupKey) {
           plan.status = "updated";
