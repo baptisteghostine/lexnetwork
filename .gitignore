@@ -42,3 +42,8 @@ next-env.d.ts
 
 # rolo data (SQLite, attachments, backups)
 /data/
+
+# playwright
+/e2e/.data/
+/test-results/
+/playwright-report/
