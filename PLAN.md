@@ -95,7 +95,7 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   resolves to "open changes" (matches the §3 digest AC).
 - ⬜ **Phase 11** — next up: export, backups, Docker deploy, E2E suite
 
-284 unit tests passing as of Phase 10. Open questions from SPEC.md's decision
+314 unit tests passing as of the post-10 hardening pass. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---
