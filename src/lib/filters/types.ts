@@ -15,7 +15,15 @@ export type CustomFieldOp =
 export type FilterClause =
   | { dim: "group"; ids: number[] } // OR within; includes descendants
   | { dim: "tag"; ids: number[] }
-  | { dim: "lastInteraction"; op: "before" | "after" | "never"; at?: number }
+  | {
+      dim: "lastInteraction";
+      op: "before" | "after" | "never";
+      at?: number;
+      /** op:"before" only — also match contacts never spoken to. Without
+       * it, "Founders I haven't talked to in 90 days" silently drops the
+       * founders with zero interactions. */
+      includeNever?: boolean;
+    }
   | { dim: "titleContains"; value: string }
   | { dim: "company"; mode: "current" | "past" | "ex" | "any"; value: string }
   | { dim: "educationContains"; value: string }
@@ -69,7 +77,8 @@ function isValidClause(raw: unknown): raw is FilterClause {
     case "lastInteraction":
       return (
         (c.op === "before" || c.op === "after" || c.op === "never") &&
-        (c.at === undefined || isNum(c.at))
+        (c.at === undefined || isNum(c.at)) &&
+        (c.includeNever === undefined || isBool(c.includeNever))
       );
     case "titleContains":
     case "educationContains":

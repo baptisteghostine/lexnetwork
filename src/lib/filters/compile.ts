@@ -89,12 +89,20 @@ function compileClause(
         return { cond: "c.last_interaction_at IS NULL", params: [] };
       }
       const at = clause.at ?? now;
-      return clause.op === "before"
-        ? {
-            cond: "c.last_interaction_at IS NOT NULL AND c.last_interaction_at <= ?",
-            params: [at],
-          }
-        : { cond: "c.last_interaction_at >= ?", params: [at] };
+      if (clause.op === "before") {
+        // includeNever widens "before" to contacts with no interactions at
+        // all — the SPEC §7 canonical "haven't spoken in 90 days" reading.
+        return clause.includeNever
+          ? {
+              cond: "(c.last_interaction_at IS NULL OR c.last_interaction_at <= ?)",
+              params: [at],
+            }
+          : {
+              cond: "c.last_interaction_at IS NOT NULL AND c.last_interaction_at <= ?",
+              params: [at],
+            };
+      }
+      return { cond: "c.last_interaction_at >= ?", params: [at] };
     }
     case "titleContains":
       return {

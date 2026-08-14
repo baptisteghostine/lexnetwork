@@ -192,6 +192,9 @@ export function FilterBar({
                         dim: "lastInteraction",
                         op: "before",
                         at: Date.now() - d * DAY_MS,
+                        // "Not spoken in 90+ days" includes people never
+                        // spoken to at all — they're the most overdue.
+                        includeNever: true,
                       })
                     }
                   >

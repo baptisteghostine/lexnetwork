@@ -92,6 +92,13 @@
       "when": 1786699951101,
       "tag": "0012_fts_diacritics",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1786700374436,
+      "tag": "0013_sync_run_fk_ondelete",
+      "breakpoints": true
     }
   ]
 }

@@ -220,3 +220,26 @@ describe("compileFilter — per-dimension (SPEC §7)", () => {
     expect(run(filter({ dim: "titleContains", value: "%" })).ids).toEqual([]);
   });
 });
+
+describe("lastInteraction before + includeNever", () => {
+  it("includes never-contacted people when the flag is on", () => {
+    // Ada (1): last interaction 100d ago. Bruno (2): 10d ago (fresh).
+    // Dana (4): never contacted (last_interaction_at NULL).
+    const without = run({
+      v: 1,
+      clauses: [{ dim: "lastInteraction", op: "before", at: NOW - 90 * DAY }],
+    }).ids;
+    expect(without).toContain(1);
+    expect(without).not.toContain(4);
+
+    const withNever = run({
+      v: 1,
+      clauses: [
+        { dim: "lastInteraction", op: "before", at: NOW - 90 * DAY, includeNever: true },
+      ],
+    }).ids;
+    expect(withNever).toContain(1);
+    expect(withNever).toContain(4);
+    expect(withNever).not.toContain(2);
+  });
+});
