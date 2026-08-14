@@ -357,3 +357,51 @@ describe("undoMerge", () => {
     expect(again.ok).toBe(false);
   });
 });
+
+describe("merge — dismissal memory transfer", () => {
+  it("a dismissal involving the loser survives as (winner, other)", () => {
+    const [a, b] =
+      ids.loser < ids.other ? [ids.loser, ids.other] : [ids.other, ids.loser];
+    db.prepare(
+      `INSERT INTO duplicate_candidates (contact_a_id, contact_b_id, score, reasons_json, status, created_at, resolved_at)
+       VALUES (?, ?, 0.9, '["jw:0.93"]', 'dismissed', ?, ?)`
+    ).run(a, b, NOW, NOW);
+
+    mergeContacts(db, { winnerId: ids.winner, loserId: ids.loser, now: NOW });
+
+    const [wa, wb] =
+      ids.winner < ids.other
+        ? [ids.winner, ids.other]
+        : [ids.other, ids.winner];
+    const row = db
+      .prepare(
+        "SELECT status FROM duplicate_candidates WHERE contact_a_id = ? AND contact_b_id = ?"
+      )
+      .get(wa, wb) as { status: string } | undefined;
+    expect(row?.status).toBe("dismissed");
+  });
+});
+
+describe("undo — deleted referents", () => {
+  it("undo succeeds when a tag assigned to the loser was deleted post-merge", () => {
+    const { logId } = mergeContacts(db, {
+      winnerId: ids.winner,
+      loserId: ids.loser,
+      now: NOW,
+    });
+    // Owner deletes the loser-only tag after the merge.
+    db.prepare("DELETE FROM tags WHERE id = ?").run(ids.tagLoser);
+
+    const result = undoMerge(db, logId, NOW + 1000);
+    expect(result.ok).toBe(true);
+    // The loser is back; the orphaned tag assignment is skipped, not fatal.
+    expect(count("SELECT count(*) n FROM contacts WHERE id = ?", ids.loser)).toBe(1);
+    expect(
+      count(
+        "SELECT count(*) n FROM contact_tags WHERE contact_id = ? AND tag_id = ?",
+        ids.loser,
+        ids.tagLoser
+      )
+    ).toBe(0);
+  });
+});

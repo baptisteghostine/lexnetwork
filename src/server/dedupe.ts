@@ -328,7 +328,16 @@ export async function undoMergeAction(input: {
   logId: number;
 }): Promise<{ error?: string }> {
   await requireAuth();
-  const result = undoMerge(rawDb, input.logId);
+  // Backstop: undo refusals come back as {ok:false, reason}, but an
+  // unexpected DB error must surface as a message too, never a raw 500.
+  let result: ReturnType<typeof undoMerge>;
+  try {
+    result = undoMerge(rawDb, input.logId);
+  } catch (err) {
+    return {
+      error: `Undo failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
   revalidatePath("/duplicates");
   revalidatePath("/contacts");
   return result.ok ? {} : { error: result.reason };

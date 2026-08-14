@@ -587,7 +587,10 @@ export const interactions = sqliteTable(
 
 // Dedupe suggestion queue (SCHEMA.md `duplicate_candidates`, SPEC §10).
 // Dismissal memory lives here: 'dismissed' rows persist and suppress
-// re-suggestion; 'merged' rows record the pair's resolution.
+// re-suggestion — and a merge transfers the loser's dismissals to the
+// winner before the cascade. The merged pair's own row dies with the
+// loser via FK cascade (the loser id no longer exists to re-suggest);
+// 'merged' stays in the status enum for potential future use.
 export const duplicateCandidates = sqliteTable(
   "duplicate_candidates",
   {

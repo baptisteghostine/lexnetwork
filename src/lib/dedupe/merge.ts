@@ -444,6 +444,40 @@ export function mergeContacts(
     const repointed = repointChildren(db, winnerId, loserId);
     adoptFieldSources(db, winnerId, loserId, decisions, repointed);
 
+    // Dismissal memory survives the merge (SPEC §10: dismissed pairs are
+    // "never re-suggested"): a pair the owner rejected as (loser, C) is the
+    // same two humans as (winner, C) once the loser's identity folds into
+    // the winner — transfer the dismissal before the cascade destroys it.
+    const dismissed = selectAll(
+      db,
+      `SELECT * FROM duplicate_candidates
+       WHERE status = 'dismissed' AND (contact_a_id = @loser OR contact_b_id = @loser)`,
+      { loser: loserId }
+    );
+    for (const row of dismissed) {
+      const other =
+        (row.contact_a_id as number) === loserId
+          ? (row.contact_b_id as number)
+          : (row.contact_a_id as number);
+      if (other === winnerId) continue;
+      const [a, b] = winnerId < other ? [winnerId, other] : [other, winnerId];
+      const existing = db
+        .prepare(
+          "SELECT id, status FROM duplicate_candidates WHERE contact_a_id = ? AND contact_b_id = ?"
+        )
+        .get(a, b) as { id: number; status: string } | undefined;
+      if (!existing) {
+        db.prepare(
+          `INSERT INTO duplicate_candidates (contact_a_id, contact_b_id, score, reasons_json, status, created_at, resolved_at)
+           VALUES (?, ?, ?, ?, 'dismissed', ?, ?)`
+        ).run(a, b, row.score, row.reasons_json, now, now);
+      } else if (existing.status === "open") {
+        db.prepare(
+          "UPDATE duplicate_candidates SET status = 'dismissed', resolved_at = ? WHERE id = ?"
+        ).run(now, existing.id);
+      }
+    }
+
     // The loser goes away; conflicting child rows cascade with it. All of
     // them are in the snapshot for undo.
     db.prepare("DELETE FROM contacts WHERE id = ?").run(loserId);
@@ -502,6 +536,33 @@ function insertRow(db: Database, table: string, row: Row): void {
       .map((c) => `@${c}`)
       .join(", ")})`
   ).run(row);
+}
+
+/**
+ * Reinsert a snapshotted child row whose referents may have been deleted
+ * since the merge (a tag removed, a third contact deleted, a sync run
+ * pruned). SCHEMA.md: "the undo path must verify referents still exist" —
+ * an FK failure means the referent is gone by the owner's own hand, so
+ * the orphaned assignment is skipped rather than crashing the whole undo.
+ * SQLite rolls back only the failed statement, not the transaction.
+ */
+function insertRowIfReferentsExist(
+  db: Database,
+  table: string,
+  row: Row
+): boolean {
+  try {
+    insertRow(db, table, row);
+    return true;
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      (err as { code?: string }).code === "SQLITE_CONSTRAINT_FOREIGNKEY"
+    ) {
+      return false;
+    }
+    throw err;
+  }
 }
 
 export function undoMerge(
@@ -572,7 +633,7 @@ export function undoMerge(
         if (
           !db.prepare(`SELECT 1 FROM ${t.name} WHERE id = ?`).get(id)
         ) {
-          insertRow(db, t.name, row);
+          insertRowIfReferentsExist(db, t.name, row);
         }
       }
     }
@@ -584,7 +645,7 @@ export function undoMerge(
           "DELETE FROM contact_tags WHERE contact_id = ? AND tag_id = ?"
         ).run(winnerId, row.tag_id);
       }
-      insertRow(db, "contact_tags", row);
+      insertRowIfReferentsExist(db, "contact_tags", row);
     }
     for (const row of snapshot.children.group_members ?? []) {
       if (repointed.movedGroupIds.includes(row.group_id as number)) {
@@ -592,7 +653,7 @@ export function undoMerge(
           "DELETE FROM group_members WHERE contact_id = ? AND group_id = ?"
         ).run(winnerId, row.group_id);
       }
-      insertRow(db, "group_members", row);
+      insertRowIfReferentsExist(db, "group_members", row);
     }
     for (const row of snapshot.children.contact_field_sources ?? []) {
       if (repointed.movedFieldSourceFields.includes(row.field as string)) {
@@ -600,10 +661,10 @@ export function undoMerge(
           "DELETE FROM contact_field_sources WHERE contact_id = ? AND field = ?"
         ).run(winnerId, row.field);
       }
-      insertRow(db, "contact_field_sources", row);
+      insertRowIfReferentsExist(db, "contact_field_sources", row);
     }
     for (const row of repointed.replacedFieldSources) {
-      insertRow(db, "contact_field_sources", row);
+      insertRowIfReferentsExist(db, "contact_field_sources", row);
     }
 
     // 4. Relationships: moved ones repoint back to their snapshot ends;
@@ -617,7 +678,7 @@ export function undoMerge(
       } else if (
         !db.prepare("SELECT 1 FROM contact_relationships WHERE id = ?").get(id)
       ) {
-        insertRow(db, "contact_relationships", row);
+        insertRowIfReferentsExist(db, "contact_relationships", row);
       }
     }
 
@@ -629,7 +690,7 @@ export function undoMerge(
           .prepare("SELECT 1 FROM duplicate_candidates WHERE id = ?")
           .get(row.id)
       ) {
-        insertRow(db, "duplicate_candidates", row);
+        insertRowIfReferentsExist(db, "duplicate_candidates", row);
       }
     }
 
