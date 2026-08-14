@@ -1,6 +1,6 @@
 import "server-only";
 
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import { contactEmails, integrationAccounts, interactions, syncRuns } from "@/db/schema";
@@ -34,6 +34,11 @@ import {
 const BACKFILL_PAGES_PER_RUN = 2; // 2 × 500 ids per tick, until caught up
 const METADATA_CONCURRENCY = 8;
 const BACKFILL_STATE_KEY = "sync.gmail.backfill";
+// historyId-expiry recovery: how many list pages the bounded re-list may
+// walk (20 × 500 ids), and how much slack before the last known sync point
+// the cutoff sits to absorb clock skew and in-flight mail.
+const RESYNC_MAX_PAGES = 20;
+const RESYNC_SLACK_MS = 6 * 3600 * 1000;
 
 type BackfillState = {
   pageToken: string | null;
@@ -278,6 +283,31 @@ async function backfillStep(
   }
 }
 
+/**
+ * The "last known timestamp" the SPEC's bounded re-list runs back to:
+ * the last successful gmail run, else the newest stored gmail
+ * interaction, else a week — each minus slack.
+ */
+function resyncSinceMs(): number {
+  const lastRun = db
+    .select({ startedAt: syncRuns.startedAt })
+    .from(syncRuns)
+    .where(and(eq(syncRuns.kind, "gmail"), eq(syncRuns.status, "success")))
+    .orderBy(desc(syncRuns.startedAt))
+    .limit(1)
+    .get();
+  if (lastRun?.startedAt) return lastRun.startedAt - RESYNC_SLACK_MS;
+  const lastMsg = db
+    .select({ occurredAt: interactions.occurredAt })
+    .from(interactions)
+    .where(eq(interactions.source, "gmail"))
+    .orderBy(desc(interactions.occurredAt))
+    .limit(1)
+    .get();
+  if (lastMsg) return lastMsg.occurredAt - RESYNC_SLACK_MS;
+  return Date.now() - 7 * 24 * 3600 * 1000;
+}
+
 async function incrementalStep(
   accountId: number,
   token: string,
@@ -304,16 +334,38 @@ async function incrementalStep(
     } while (pageToken);
   } catch (err) {
     // Expired historyId (SPEC §9 edge case): Google 404s. Reset the
-    // cursor from the live profile and re-list one recent page — the
-    // source_key unique index makes re-processing idempotent.
+    // cursor from the live profile and re-list *back to the last known
+    // sync point* — a single page (500 ids) would silently skip anything
+    // older after long downtime, then jump the cursor past it forever.
+    // The source_key unique index makes re-processing idempotent.
     if (err instanceof GmailApiError && err.status === 404) {
       const profile = (await gmailJson(buildProfileUrl(), token)) as {
         historyId?: string;
       };
-      const listing = (await gmailJson(buildMessageListUrl({}), token)) as {
-        messages?: { id?: string }[];
-      };
-      for (const m of listing.messages ?? []) if (m.id) messageIds.add(m.id);
+      const sinceMs = resyncSinceMs();
+      let listPageToken: string | undefined;
+      for (let page = 0; page < RESYNC_MAX_PAGES; page++) {
+        const listing = (await gmailJson(
+          buildMessageListUrl({ pageToken: listPageToken }),
+          token
+        )) as { messages?: { id?: string }[]; nextPageToken?: string };
+        const ids = (listing.messages ?? [])
+          .map((m) => m.id)
+          .filter((id): id is string => !!id);
+        const metas = await fetchMetas(ids, token);
+        for (const m of metas) {
+          if (m.internalDate >= sinceMs) messageIds.add(m.id);
+        }
+        // Newest-first: a page dipping below the sync point, or no next
+        // page, means the gap is covered.
+        if (
+          metas.some((m) => m.internalDate < sinceMs) ||
+          !listing.nextPageToken
+        ) {
+          break;
+        }
+        listPageToken = listing.nextPageToken;
+      }
       latestHistoryId = profile.historyId ?? null;
     } else {
       throw err;
