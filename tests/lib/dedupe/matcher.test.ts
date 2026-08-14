@@ -211,3 +211,31 @@ describe("planQueueUpdate — dismissal memory", () => {
     expect(plan.remove).toEqual([{ aId: 3, bId: 4 }]);
   });
 });
+
+describe("scorePair — argument-order independence", () => {
+  it("scores the same pair identically regardless of id order", () => {
+    // Nickname-equivalent firsts with a fuzzy last: the substitution
+    // direction used to depend on which contact came first.
+    const bob = named("Bob", "Smith", { id: 9001 });
+    const robert = named("Robert", "Smythe", { id: 9002 });
+    const ab = scorePair(bob, robert);
+    const ba = scorePair(robert, bob);
+    expect(ab?.score).toBe(ba?.score);
+    expect(ab?.aId).toBe(ba?.aId);
+    // The better substitution wins: JW("robert smythe","robert smith")
+    // ≥ 0.95, so the pair is suggested without corroboration.
+    expect(ab?.score).toBe(0.85);
+  });
+});
+
+describe("candidatePairs — prefix blocking", () => {
+  it("finds pairs where both name tokens differ slightly", () => {
+    const a = named("Christopher", "Anderson", { id: 9101, company: "Acme" });
+    const b = named("Christophe", "Andersen", { id: 9102, company: "Acme" });
+    // scorePair accepts this pair (corroborated 0.90 band)…
+    expect(scorePair(a, b)).not.toBeNull();
+    // …and the blocking scan must actually compare it.
+    const pairs = candidatePairs([a, b]);
+    expect(pairs.map((p) => `${p.aId}:${p.bId}`)).toContain("9101:9102");
+  });
+});

@@ -136,13 +136,19 @@ export function scorePair(
   const keyB = nameKeyOf(b);
   if (keyA && keyB) {
     // Nickname equivalence on first tokens: bob↔robert compare as equal.
-    const firstB = nicknamesMatch(keyA.first, keyB.first)
-      ? keyA.first
-      : keyB.first;
-    const jw = jaroWinkler(
-      keyA.full,
-      keyB.last ? `${firstB} ${keyB.last}` : firstB
-    );
+    // Substituting one side's token into the other changes the JW value,
+    // so evaluate BOTH substitutions and keep the better — the score must
+    // not depend on which contact has the lower id.
+    const fullOf = (first: string, last: string) =>
+      last ? `${first} ${last}` : first;
+    let jw = jaroWinkler(keyA.full, keyB.full);
+    if (nicknamesMatch(keyA.first, keyB.first)) {
+      jw = Math.max(
+        jw,
+        jaroWinkler(keyA.full, fullOf(keyA.first, keyB.last)),
+        jaroWinkler(fullOf(keyB.first, keyA.last), keyB.full)
+      );
+    }
     if (jw >= 0.95) {
       reasons.push(`jw:${jw.toFixed(2)}`);
       score = Math.max(score, 0.85);
@@ -168,9 +174,11 @@ const MAX_BUCKET = 200;
 /**
  * Compare-worthy pairs via blocking, so the scan stays fast at 10k
  * contacts: exact buckets on normalized email and E.164 phone, name
- * buckets on every nickname-equivalent of the first token plus the last
- * token. Pairs sharing no bucket can't reach the 0.85 threshold anyway —
- * a full name whose JW ≥ 0.90 virtually always shares one of these keys.
+ * buckets on every nickname-equivalent of the first token, the last
+ * token, and a coarse first3(first)|first3(last) prefix key. The prefix
+ * key exists because a pair can clear JW ≥ 0.90 with *both* tokens
+ * slightly different ("christopher anderson" / "christophe andersen") —
+ * exact token buckets alone would never compare them.
  */
 export function candidatePairs(
   contacts: MatchableContact[]
@@ -190,6 +198,7 @@ export function candidatePairs(
     if (key) {
       for (const eq of nicknameEquivalents(key.first)) add(`f:${eq}`, c.id);
       if (key.last) add(`l:${key.last}`, c.id);
+      add(`x:${key.first.slice(0, 3)}|${key.last.slice(0, 3)}`, c.id);
     }
   }
 
