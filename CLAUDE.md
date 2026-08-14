@@ -57,7 +57,7 @@ data/               # SQLite file, attachments/, backups/ — gitignored
 | Dev server | `npm run dev` |
 | Typecheck | `npm run typecheck` (`tsc --noEmit`) |
 | Unit tests | `npm run test` (Vitest) |
-| E2E tests | `npm run test:e2e` (Playwright — script and suite arrive in Phase 11; not yet present) |
+| E2E tests | `npm run test:e2e` (Playwright; dev server + isolated `e2e/.data` are managed by the config. In sandboxes whose pre-installed Chromium doesn't match Playwright's pinned build, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE`) |
 | Lint | `npm run lint` |
 | Generate migration | `npm run db:generate` |
 | Apply migrations | `npm run db:migrate` |
@@ -72,8 +72,11 @@ data/               # SQLite file, attachments/, backups/ — gitignored
   which fails on machines without a C++ toolchain (notably Windows without
   Visual Studio Build Tools). Skipping install scripts uses the prebuilt binary;
   verified working on Linux and Windows.
-- **First run:** `npm run db:migrate` then optionally `npm run seed`
-  (25 demo contacts, 8 with overdue cadences). `seed --force` wipes first.
+- **First run:** migrations apply automatically when the server boots
+  (`src/instrumentation.ts`); `npm run db:migrate` still works standalone.
+  Optionally `npm run seed` (25 demo contacts, 8 with overdue cadences);
+  `seed --force` wipes first, `seed -- --count 10000` adds synthetic
+  contacts for perf work (timings: `npx tsx --conditions react-server scripts/perf.ts`).
 - **Forgot the password:** `npm run reset-password -- <newpassword>`.
 - **GitHub Codespaces** works with zero local install (`.devcontainer/` sets it
   up): open the codespace, `npm run dev`, then open the forwarded port from the

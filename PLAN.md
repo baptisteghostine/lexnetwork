@@ -93,9 +93,32 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   accounts/keys). Known limitations left open: crashed import runs get
   no partial report; digest "changes since last digest" wording still
   resolves to "open changes" (matches the §3 digest AC).
-- ⬜ **Phase 11** — next up: export, backups, Docker deploy, E2E suite
+- ✅ **Phase 11** — data ownership, deployment, hardening. Streaming full
+  export at /api/export (flattened contacts.csv whose headers re-map
+  through the normal CSV import path, per-table JSON for full fidelity,
+  attachments, manifest; generator-driven so 50k contacts never
+  materialize; JSON restore helper + export→fresh-instance round-trip
+  test). Nightly `VACUUM INTO` backups (always-on 24h job, 30-day prune
+  that only touches backup-named files, sync_runs status rows, Settings →
+  Data panel with Back up now, app-wide failure banner). Docker deploy:
+  Next standalone output, multi-stage Dockerfile (`npm ci
+  --ignore-scripts`, runs as node), compose with the ./data volume,
+  migrations applied on boot in instrumentation, DEPLOY.md (VPS, reverse
+  proxy, restore drill, password reset); session cookie gains `Secure`
+  behind an HTTPS proxy. Playwright E2E suite (`npm run test:e2e`, 7
+  tests): first-run password setup as shared auth state, Today keyboard
+  flow (create → autosaved note → due → cleared without reload), CSV
+  import round-trip incl. all-unchanged re-import, merge + undo. Perf
+  pass on `seed --count 10000` via scripts/perf.ts: contacts page 37 ms,
+  Today 63 ms, searches 53–234 ms, dedupe scan 234 ms, csv export 367 ms,
+  backup 34 ms — bounded list + existing indexes hold, no fixes needed.
+  No-phoning-home grep test (SPEC §13) locks the source tree to the
+  outbound allowlist. No schema changes — 'export'/'backup' kinds were
+  already reserved. Verified here: standalone server boots, migrates, and
+  serves from scratch; `docker compose up` itself still needs its
+  first run on a real machine (no Docker daemon in the dev sandbox).
 
-314 unit tests passing as of the post-10 hardening pass. Open questions from SPEC.md's decision
+327 unit tests + 7 Playwright E2E tests passing as of Phase 11. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---
