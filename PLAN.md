@@ -73,6 +73,26 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   into notes.summary_ai. /ai page: suggestion queue + full audit (calls,
   tokens, latency). Not yet live-tested against the real API — needs the
   owner's key.
+- ✅ **Audit + hardening pass** (post-10, 2026-08-14) — full adversarial
+  review of Phases 1–10; 18 fix commits (0012/0013 migrations included).
+  Highest-impact: calendar events synced while future now become meeting
+  interactions once they elapse (reconcile-from-cache); scheduler
+  reliability (dead rows free dedupe keys, digest survives restarts,
+  leases reclaim every tick, CAS-guarded); Gmail historyId-expiry
+  recovery re-lists to the last sync point instead of one page;
+  owner-timezone correctness for recurring reminders, snooze-all, and
+  the agenda day window; outboundFetch validates every redirect hop;
+  generated session secret moved out of the DB into data/secret.key;
+  LinkedIn accept-conflict crash, identity-key unification
+  (subdomains/percent-encoding), cookie bare-value pastes; CSV/vCard
+  imports emit contact_changes; dedupe scoring order-independence +
+  prefix blocking; merge transfers dismissal memory and undo survives
+  deleted referents; FTS diacritic folding; saved-view sort, OR chips,
+  include-archived search. 313 unit tests. Still awaiting first live
+  passes: Google sync, Voyager sync, and the AI layer (need the owner's
+  accounts/keys). Known limitations left open: crashed import runs get
+  no partial report; digest "changes since last digest" wording still
+  resolves to "open changes" (matches the §3 digest AC).
 - ⬜ **Phase 11** — next up: export, backups, Docker deploy, E2E suite
 
 284 unit tests passing as of Phase 10. Open questions from SPEC.md's decision
