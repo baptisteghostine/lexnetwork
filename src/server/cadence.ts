@@ -37,6 +37,10 @@ export async function setCadenceAction(
       cadenceDays: parsed.data,
       // Re-assigning restarts the no-interaction baseline; clearing wipes it.
       cadenceAssignedAt: parsed.data === null ? null : now,
+      // Any deliberate pick here — including "no cadence" — is a triage
+      // decision, so it leaves the board's Uncategorized column. Only the
+      // board itself can put someone back to never-triaged (SPEC §3a).
+      cadenceReviewedAt: now,
       snoozedUntil: null,
       updatedAt: now,
     })
@@ -62,6 +66,7 @@ export async function bulkSetCadenceAction(
         .set({
           cadenceDays: parsedDays.data,
           cadenceAssignedAt: parsedDays.data === null ? null : now,
+          cadenceReviewedAt: now,
           snoozedUntil: null,
           updatedAt: now,
         })

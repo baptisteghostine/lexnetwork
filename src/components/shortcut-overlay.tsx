@@ -27,6 +27,16 @@ const SECTIONS: { title: string; rows: [string, string][] }[] = [
     ],
   },
   {
+    title: "Keep-in-touch triage",
+    rows: [
+      ["1 … 7", "File under that frequency"],
+      ["x", "Don't keep in touch"],
+      ["j / k", "Skip down / up"],
+      ["u", "Undo last move"],
+      ["Esc", "Leave triage"],
+    ],
+  },
+  {
     title: "Search palette",
     rows: [
       ["↑ ↓", "Move selection"],

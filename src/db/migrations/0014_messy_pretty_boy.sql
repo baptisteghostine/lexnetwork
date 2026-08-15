@@ -1,0 +1,1 @@
+ALTER TABLE `contacts` ADD `cadence_reviewed_at` integer;

@@ -118,7 +118,22 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   serves from scratch; `docker compose up` itself still needs its
   first run on a real machine (no Docker daemon in the dev sandbox).
 
-327 unit tests + 7 Playwright E2E tests passing as of Phase 11. Open questions from SPEC.md's decision
+- ✅ **Phase 12** — Keep-in-touch board (SPEC §3a, migration 0014:
+  `contacts.cadence_reviewed_at`). Owner-requested after reviewing Dex's
+  "Keep in touch" board. Column per frequency + `Custom` + `Uncategorized`
+  + `Don't keep in touch`, every non-archived contact in exactly one
+  column, true totals in headers with a 100-card render cap. Two ways to
+  move: HTML5 drag-and-drop, and keyboard triage (number keys assign and
+  auto-advance through the untriaged queue, `x` excludes, `u` undoes) —
+  the addition to Dex's design, because dragging does not scale to the
+  few thousand contacts an import produces. `CADENCE_PRESETS` extended to
+  seven frequencies and relabelled, keeping the original day counts
+  (91/182) so pre-board cadences keep their column; the picker, the list
+  bulk bar, and the board now read from that one list. Assigning a
+  cadence anywhere stamps `cadence_reviewed_at`, so the contact page and
+  the board never disagree about who still needs triage.
+
+334 unit tests + 11 Playwright E2E tests passing as of Phase 12. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---

@@ -13,6 +13,7 @@ import {
   contactTags,
   tags,
 } from "../src/db/schema";
+import { CADENCE_PRESETS } from "../src/lib/cadence/engine";
 import {
   deriveDisplayName,
   normalizeEmail,
@@ -206,7 +207,10 @@ if (extra > 0) {
     for (let i = 0; i < extra; i++) {
       const first = FIRST[i % FIRST.length];
       const last = LAST[Math.floor(i / FIRST.length) % LAST.length];
-      const cadenceDays = i % 5 === 0 ? [7, 30, 90][i % 3] : null;
+      // Spread across the real presets so a seeded keep-in-touch board
+      // fills every column (90 would land in "Custom" — the preset is 91).
+      const cadenceDays =
+        i % 5 === 0 ? CADENCE_PRESETS[i % CADENCE_PRESETS.length].days : null;
       const assignedAt =
         cadenceDays !== null ? now - ((i % 120) + 1) * DAY_MS : null;
       const row = db

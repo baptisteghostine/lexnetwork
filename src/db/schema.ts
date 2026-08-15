@@ -37,6 +37,11 @@ export const contacts = sqliteTable(
     archivedAt: integer("archived_at"),
     cadenceDays: integer("cadence_days"),
     cadenceAssignedAt: integer("cadence_assigned_at"),
+    // When the owner last made a keep-in-touch decision about this person.
+    // Distinguishes "deliberately no cadence" from "never triaged" — both
+    // of which have cadence_days IS NULL. Drives the board's
+    // Uncategorized vs "Don't keep in touch" columns (SPEC §3a).
+    cadenceReviewedAt: integer("cadence_reviewed_at"),
     snoozedUntil: integer("snoozed_until"),
     // Derived: recomputed by the cadence engine, never hand-written.
     lastInteractionAt: integer("last_interaction_at"),

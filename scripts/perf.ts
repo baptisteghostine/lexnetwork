@@ -9,6 +9,7 @@ import {
   listExportTables,
   tableJsonChunks,
 } from "../src/lib/export/build";
+import { bucketFor, bucketId } from "../src/lib/cadence/engine";
 import { compileFilter } from "../src/lib/filters/compile";
 import { emptyFilterSet } from "../src/lib/filters/types";
 import { runDedupeScan } from "../src/server/dedupe-scan";
@@ -51,6 +52,34 @@ console.log(`  → ${list.page} rows of ${list.total}`);
 
 const today = time("Today page data", () => getTodayData(Date.now()));
 console.log(`  → ${today.dueContacts.length} due contacts`);
+
+// The keep-in-touch board reads every non-archived contact and buckets in
+// TS (SPEC §3a) — mirrored here without the request-scoped auth check.
+const board = time("keep-in-touch board (bucket all)", () => {
+  const rows = rawDb
+    .prepare(
+      `SELECT id, display_name, cadence_days, cadence_reviewed_at
+       FROM contacts WHERE archived_at IS NULL`
+    )
+    .all() as {
+    cadence_days: number | null;
+    cadence_reviewed_at: number | null;
+  }[];
+  const counts = new Map<string, number>();
+  for (const r of rows) {
+    const key = bucketId(
+      bucketFor({
+        cadenceDays: r.cadence_days,
+        cadenceReviewedAt: r.cadence_reviewed_at,
+      })
+    );
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+});
+console.log(
+  `  → ${[...board].map(([k, n]) => `${k}:${n}`).join(" ")}`
+);
 
 const s1 = time("search 'ander' (FTS + re-rank)", () => searchAll("ander"));
 console.log(`  → ${s1.contacts.length} contact hits`);

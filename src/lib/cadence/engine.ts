@@ -5,13 +5,60 @@ import { fromFakeUtc, toFakeUtc } from "@/lib/time";
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
+// The frequency ladder. One list drives the contact-page picker, the
+// contacts-list bulk bar, and the Keep-in-touch board's columns — they
+// must agree or a contact set from one surface lands nowhere on another.
+// Day counts stay as originally shipped (91/182, not 90/180) so cadences
+// assigned before the board existed keep their column.
 export const CADENCE_PRESETS = [
-  { label: "Weekly", days: 7 },
-  { label: "Monthly", days: 30 },
-  { label: "Quarterly", days: 91 },
-  { label: "Biannual", days: 182 },
-  { label: "Yearly", days: 365 },
+  { label: "Every week", days: 7 },
+  { label: "Every 2 weeks", days: 14 },
+  { label: "Every month", days: 30 },
+  { label: "Every 6 weeks", days: 42 },
+  { label: "Every 3 months", days: 91 },
+  { label: "Every 6 months", days: 182 },
+  { label: "Every year", days: 365 },
 ] as const;
+
+/**
+ * Which board column a contact belongs in. Three states share
+ * `cadence_days IS NULL` and are told apart by `cadence_reviewed_at`:
+ * never triaged ('unset'), deliberately excluded ('never'). A cadence
+ * that matches no preset gets its own column rather than being rounded
+ * into a neighbour — the board must account for every contact, or it
+ * quietly lies about how much triage is left.
+ */
+export type CadenceBucket =
+  | { kind: "days"; days: number }
+  | { kind: "custom" }
+  | { kind: "unset" }
+  | { kind: "never" };
+
+export function bucketFor(contact: {
+  cadenceDays: number | null;
+  cadenceReviewedAt: number | null;
+}): CadenceBucket {
+  if (contact.cadenceDays !== null) {
+    return CADENCE_PRESETS.some((p) => p.days === contact.cadenceDays)
+      ? { kind: "days", days: contact.cadenceDays }
+      : { kind: "custom" };
+  }
+  return contact.cadenceReviewedAt !== null ? { kind: "never" } : { kind: "unset" };
+}
+
+/** Stable column id used by the board UI and the assign action. */
+export function bucketId(bucket: CadenceBucket): string {
+  switch (bucket.kind) {
+    case "days":
+      return String(bucket.days);
+    case "custom":
+      return "custom";
+    case "unset":
+      return "unset";
+    case "never":
+      return "never";
+  }
+}
 
 export type CadenceState = {
   cadenceDays: number | null;

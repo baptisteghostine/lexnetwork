@@ -33,6 +33,7 @@ Tables the brief listed are all here, plus **four additions** (each flagged inli
 | archived_at | INTEGER | null = active; timestamp beats a boolean (you'll want "archived when") |
 | cadence_days | INTEGER | null = no keep-in-touch |
 | cadence_assigned_at | INTEGER | base for next_touch when no interaction yet |
+| cadence_reviewed_at | INTEGER | when the owner last made a keep-in-touch decision. Splits the two meanings of `cadence_days IS NULL`: never triaged (null) vs deliberately excluded (set) — the board's `Uncategorized` and `Don't keep in touch` columns (SPEC §3a). Added in migration 0014 |
 | snoozed_until | INTEGER | cleared by counting interactions |
 | last_interaction_at | INTEGER | **derived** — max counting interaction; recomputed by cadence engine |
 | next_touch_at | INTEGER | **derived** — see SPEC §3; the single most-queried column |

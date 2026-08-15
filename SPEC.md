@@ -100,6 +100,30 @@ Conventions used below:
 
 ---
 
+## 3a. Keep-in-touch board (triage at scale)
+
+### Behavior
+- **The problem it solves:** the cadence engine (§3) only works on contacts that *have* a cadence. After a LinkedIn or CSV import, thousands arrive with none, and assigning them one at a time from the contact page never finishes. The board is the on-ramp.
+- **Columns**, left to right: one per `CADENCE_PRESETS` frequency (every week / 2 weeks / month / 6 weeks / 3 months / 6 months / year), then `Custom` (a hand-typed cadence matching no preset — shown only when non-empty), then `Uncategorized`, then `Don't keep in touch`. Every non-archived contact appears in exactly one column; headers carry true totals.
+- **Three null-cadence states are two columns.** `cadence_days IS NULL` alone is ambiguous, so `cadence_reviewed_at` records that a decision was made: null → `Uncategorized`, set → `Don't keep in touch`. Assigning any cadence — from the board, the contact page, or the list bulk bar — stamps it. Only dragging back to `Uncategorized` clears it.
+- **Two ways to move a contact.** Drag a card into a column (curation), or keyboard triage: number keys assign the focused card to the nth frequency, `x` marks don't-keep-in-touch, `j`/`k` skip, `u` undoes, `Esc` exits. Triage always works the `Uncategorized` queue and auto-advances, so a few thousand contacts is one sitting rather than a few thousand drags.
+- **Undo** restores each moved contact to the column it came from, including back to never-triaged.
+- **Display cap:** at most 100 cards render per column; the header shows the real count and a footer notes the truncation. Columns refill as they are cleared.
+
+### Edge cases
+- A cadence typed by hand (e.g. 60 days) gets the `Custom` column rather than being rounded into a neighbour — the board must never quietly misreport how much triage is left.
+- Preset day counts are frozen at their original values (91 and 182, not 90 and 180): changing them would strand every contact assigned before the board existed in `Custom`.
+- Archived contacts never appear on the board.
+- Setting "no cadence" from the contact page is a decision, so it moves the contact to `Don't keep in touch`, not back to `Uncategorized`.
+
+### Acceptance criteria
+- [ ] Unit: every preset maps to its own column; a non-preset cadence maps to `Custom`; `cadence_days IS NULL` maps to `Uncategorized` or `Don't keep in touch` purely on `cadence_reviewed_at`.
+- [ ] Unit: presets are sorted ascending and still contain the pre-board day counts (7/30/91/182/365).
+- [ ] E2E: a new contact appears under `Uncategorized`; pressing `1` files them under `Every week`; `Undo` returns them.
+- [ ] E2E: dragging a card into a frequency column assigns that cadence.
+- [ ] E2E: `x` moves a contact to `Don't keep in touch` and out of `Uncategorized`, with no cadence set.
+
+
 ## 4. Reminders
 
 ### Behavior
