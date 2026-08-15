@@ -132,6 +132,12 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   bulk bar, and the board now read from that one list. Assigning a
   cadence anywhere stamps `cadence_reviewed_at`, so the contact page and
   the board never disagree about who still needs triage.
+  Also fixed here, surfaced by the extra route: `src/db/client.ts` opened
+  its connection as an import side effect, so `next build` — which imports
+  every route module in one worker per CPU just to read its config — had
+  ~19 processes racing to create and WAL-convert the same fresh database,
+  intermittently failing the Docker build with SQLITE_BUSY. The connection
+  is now opened on first use, so a build never touches a database at all.
 
 334 unit tests + 11 Playwright E2E tests passing as of Phase 12. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
