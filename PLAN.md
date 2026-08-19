@@ -139,7 +139,16 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   intermittently failing the Docker build with SQLITE_BUSY. The connection
   is now opened on first use, so a build never touches a database at all.
 
-334 unit tests + 11 Playwright E2E tests passing as of Phase 12. Open questions from SPEC.md's decision
+- ✅ **Bulk merge** (owner request, post-12) — checkbox selection on the
+  /duplicates queue with "Select exact matches", a confirm step that
+  breaks the selection down into exact matches vs similarity guesses,
+  and sequential merging with default decisions (SPEC §10 amendment).
+  Winner rule owner-confirmed: richer contact wins, ties go older.
+  Chained pairs (A–B + B–C selected together) are skipped and reported,
+  never silently re-routed. Each merge in a batch keeps its own
+  merge_log row and individual undo. Engine in lib/dedupe/bulk.ts.
+
+341 unit tests + 12 Playwright E2E tests passing as of the bulk-merge addition. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---

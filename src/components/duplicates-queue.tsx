@@ -7,6 +7,7 @@ import { GitMerge, ScanSearch, Undo2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
+  bulkMergeAction,
   dismissPairAction,
   scanNowAction,
   undoMergeAction,
@@ -14,6 +15,11 @@ import {
   type DuplicatePair,
   type RecentMerge,
 } from "@/server/dedupe";
+
+// Bulk selection treats ≥95% (email/phone-identity matches) as high
+// confidence; anything below is a similarity guess the confirm step
+// calls out separately, so a fuzzy pair is a decision, not a drive-by.
+const HIGH_CONFIDENCE = 0.95;
 
 // The dedupe suggestion queue (SPEC §10): review, merge, or dismiss.
 // Nothing ever auto-merges; a dismissed pair stays dismissed.
@@ -60,10 +66,41 @@ export function DuplicatesQueue({
   const router = useRouter();
   const [pending, start] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [confirming, setConfirming] = useState(false);
+
+  const toggle = (pairId: number) =>
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(pairId)) next.delete(pairId);
+      else next.add(pairId);
+      return next;
+    });
+  const chosen = queue.filter((p) => selected.has(p.id));
+  const highCount = chosen.filter((p) => p.score >= HIGH_CONFIDENCE).length;
+  const fuzzyCount = chosen.length - highCount;
+  const exactIds = queue
+    .filter((p) => p.score >= HIGH_CONFIDENCE)
+    .map((p) => p.id);
+
+  const runBulkMerge = () =>
+    start(async () => {
+      const result = await bulkMergeAction({ pairIds: [...selected] });
+      setConfirming(false);
+      setSelected(new Set());
+      const skippedNote =
+        result.skipped.length > 0
+          ? ` · ${result.skipped.length} skipped (${result.skipped[0].reason})`
+          : "";
+      setMessage(
+        result.error ?? `Merged ${result.merged} pair${result.merged === 1 ? "" : "s"}${skippedNote}`
+      );
+      router.refresh();
+    });
 
   return (
     <div className="max-w-3xl space-y-5 px-5 py-4">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"
           variant="outline"
@@ -79,10 +116,86 @@ export function DuplicatesQueue({
           <ScanSearch className="size-3.5" />
           {pending ? "Scanning…" : "Scan now"}
         </Button>
+        {queue.length > 0 && (
+          <>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={pending || exactIds.length === 0}
+              onClick={() => setSelected(new Set(exactIds))}
+            >
+              Select exact matches ({exactIds.length})
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={pending}
+              onClick={() =>
+                setSelected((s) =>
+                  s.size === queue.length
+                    ? new Set()
+                    : new Set(queue.map((p) => p.id))
+                )
+              }
+            >
+              {selected.size === queue.length ? "Select none" : "Select all"}
+            </Button>
+          </>
+        )}
         {message && (
           <span className="text-xs text-muted-foreground">{message}</span>
         )}
       </div>
+
+      {selected.size > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-md border border-primary/40 bg-accent/40 px-3 py-2">
+          {confirming ? (
+            <>
+              <p className="text-xs">
+                Merge <b>{chosen.length}</b> pair{chosen.length === 1 ? "" : "s"}:{" "}
+                {highCount} exact match{highCount === 1 ? "" : "es"}
+                {fuzzyCount > 0 ? (
+                  <span className="text-warning">
+                    {" "}
+                    and {fuzzyCount} similarity guess{fuzzyCount === 1 ? "" : "es"}
+                  </span>
+                ) : null}
+                . The contact with more data wins each pair; everything else
+                is unioned. Each merge can be undone below.
+              </p>
+              <Button size="sm" disabled={pending} onClick={runBulkMerge}>
+                <GitMerge className="size-3.5" />
+                {pending ? "Merging…" : `Merge ${chosen.length}`}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={pending}
+                onClick={() => setConfirming(false)}
+              >
+                Back
+              </Button>
+            </>
+          ) : (
+            <>
+              <p className="text-xs">
+                {selected.size} pair{selected.size === 1 ? "" : "s"} selected
+              </p>
+              <Button size="sm" onClick={() => setConfirming(true)}>
+                <GitMerge className="size-3.5" />
+                Merge selected…
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setSelected(new Set())}
+              >
+                Clear
+              </Button>
+            </>
+          )}
+        </div>
+      )}
 
       {queue.length === 0 ? (
         <p className="text-sm text-muted-foreground">
@@ -96,6 +209,13 @@ export function DuplicatesQueue({
               key={p.id}
               className="flex items-center gap-3 rounded-md border border-border p-3"
             >
+              <input
+                type="checkbox"
+                className="size-3.5 shrink-0 accent-primary"
+                aria-label={`Select ${p.a.displayName} / ${p.b.displayName}`}
+                checked={selected.has(p.id)}
+                onChange={() => toggle(p.id)}
+              />
               <Side c={p.a} />
               <Side c={p.b} />
               <div className="w-40 shrink-0">

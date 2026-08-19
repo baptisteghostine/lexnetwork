@@ -12,6 +12,7 @@ import {
   mergeLog,
 } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
+import { bulkMergePairs } from "@/lib/dedupe/bulk";
 import {
   defaultDecisions,
   MERGE_FIELDS,
@@ -322,6 +323,36 @@ export async function mergeAction(input: {
   } catch (err) {
     return { error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+export type BulkMergeSummary = {
+  merged: number;
+  skipped: { pairId: number; reason: string }[];
+  error?: string;
+};
+
+/**
+ * Merge many open pairs with default decisions (SPEC §10 bulk merge).
+ * Winner rule and chained-pair skipping live in lib/dedupe/bulk; each
+ * merged pair stays individually undoable from the recent-merges list.
+ */
+export async function bulkMergeAction(input: {
+  pairIds: number[];
+}): Promise<BulkMergeSummary> {
+  await requireAuth();
+  const parsed = z
+    .array(z.number().int().positive())
+    .min(1)
+    .max(500)
+    .safeParse(input.pairIds);
+  if (!parsed.success) {
+    return { merged: 0, skipped: [], error: "Invalid selection." };
+  }
+  const result = bulkMergePairs(rawDb, parsed.data);
+  revalidatePath("/duplicates");
+  revalidatePath("/contacts");
+  revalidatePath("/today");
+  return { merged: result.merged.length, skipped: result.skipped };
 }
 
 export async function undoMergeAction(input: {

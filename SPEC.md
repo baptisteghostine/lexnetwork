@@ -322,11 +322,19 @@ Candidate pair scoring:
 - Everything repoints to the winner: interactions, notes + mentions, tags, groups, custom values, reminders, relationships, changes.
 - `merge_log` stores a full JSON snapshot of the loser and every field decision. **Undo** restores the loser row, repoints back what belonged to it (by id lists in the log), and reverts field decisions — available until either contact is edited in a conflicting way, then undo is refused with an explanation.
 
+### Bulk merge (owner request, 2026-08-15)
+- The queue offers checkboxes, "Select all", and "Select exact matches" (score ≥ 0.95); any open pair is selectable. A confirm step states the breakdown — exact matches vs similarity guesses — before anything runs.
+- Bulk merges apply **default decisions** with a deterministic winner: the contact with more data (filled profile fields + child rows) wins; tie goes to the older contact. Multi-value data is unioned either way; the per-field merge screen remains the path for pairs needing judgment.
+- Pairs are processed sequentially. A pair whose contact was already merged away earlier in the same batch (chained selections A–B, B–C) is **skipped and reported** — never silently re-routed; the next scan re-scores the merged result.
+- Every merge in a batch writes its own `merge_log` row and is individually undoable from the recent-merges list.
+
 ### Acceptance criteria
 - [ ] Unit: "Bob Smith" vs "Robert Smith" ≥ threshold; "Bob Smith" vs "Bob Smythe" scores in the corroboration band and is suggested only with same company; "Jon Doe" vs "Don Joe" is below threshold.
 - [ ] `j.smith+news@gmail.com` and `jsmith@gmail.com` → email-match candidate at 1.0.
 - [ ] Merging repoints all timeline items; the loser's id 404s; undo restores both contacts byte-identical on profile fields.
 - [ ] Dismissed pair never reappears after the next dedupe scan.
+- [ ] Unit: bulk winner is the richer contact (ties older); chained pair is skipped with a reason; a bulk-merged pair undoes individually.
+- [ ] E2E: select several exact-match pairs, bulk merge, one survivor per pair.
 
 ---
 
