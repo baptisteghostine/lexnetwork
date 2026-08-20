@@ -114,3 +114,32 @@ describe("parseBirthdayCell — date order", () => {
     });
   });
 });
+
+describe("Google address blocks", () => {
+  it("Formatted wins the location slot; Label/Street/Postal are ignored", () => {
+    const headers = [
+      "First Name",
+      "Address 1 - Label",
+      "Address 1 - Formatted",
+      "Address 1 - Street",
+      "Address 1 - City",
+      "Address 1 - Postal Code",
+      "Address 1 - Country",
+    ];
+    const mapping = guessMapping(headers);
+    expect(mapping).toEqual([
+      "first_name",
+      "ignore", // Label ("Work"/"Home") must never become the location
+      "location",
+      "ignore",
+      "ignore", // City would double-map; Formatted already took the slot
+      "ignore",
+      "ignore",
+    ]);
+  });
+
+  it("City carries the slot when there is no Formatted column", () => {
+    const mapping = guessMapping(["Name", "Address 1 - Label", "Address 1 - City"]);
+    expect(mapping).toEqual(["full_name", "ignore", "location"]);
+  });
+});
