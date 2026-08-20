@@ -201,6 +201,20 @@ Conventions used below:
 
 ---
 
+## 7a. Map (contacts by country)
+
+### Behavior
+- **/map** renders a world map with a count bubble per country (bubble area ∝ contact count) over lightly shaded country polygons. Clicking a country (polygon or bubble) lists that country's contacts in the side panel; with nothing selected the panel ranks countries by count.
+- **Fully self-contained** (the §13 privacy invariant applied to maps): geometry is Natural Earth 110m bundled with the app (`world-atlas` + `topojson-client`), projection is d3-geo's Natural Earth — no tile server, no API key, zero network requests. Places the 110m simplification drops (Singapore, Hong Kong, Malta, Bahrain…) keep a bubble at a fixed anchor point.
+- **Country resolution is offline and honest**: `lib/geo/country-resolve.ts` maps freeform `contacts.location` strings to ISO numeric country ids — LinkedIn's "City, Region, Country" forms, country aliases (UK/USA/UAE…), US states and Canadian provinces, metro wrappers ("Greater X Area"), and a curated major-city table. Anything unrecognized is **reported in an "unplaced" list** (with counts, most common first) rather than guessed; fixing a contact's location to "City, Country" is the documented remedy. "Georgia" resolves by context (other parts of the string), defaulting to the country only when it stands alone.
+- Archived contacts are excluded; contacts with no location are counted separately in the header.
+
+### Acceptance criteria
+- [ ] Unit: resolver battery — LinkedIn three-part forms, aliases, states/provinces, metro wrappers, diacritics, 110m-missing places, Georgia disambiguation, unrecognized → null.
+- [ ] E2E: two Swiss contacts and one Indian contact → bubbles read 2 and 1; clicking Switzerland lists exactly the two; an unplaceable location string appears in the unplaced list by name.
+- [ ] Grep-level: the map page, components, and geo lib reference no external hosts (covered by the §13 no-phoning-home test).
+
+
 ## 8. Import Pipeline
 
 ### Behavior

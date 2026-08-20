@@ -148,7 +148,23 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   never silently re-routed. Each merge in a batch keeps its own
   merge_log row and individual undo. Engine in lib/dedupe/bulk.ts.
 
-341 unit tests + 12 Playwright E2E tests passing as of the bulk-merge addition. Open questions from SPEC.md's decision
+- ✅ **Contacts pagination + Map view** (owner requests, post-12). The
+  contacts list pages through everything 500 at a time (runFilter gains
+  an offset; pager preserves sort/filter/view context, context changes
+  reset to page 1). /map is the Dex-style contacts-by-country view built
+  on Rolo's terms (SPEC §7a): Natural Earth 110m geometry bundled with
+  the app (`world-atlas` + `topojson-client` + `d3-geo` — pure data/math,
+  no tile server, no API key, zero network calls, so the §13
+  no-phoning-home test still passes untouched), count bubbles per
+  country, click → that country's contacts in the side panel, ranked
+  country list otherwise. Freeform locations resolve offline in
+  lib/geo/country-resolve.ts (LinkedIn three-part forms, aliases,
+  US states/CA provinces, metro wrappers, curated city table, Georgia
+  disambiguation); unrecognized strings are listed on the page with
+  counts — reported, never guessed. Places 110m drops (Singapore, Hong
+  Kong, Malta…) keep bubbles at fixed anchors.
+
+378 unit tests + 13 Playwright E2E tests passing as of the map addition. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---
