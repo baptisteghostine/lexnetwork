@@ -88,12 +88,59 @@ export default async function ContactsPage({
     (c) => c.dim === "archived" && c.value
   );
 
+  const pageNum = Math.max(1, Math.floor(Number(params.page)) || 1);
+  const offset = (pageNum - 1) * PAGE_LIMIT;
+
   const nowMs = currentTime();
   const { contacts: rows, total, warnings } = await runFilter(filter, {
     now: nowMs,
     sort: sortSpec(sortParam),
     limit: PAGE_LIMIT,
+    offset,
   });
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_LIMIT));
+
+  // Pager links keep the whole current context (sort, filter, view,
+  // archived); everything else that changes context drops `page`, which
+  // correctly lands back on page 1.
+  const pageHref = (n: number) => {
+    const q = new URLSearchParams();
+    if (explicitSort) q.set("sort", sortParam);
+    if (typeof params.f === "string") q.set("f", params.f);
+    if (activeView) q.set("view", String(activeView.id));
+    if (params.archived === "1") q.set("archived", "1");
+    if (n > 1) q.set("page", String(n));
+    const qs = q.toString();
+    return `/contacts${qs ? `?${qs}` : ""}`;
+  };
+  const pager =
+    totalPages > 1 ? (
+      <div className="flex items-center justify-between border-b border-border px-5 py-1.5 text-xs text-muted-foreground">
+        <span>
+          Showing {total === 0 ? 0 : offset + 1}–{offset + rows.length} of{" "}
+          {total}
+        </span>
+        <span className="flex items-center gap-2">
+          {pageNum > 1 ? (
+            <Link href={pageHref(pageNum - 1)} className="hover:text-foreground">
+              ← Previous
+            </Link>
+          ) : (
+            <span className="opacity-40">← Previous</span>
+          )}
+          <span className="tabular-nums">
+            {Math.min(pageNum, totalPages)} / {totalPages}
+          </span>
+          {pageNum < totalPages ? (
+            <Link href={pageHref(pageNum + 1)} className="hover:text-foreground">
+              Next →
+            </Link>
+          ) : (
+            <span className="opacity-40">Next →</span>
+          )}
+        </span>
+      </div>
+    ) : null;
 
   const allTags = listTags();
   const allGroups = listGroups();
@@ -168,21 +215,21 @@ export default async function ContactsPage({
       />
 
       {rows.length === 0 ? (
-        <p className="px-5 py-10 text-center text-xs text-muted-foreground">
-          {filter.clauses.length > 0
-            ? "No contacts match this filter."
-            : archivedView
-              ? "Nothing archived."
-              : "No contacts yet — create one, or use Imports in the sidebar."}
-        </p>
+        <>
+          {pager}
+          <p className="px-5 py-10 text-center text-xs text-muted-foreground">
+            {total > 0
+              ? "Nothing on this page."
+              : filter.clauses.length > 0
+                ? "No contacts match this filter."
+                : archivedView
+                  ? "Nothing archived."
+                  : "No contacts yet — create one, or use Imports in the sidebar."}
+          </p>
+        </>
       ) : (
         <>
-          {total > rows.length && (
-            <p className="border-b border-border px-5 py-1.5 text-xs text-muted-foreground">
-              Showing the first {rows.length} of {total} — narrow with filters
-              or search (⌘K) to see the rest.
-            </p>
-          )}
+          {pager}
           <ContactsList
             archivedView={archivedView}
             allTags={allTags}
@@ -199,6 +246,8 @@ export default async function ContactsPage({
               tags: tagsByContact.get(c.id) ?? [],
             }))}
           />
+          {/* Repeated below the list — after 500 rows, Next belongs here. */}
+          {pager}
         </>
       )}
     </div>

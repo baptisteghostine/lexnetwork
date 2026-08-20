@@ -41,7 +41,7 @@ type RawFilterRow = {
 /** Compile + run a filter set against the live DB (geocoder: not yet). */
 export async function runFilter(
   filter: FilterSet,
-  opts: { now: number; sort?: SortSpec; limit?: number }
+  opts: { now: number; sort?: SortSpec; limit?: number; offset?: number }
 ): Promise<FilterRunResult> {
   await requireAuth();
   const catalog = {
@@ -70,10 +70,13 @@ export async function runFilter(
   const total = rows.length;
   // Hydrate only the rows the caller will render: cap before the drizzle
   // re-select (raw rows are snake_case; the re-select yields camelCase)
-  // so a 5k-row import can't balloon the page render.
-  const ids = (opts.limit !== undefined ? rows.slice(0, opts.limit) : rows).map(
-    (r) => r.id
-  );
+  // so a 5k-row import can't balloon the page render. `offset` is the
+  // contacts page's pager — the full ordered id list is already in memory,
+  // so paging is a slice, not a second query.
+  const offset = opts.offset ?? 0;
+  const ids = (
+    opts.limit !== undefined ? rows.slice(offset, offset + opts.limit) : rows
+  ).map((r) => r.id);
   if (ids.length === 0) return { contacts: [], total, warnings: compiled.warnings };
   const byId = new Map(
     db
