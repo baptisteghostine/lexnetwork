@@ -11,11 +11,12 @@ const LI_AT = "AQEDATestTokenValueLongEnough1234567890";
 const JSESSION = "ajax:1234567890123456789";
 
 describe("parseCookieBlob", () => {
-  it("parses a full Cookie header", () => {
+  it("parses a full Cookie header, keeping the extra cookies for replay", () => {
     const blob = `li_at=${LI_AT}; JSESSIONID="${JSESSION}"; lang=v=2&lang=en-us`;
     expect(parseCookieBlob(blob)).toEqual({
       liAt: LI_AT,
       jsessionId: JSESSION,
+      cookieHeader: blob,
     });
   });
 
@@ -137,5 +138,39 @@ describe("parseCookieBlob — real paste shapes (SPEC §9b AC)", () => {
   it("still rejects a paste missing either cookie", () => {
     expect(parseCookieBlob(LI_AT)).toBeNull();
     expect(parseCookieBlob("ajax:1234567890")).toBeNull();
+  });
+});
+
+describe("full Cookie header paste (bounce diagnosis, 2026-08-20)", () => {
+  const FULL =
+    'bcookie="v=2&abc123"; bscookie="v=1&xyz"; li_gc=MTsyMTsxNzA; ' +
+    `li_at=${LI_AT}; JSESSIONID="${JSESSION}"; lidc="b=OB01:s=O:r=1"`;
+
+  it("keeps every cookie so lidc/bcookie reach LinkedIn", () => {
+    const session = parseCookieBlob(FULL);
+    expect(session).not.toBeNull();
+    expect(session!.liAt).toBe(LI_AT);
+    expect(session!.jsessionId).toBe(JSESSION);
+    const headers = buildVoyagerHeaders(session!);
+    expect(headers.cookie).toContain("lidc=");
+    expect(headers.cookie).toContain("bcookie=");
+    // JSESSIONID keeps its quoting exactly as the browser sends it.
+    expect(headers.cookie).toContain(`JSESSIONID="${JSESSION}"`);
+    // csrf-token stays unquoted regardless.
+    expect(headers["csrf-token"]).toBe(JSESSION);
+  });
+
+  it("a two-cookie paste still builds the minimal header", () => {
+    const session = parseCookieBlob(`li_at=${LI_AT}; JSESSIONID="${JSESSION}"`);
+    expect(session!.cookieHeader).toBeUndefined();
+    expect(buildVoyagerHeaders(session!).cookie).toBe(
+      `li_at=${LI_AT}; JSESSIONID="${JSESSION}"`
+    );
+  });
+
+  it("scrubSecrets still redacts a full header echoed into an error", () => {
+    const scrubbed = scrubSecrets(`sent: ${FULL}`);
+    expect(scrubbed).not.toContain(LI_AT);
+    expect(scrubbed).not.toContain(JSESSION);
   });
 });

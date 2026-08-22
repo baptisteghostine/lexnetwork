@@ -10,6 +10,18 @@
 export type LinkedInSession = {
   liAt: string;
   jsessionId: string;
+  /**
+   * The full `Cookie:` header as the browser sends it, when the owner
+   * pasted more than the two required cookies. Replayed verbatim.
+   *
+   * Why this matters: `li_at` + `JSESSIONID` authenticate, but LinkedIn's
+   * web client also sends routing/identity cookies — `lidc` (datacenter
+   * affinity), `bcookie`/`bscookie` (browser id), `li_gc`. A request
+   * missing them can be bounced to a login page even with a perfectly
+   * valid `li_at`, because it doesn't look like a session the edge has
+   * seen before.
+   */
+  cookieHeader?: string;
 };
 
 /** `li_at` is opaque; guard only against obviously-wrong paste content. */
@@ -28,6 +40,9 @@ export function parseCookieBlob(raw: string): LinkedInSession | null {
   if (!raw.trim()) return null;
 
   const pairs = new Map<string, string>();
+  // Name/value in paste order, values keeping their original quoting, so a
+  // full header can be replayed exactly as the browser sends it.
+  const ordered: [string, string][] = [];
   const bareValues: string[] = [];
   // Split on `;`, newlines, and tabs — a devtools cookies-table row copies
   // as `name<TAB>value`, a header as `name=value; …`.
@@ -45,8 +60,12 @@ export function parseCookieBlob(raw: string): LinkedInSession | null {
       continue;
     }
     const name = trimmed.slice(0, eq).trim();
-    const value = stripQuotes(trimmed.slice(eq + 1).trim());
-    if (name && value) pairs.set(name.toLowerCase(), value);
+    const rawValue = trimmed.slice(eq + 1).trim();
+    const value = stripQuotes(rawValue);
+    if (name && value) {
+      pairs.set(name.toLowerCase(), value);
+      ordered.push([name, rawValue]);
+    }
   }
 
   let liAt = pairs.get("li_at");
@@ -61,7 +80,15 @@ export function parseCookieBlob(raw: string): LinkedInSession | null {
   if (!liAt || liAt.length < LI_AT_MIN_LENGTH) return null;
   if (!jsessionId) return null;
 
-  return { liAt, jsessionId };
+  // More than the two required cookies means a full header was pasted —
+  // keep it whole, since the extras are exactly what makes the request
+  // look like a live browser session.
+  const cookieHeader =
+    ordered.length > 2
+      ? ordered.map(([name, value]) => `${name}=${value}`).join("; ")
+      : undefined;
+
+  return { liAt, jsessionId, ...(cookieHeader ? { cookieHeader } : {}) };
 }
 
 // A fixed, realistic desktop-Chrome client fingerprint. Owner amendment
@@ -109,7 +136,11 @@ export function buildVoyagerHeaders(
   session: LinkedInSession
 ): Record<string, string> {
   return {
-    cookie: `li_at=${session.liAt}; JSESSIONID="${session.jsessionId}"`,
+    // Full pasted header when available (carries lidc/bcookie/…), else
+    // the minimal pair. JSESSIONID travels quoted in the cookie.
+    cookie:
+      session.cookieHeader ??
+      `li_at=${session.liAt}; JSESSIONID="${session.jsessionId}"`,
     "csrf-token": session.jsessionId,
     accept: "application/vnd.linkedin.normalized+json+2.1",
     "x-restli-protocol-version": "2.0.0",

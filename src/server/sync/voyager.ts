@@ -36,7 +36,11 @@ export function getVoyagerSession(): LinkedInSession | null {
   try {
     const parsed = JSON.parse(plain) as Partial<LinkedInSession>;
     if (!parsed.liAt || !parsed.jsessionId) return null;
-    return { liAt: parsed.liAt, jsessionId: parsed.jsessionId };
+    return {
+      liAt: parsed.liAt,
+      jsessionId: parsed.jsessionId,
+      ...(parsed.cookieHeader ? { cookieHeader: parsed.cookieHeader } : {}),
+    };
   } catch {
     return null;
   }

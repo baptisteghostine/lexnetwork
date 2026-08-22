@@ -95,8 +95,16 @@ async function fetchPage(
     );
   }
   if (response.status >= 300 && response.status < 400) {
+    // Name the actual destination: /uas/login vs /checkpoint/ vs a
+    // country host are different problems, and the generic message sent
+    // earlier debugging down the wrong path.
+    const location = response.headers.get("location") ?? "(no location header)";
+    const where = scrubSecrets(location.split("?")[0]);
+    const hint = /checkpoint|challenge/i.test(location)
+      ? "LinkedIn wants a security challenge solved in a real browser — open linkedin.com, clear it, then re-copy the cookies. Rolo will not solve challenges."
+      : "Re-copy the cookies from a logged-in tab (Network tab → any request → Cookie header) and paste the whole header, not just the two values.";
     throw new VoyagerSessionError(
-      "LinkedIn bounced the request to a login page. Either the saved session has expired, or the session is fine but LinkedIn doesn't trust this server's IP (common from cloud/datacenter hosts). Paste a fresh cookie in Settings; if it keeps failing, run Rolo from the network you browse LinkedIn on."
+      `LinkedIn redirected the request (HTTP ${response.status} → ${where}) instead of answering. ${hint}`
     );
   }
   if (response.status === 429) {
@@ -116,9 +124,13 @@ async function fetchPage(
   try {
     return JSON.parse(text) as unknown;
   } catch {
-    // An HTML body where JSON was expected is almost always a login wall.
+    // An HTML body where JSON was expected is almost always a login wall
+    // reached after following the redirect chain.
+    const looksLikeLogin = /sign in|login|checkpoint/i.test(text.slice(0, 2000));
     throw new VoyagerSessionError(
-      "LinkedIn returned a non-JSON response, which usually means the session was bounced to a login page."
+      looksLikeLogin
+        ? "LinkedIn served a login page instead of data — the session isn't being accepted. Re-copy the full Cookie header from a logged-in tab (Network tab → any request → Cookie)."
+        : "LinkedIn returned a non-JSON response. The endpoint or its response shape may have changed — see src/lib/linkedin/voyager.ts."
     );
   }
 }

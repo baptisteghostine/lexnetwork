@@ -401,10 +401,19 @@ function VoyagerCard({ data }: { data: VoyagerStatus }) {
       </div>
       <div className="space-y-1.5">
         <p className="text-xs text-muted-foreground">
-          Open linkedin.com while logged in → devtools → Application (or
-          Storage) → Cookies → https://www.linkedin.com, then paste the values
-          of <code>li_at</code> and <code>JSESSIONID</code> below — any
-          format, one per line is fine.
+          <b>Best result — paste the whole Cookie header:</b> on linkedin.com
+          while logged in, open devtools → <b>Network</b> → click any request
+          to linkedin.com → Request Headers → right-click{" "}
+          <code>Cookie</code> → Copy value, and paste it below. The extra
+          cookies it carries (<code>lidc</code>, <code>bcookie</code>…) are
+          often what decides whether LinkedIn answers or bounces you to a
+          login page.
+        </p>
+        <p className="text-xs text-muted-foreground">
+          The minimum that also works: just <code>li_at</code> and{" "}
+          <code>JSESSIONID</code> from Application → Cookies, any format.
+          Cookies rotate when you log in again — if a sync starts failing,
+          re-copy them.
         </p>
         <Textarea
           value={cookieBlob}
