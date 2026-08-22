@@ -356,9 +356,11 @@ Candidate pair scoring:
 
 ---
 
-## 11. AI Layer (Anthropic API)
+## 11. AI Layer
 
-All features: model from `ANTHROPIC_MODEL` env var; every call logged to `ai_calls` (feature, prompt, model, input/output tokens, latency, error). No AI call ever writes user data directly — output always lands in a review/approval surface.
+Provider (owner-amended 2026-08-20, was "Anthropic API" only): Anthropic, or Groq's OpenAI-compatible API (free tier, e.g. `openai/gpt-oss-120b`) — configured entirely by env pairs (`ANTHROPIC_API_KEY`+`ANTHROPIC_MODEL` / `GROQ_API_KEY`+`GROQ_MODEL`; `AI_PROVIDER` picks when both exist, defaulting to Groq). The provider adapter is the only part that differs: one `ai_calls` row per call, strict Zod validation with one retry, and never-auto-apply hold for every provider. Groq free-tier rate limits surface as logged errors naming the cap.
+
+All features: model from the provider's env var; every call logged to `ai_calls` (feature, prompt, model, input/output tokens, latency, error). No AI call ever writes user data directly — output always lands in a review/approval surface.
 
 - **Natural-language search:** query → model produces a filter JSON (the §7 schema) via a constrained tool/JSON-schema output → app validates it (unknown fields rejected, values checked against real tags/groups/fields) → the deterministic query layer executes it → UI shows both results AND the compiled filter chips, editable, saveable as a View. The model never sees contact data for this feature — only the schema plus the owner's tag/group/field names.
 - **Auto-tagging:** owner selects contacts (or "all untagged") → batched calls with each contact's profile summary + the existing tag list, prompt strongly prefers existing tags → suggestions land in a queue (contact, tag, confidence, rationale) → owner approves/rejects individually or in bulk. New-tag suggestions are visually distinct.

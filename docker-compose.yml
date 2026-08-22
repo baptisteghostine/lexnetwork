@@ -14,7 +14,12 @@ services:
       # Optional: pin the session-cookie/token-box secret. When unset a
       # generated secret persists in data/secret.key.
       - SESSION_SECRET=${SESSION_SECRET:-}
-      # AI layer (optional) — both must be set for AI affordances to appear.
+      # AI layer (optional) — one provider pair must be set for AI
+      # affordances to appear. Groq (free tier) or Anthropic; when both
+      # are set, AI_PROVIDER=groq|anthropic picks (default: groq).
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - GROQ_MODEL=${GROQ_MODEL:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-}
+      - AI_PROVIDER=${AI_PROVIDER:-}
     restart: unless-stopped

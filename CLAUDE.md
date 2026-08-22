@@ -17,7 +17,13 @@ Every feature serves one loop: capture context automatically → surface who's d
 - **UI:** Tailwind + shadcn/ui. Dark mode supported. Density over decoration — visual register of Linear/Superhuman, not a landing page.
 - **Background jobs:** in-process scheduler backed by the `jobs` table. No Redis, no BullMQ, no Kafka, no external broker. Ever.
 - **Auth:** single password gate + signed session cookie (HMAC, httpOnly). Nothing more.
-- **AI:** Anthropic API only. Model ID comes from `ANTHROPIC_MODEL` env var — never hardcode a model.
+- **AI:** Anthropic API or Groq's OpenAI-compatible API (owner-amended
+  2026-08-20 from "Anthropic only", to run the AI layer on Groq's free
+  tier — `openai/gpt-oss-120b`; owner reviewed Groq's no-training terms).
+  Model IDs come from env (`ANTHROPIC_MODEL` / `GROQ_MODEL`) — never
+  hardcode a model. Free-tier caps (30 req/min, 200k tokens/day) mean
+  429s are expected during batch tagging; they surface as logged errors,
+  never silent drops.
 - **Tests:** Vitest for unit (cadence engine, dedupe matcher, import parsers are mandatory coverage), Playwright for 2–3 critical E2E flows.
 - **Deploy:** `docker compose up` on a small VPS; `npm run dev` locally.
 - **Dependencies:** do not add one without stating in the PR/phase summary what it's for and why the stdlib or an existing dep won't do.

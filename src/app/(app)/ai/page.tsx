@@ -27,10 +27,12 @@ export default async function AiPage() {
       {!enabled ? (
         <div className="max-w-2xl space-y-2 px-5 py-4 text-sm text-muted-foreground">
           <p>
-            AI features are off. Set <code>ANTHROPIC_API_KEY</code> and{" "}
-            <code>ANTHROPIC_MODEL</code> in the environment to enable
-            natural-language search, tag suggestions, conversation starters,
-            and note summaries.
+            AI features are off. Set <code>GROQ_API_KEY</code> and{" "}
+            <code>GROQ_MODEL</code> (free tier at console.groq.com — e.g.{" "}
+            <code>openai/gpt-oss-120b</code>), or{" "}
+            <code>ANTHROPIC_API_KEY</code> and <code>ANTHROPIC_MODEL</code>,
+            in the environment to enable natural-language search, tag
+            suggestions, conversation starters, and note summaries.
           </p>
           <p>
             Everything below still shows the audit trail of past calls, if

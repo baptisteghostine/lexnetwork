@@ -10,21 +10,48 @@ import {
   type AiFeature,
   type AiResponseLike,
 } from "@/lib/ai/call";
+import { groqClient } from "@/lib/ai/groq";
 import { outboundFetch } from "@/lib/net/fetch";
 
 // Server glue for the AI layer (SPEC §11): resolves configuration from the
-// environment (CLAUDE.md: model comes from ANTHROPIC_MODEL, never
-// hardcoded), builds the SDK client on top of the outbound-host allowlist,
-// and funnels every call through lib/ai/call's logging core.
+// environment (model always from env, never hardcoded — CLAUDE.md), builds
+// the provider client on top of the outbound-host allowlist, and funnels
+// every call through lib/ai/call's logging core.
+//
+// Two providers (owner amendment, 2026-08-20): Anthropic
+// (ANTHROPIC_API_KEY + ANTHROPIC_MODEL) and Groq's OpenAI-compatible API
+// (GROQ_API_KEY + GROQ_MODEL — free tier, e.g. openai/gpt-oss-120b).
+// When both are configured, AI_PROVIDER=anthropic|groq picks; otherwise
+// Groq wins, since configuring it expresses the intent to use it.
 
-export type AiConfig = { apiKey: string; model: string };
+export type AiConfig = {
+  provider: "anthropic" | "groq";
+  apiKey: string;
+  model: string;
+};
 
 /** null = AI affordances hidden, not erroring (SPEC §11 edge case). */
 export function aiConfig(): AiConfig | null {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  const model = process.env.ANTHROPIC_MODEL;
-  if (!apiKey || !model) return null;
-  return { apiKey, model };
+  const groq =
+    process.env.GROQ_API_KEY && process.env.GROQ_MODEL
+      ? {
+          provider: "groq" as const,
+          apiKey: process.env.GROQ_API_KEY,
+          model: process.env.GROQ_MODEL,
+        }
+      : null;
+  const anthropic =
+    process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_MODEL
+      ? {
+          provider: "anthropic" as const,
+          apiKey: process.env.ANTHROPIC_API_KEY,
+          model: process.env.ANTHROPIC_MODEL,
+        }
+      : null;
+  const forced = process.env.AI_PROVIDER;
+  if (forced === "groq") return groq;
+  if (forced === "anthropic") return anthropic;
+  return groq ?? anthropic;
 }
 
 export function aiEnabled(): boolean {
@@ -36,22 +63,24 @@ declare global {
   var __roloAnthropic: Anthropic | undefined;
 }
 
-function client(config: AiConfig): Anthropic {
-  if (globalThis.__roloAnthropic) return globalThis.__roloAnthropic;
-  const created = new Anthropic({
-    apiKey: config.apiKey,
-    // Every outbound HTTP call goes through the allowlist wrapper
-    // (CLAUDE.md privacy invariant) — api.anthropic.com is on it.
-    fetch: outboundFetch as typeof fetch,
-  });
-  if (process.env.NODE_ENV !== "production") {
-    globalThis.__roloAnthropic = created;
+function anthropicClient(config: AiConfig): AiClientLike {
+  if (!globalThis.__roloAnthropic) {
+    const created = new Anthropic({
+      apiKey: config.apiKey,
+      // Every outbound HTTP call goes through the allowlist wrapper
+      // (CLAUDE.md privacy invariant) — api.anthropic.com is on it.
+      fetch: outboundFetch as typeof fetch,
+    });
+    if (process.env.NODE_ENV !== "production") {
+      globalThis.__roloAnthropic = created;
+    }
+    return adaptAnthropic(created);
   }
-  return created;
+  return adaptAnthropic(globalThis.__roloAnthropic);
 }
 
 /** Adapt the SDK's typed surface to the call core's structural interface. */
-function asAiClient(sdk: Anthropic): AiClientLike {
+function adaptAnthropic(sdk: Anthropic): AiClientLike {
   return {
     messages: {
       async create(params) {
@@ -61,6 +90,15 @@ function asAiClient(sdk: Anthropic): AiClientLike {
       },
     },
   };
+}
+
+function providerClient(config: AiConfig): AiClientLike {
+  if (config.provider === "groq") {
+    // api.groq.com is on the outbound allowlist alongside the other
+    // owner-configured integrations.
+    return groqClient({ apiKey: config.apiKey, fetcher: outboundFetch });
+  }
+  return anthropicClient(config);
 }
 
 /**
@@ -77,12 +115,12 @@ export async function callAi(opts: {
   const config = aiConfig();
   if (!config) {
     throw new Error(
-      "AI is not configured — set ANTHROPIC_API_KEY and ANTHROPIC_MODEL."
+      "AI is not configured — set GROQ_API_KEY + GROQ_MODEL (or ANTHROPIC_API_KEY + ANTHROPIC_MODEL)."
     );
   }
   return runAiCall({
     db: rawDb,
-    client: asAiClient(client(config)),
+    client: providerClient(config),
     feature: opts.feature,
     model: config.model,
     system: opts.system,

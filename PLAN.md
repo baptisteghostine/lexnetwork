@@ -181,7 +181,21 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   and radial priority canvas (analysis on record: unreadable/unused at
   3k contacts), voice notes, Zapier/API (non-goals).
 
-398 unit tests + 15 Playwright E2E tests passing as of the Dex-audit round. Open questions from SPEC.md's decision
+- ✅ **Groq AI provider** (owner amendment, 2026-08-20) — the AI layer
+  can now run on Groq's free tier (`openai/gpt-oss-120b`) instead of a
+  paid Anthropic key, amending CLAUDE.md's "Anthropic only" the same way
+  §9b amended "official channels only": owner-directed, tradeoffs on
+  record (owner reviewed Groq's no-training/limited-retention terms;
+  free-tier caps mean 429s during batch tagging, surfaced as logged
+  errors). Implementation is an adapter behind the existing call core —
+  lib/ai/groq.ts translates to/from the OpenAI-compatible API over
+  outboundFetch (api.groq.com allowlisted), no SDK added — so the
+  one-ai_calls-row-per-call invariant, Zod validation with one retry,
+  and the never-auto-apply queue are provider-blind. Env pairs select
+  the provider; both set → AI_PROVIDER decides (default groq). Awaits
+  its first live pass with a real Groq key.
+
+405 unit tests + 15 Playwright E2E tests passing as of the Groq addition. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---

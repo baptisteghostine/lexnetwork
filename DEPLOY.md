@@ -45,7 +45,8 @@ mainstream proxy sends).
 |---|---|
 | `ROLO_ALLOWED_ORIGINS` | Comma-separated `host[:port]` allowed for Server Actions behind a proxy. `*.example.com` wildcards work. |
 | `SESSION_SECRET` | Optional fixed secret for session cookies and the token box. Unset → a generated secret persists in `data/secret.key`. Rotating it logs you out and invalidates stored OAuth/Voyager tokens ("reconnect" in Settings). |
-| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | Optional; both set → AI features appear. |
+| `GROQ_API_KEY`, `GROQ_MODEL` | Optional; both set → AI features appear via Groq's free tier (key from console.groq.com; model e.g. `openai/gpt-oss-120b`). |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | Optional; the Anthropic alternative. When both providers are configured, `AI_PROVIDER=groq\|anthropic` picks (default groq). |
 | `ROLO_PORT` | Host port for docker compose (default 3000). |
 
 ## Backups & restore

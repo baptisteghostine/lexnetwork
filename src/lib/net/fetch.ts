@@ -14,8 +14,9 @@ const ALLOWED_HOSTS = new Set<string>([
   // LinkedIn OAuth + Member Data Portability API (SPEC §9a)
   "www.linkedin.com",
   "api.linkedin.com",
-  // Anthropic API (Phase 10)
+  // AI providers (SPEC §11; Groq added by owner amendment 2026-08-20)
   "api.anthropic.com",
+  "api.groq.com",
   // Nominatim geocoding, off by default (SPEC decision #4)
   "nominatim.openstreetmap.org",
 ]);
