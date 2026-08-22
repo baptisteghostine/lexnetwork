@@ -1,0 +1,57 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body {
+        width: 320px;
+        margin: 0;
+        padding: 12px;
+        font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+        color: #18181b;
+      }
+      h1 { font-size: 13px; margin: 0 0 8px; }
+      label { display: block; font-size: 11px; color: #71717a; margin-top: 8px; }
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 5px 6px;
+        font-size: 12px;
+        border: 1px solid #d4d4d8;
+        border-radius: 5px;
+      }
+      button {
+        width: 100%;
+        margin-top: 10px;
+        padding: 7px;
+        font-size: 13px;
+        font-weight: 500;
+        color: #fff;
+        background: #4f46e5;
+        border: 0;
+        border-radius: 5px;
+        cursor: pointer;
+      }
+      button:disabled { background: #a1a1aa; cursor: default; }
+      #status { margin-top: 10px; font-size: 12px; white-space: pre-wrap; }
+      .muted { color: #71717a; font-size: 11px; margin-top: 8px; }
+      .err { color: #dc2626; }
+      .ok { color: #059669; }
+    </style>
+  </head>
+  <body>
+    <h1>Rolo LinkedIn Sync</h1>
+    <label for="roloUrl">Rolo address</label>
+    <input id="roloUrl" placeholder="http://localhost:3000" />
+    <label for="token">Pairing token (Settings → Integrations)</label>
+    <input id="token" type="password" placeholder="paste token" />
+    <button id="save">Save</button>
+    <button id="sync">Sync connections</button>
+    <div id="status"></div>
+    <p class="muted">
+      Runs in this browser using your logged-in session. Open a linkedin.com
+      tab first. Paces slowly — a few thousand connections takes a while.
+    </p>
+  </body>
+  <script src="popup.js"></script>
+</html>

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, afterEach } from "vitest";
+import { describe, expect, it, afterEach } from "vitest";
 import { fetchAllConnections } from "@/lib/sync/linkedin-voyager";
 
 const SESSION = {

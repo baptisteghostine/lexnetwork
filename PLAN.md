@@ -227,7 +227,25 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   will break on LinkedIn's schedule; awaits its first live run with a
   real session.
 
-412 unit tests + 15 Playwright E2E tests passing as of the Voyager amendment. Open questions from SPEC.md's decision
+- ✅ **LinkedIn browser extension** (owner amendment, 2026-08-20, SPEC §9c)
+  — the sync that actually works, and the end of the §9b saga. Diagnosis
+  first: the redirect trail showed a `__cf_bm` cookie, i.e. Cloudflare
+  bot management, which fingerprints the TLS handshake before any header
+  is sent. A Node process cannot pass that check however it presents
+  itself, which is why three rounds of header work failed; the
+  commercial products (Dex included) sidestep it by running *inside* the
+  browser, where there is nothing to fake. `extension/` is an unpacked
+  MV3 Chrome extension whose content script pages Voyager from a real
+  linkedin.com tab and POSTs raw pages to
+  `/api/linkedin/extension`, token-paired because a SameSite=Lax session
+  cookie can't travel cross-origin. Parsing and import reuse §9b's
+  tested parser and the shared import core, so ZIP/§9a/§9b/extension all
+  land through one identity ladder. Reverses CLAUDE.md's "no browser
+  extension that scrapes LinkedIn" non-goal, recorded there. **This is
+  the path that brings locations in** — the export ZIP omits them.
+  Awaits its first live run.
+
+423 unit tests + 15 Playwright E2E tests passing as of the extension. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---

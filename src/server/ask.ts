@@ -13,7 +13,6 @@ import {
   type AskCandidate,
 } from "@/lib/ai/ask";
 import { extractJson } from "@/lib/ai/nl-filter";
-import { emptyFilterSet } from "@/lib/filters/types";
 import { aiEnabled, callAi } from "@/server/ai-client";
 import { compileNlFilter } from "@/server/ai";
 import { searchContacts } from "@/server/search";

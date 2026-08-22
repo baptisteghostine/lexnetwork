@@ -19,6 +19,10 @@ import { runCalendarSync } from "@/server/sync/calendar";
 import { runGmailSync } from "@/server/sync/gmail";
 import { runLinkedInSync } from "@/server/sync/linkedin";
 import {
+  ensureExtensionToken,
+  rotateExtensionToken,
+} from "@/server/sync/extension-pairing";
+import {
   getVoyagerSession,
   isVoyagerEnabled,
   setVoyagerEnabled,
@@ -153,13 +157,24 @@ export async function readIntegrations(): Promise<{
   google: IntegrationStatus;
   linkedin: IntegrationStatus;
   voyager: VoyagerStatus;
+  extensionToken: string;
 }> {
   await requireAuth();
   return {
     google: statusFor("google"),
     linkedin: statusFor("linkedin"),
     voyager: voyagerStatusNow(),
+    // Generated on first view; the extension needs it to post (SPEC §9c).
+    extensionToken: ensureExtensionToken(),
   };
+}
+
+/** New token — invalidates any extension still holding the old one. */
+export async function rotateExtensionTokenAction(): Promise<{ token: string }> {
+  await requireAuth();
+  const token = rotateExtensionToken();
+  revalidatePath("/settings");
+  return { token };
 }
 
 // ---------- Voyager cookie sync (SPEC §9b) ----------

@@ -94,7 +94,9 @@ data/               # SQLite file, attachments/, backups/ — gitignored
 
 ## Non-goals (never build these)
 
-Multi-user auth, roles/permissions, teams, deal pipelines/stages/revenue, email campaign sending, billing/Stripe, admin panel, public third-party API, native mobile app, browser extension that scrapes or automates LinkedIn, telemetry/analytics of any kind, external message brokers.
+Multi-user auth, roles/permissions, teams, deal pipelines/stages/revenue, email campaign sending, billing/Stripe, admin panel, public third-party API, native mobile app, telemetry/analytics of any kind, external message brokers.
+
+~~browser extension that scrapes or automates LinkedIn~~ — **owner-amended 2026-08-20.** Path 3 below (server-side Voyager sync) proved structurally impossible: LinkedIn is behind Cloudflare bot management, which fingerprints the TLS handshake before a single header is sent, so a Node process is refused no matter how it presents itself. The commercial products solve this by running inside the browser, and the owner directed Rolo to do the same. `extension/` is an unpacked Chrome extension (SPEC §9c) that pages the owner's own connection list from a real linkedin.com tab and posts it to Rolo. Same ToS breach and same account-restriction risk as path 3, explicitly re-accepted; same pacing and fail-loud terms; no fingerprint spoofing, because inside a real browser there is nothing to spoof.
 
 **Privacy invariants:** Gmail sync is `gmail.metadata` scope only — sender/recipients, subject, thread id, timestamp. Never fetch, store, or log message bodies. No third-party network calls except integrations the owner explicitly configured (Google APIs, Anthropic API, geocoding if configured).
 

@@ -326,6 +326,25 @@ Re-running any import with the same file: 100% unchanged, zero writes. An identi
 
 ---
 
+## 9c. LinkedIn browser extension (the sync that works)
+
+*Added 2026-08-20 at the owner's explicit request, after §9b was proven unworkable. It reverses CLAUDE.md's "no browser extension that scrapes LinkedIn" non-goal; the ToS breach and account-restriction risk are unchanged from §9b and were re-accepted.*
+
+**Why §9b cannot work.** LinkedIn sits behind Cloudflare bot management, which fingerprints the TLS handshake (JA3/JA4) and HTTP/2 framing — characteristics of the network library, produced before any header. Node's signature is not Chrome's, so the request is classified as automated and 302s in a loop while LinkedIn helpfully re-issues `li_at` on every hop. Diagnosed from a `__cf_bm` cookie in the redirect trail. No header, cookie, or User-Agent can change a TLS fingerprint; only a real browser can.
+
+- `extension/` is an unpacked MV3 Chrome extension. Its content script runs on linkedin.com and pages the Voyager connections endpoint with `credentials: "include"` — a genuine same-origin request from a genuine Chrome, carrying the session the browser already manages and the bot-check the browser already passed. Nothing is impersonated because nothing needs to be.
+- Pacing matches §9b exactly: serial requests, 2.5 s between pages, 250-page cap, LinkedIn's page size of 40.
+- The extension does **no parsing**. It forwards each raw page to `POST /api/linkedin/extension`, which parses with the same structural parser as §9b and feeds `executeLinkedInRows` — one identity ladder, one set of provenance rules, one job-change detector across ZIP, §9a, §9b and this.
+- **Auth is a pairing token**, not the session cookie: the POST arrives cross-origin from the extension, where a `SameSite=Lax` cookie would never be sent. Generated on first view of Settings → Integrations, rotatable, compared in constant time.
+- Page accumulation is in-process and TTL'd (30 min). A server restart mid-sync loses the session and the final POST fails loudly — re-running costs one click, and half-finished scrapes are not state worth persisting.
+- Zero parsed connections is a failure, never "you have no connections" — the §9b rule, unchanged.
+
+### Acceptance criteria
+- [ ] Unit: a raw Voyager page forwarded verbatim (JSON round-tripped) parses to connections; company entities in the same payload are not contacts; a drifted shape yields zero, which the endpoint reports as failure.
+- [ ] Unit: the pairing token is compared in constant time; a wrong or absent token gets 401.
+- [ ] Manual: with the extension loaded and a linkedin.com tab open, "Sync connections" imports the owner's connections — *with locations*, which the export ZIP omits — and re-running is idempotent.
+
+
 ## 10. Deduplication & Merge
 
 ### Detection (scheduled job + on-demand)

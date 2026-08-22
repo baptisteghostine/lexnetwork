@@ -499,19 +499,65 @@ function VoyagerCard({ data }: { data: VoyagerStatus }) {
   );
 }
 
+function ExtensionPairing({ token }: { token: string }) {
+  const [shown, setShown] = useState(false);
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="space-y-2 rounded-md border border-border p-3">
+      <div className="flex items-baseline justify-between">
+        <h3 className="text-[13px] font-medium">Browser extension</h3>
+        <span className="text-[11px] text-muted-foreground">
+          the only LinkedIn sync that works
+        </span>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        LinkedIn is behind Cloudflare bot management, which fingerprints the
+        TLS handshake — so a server-side sync is refused before it sends a
+        header. The extension runs inside your own Chrome, where the request
+        genuinely is a browser request. Load it from the{" "}
+        <code>extension/</code> folder via{" "}
+        <code>chrome://extensions</code> → Developer mode → Load unpacked,
+        then paste this token into its popup.
+      </p>
+      <div className="flex items-center gap-2">
+        <code className="min-w-0 flex-1 truncate rounded border border-border bg-muted px-2 py-1 font-mono text-[11px]">
+          {shown ? token : "•".repeat(32)}
+        </code>
+        <Button size="sm" variant="ghost" onClick={() => setShown((s) => !s)}>
+          {shown ? "Hide" : "Show"}
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={async () => {
+            await navigator.clipboard.writeText(token);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          }}
+        >
+          {copied ? "Copied" : "Copy"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function IntegrationsPanel({
   google,
   linkedin,
   voyager,
+  extensionToken,
 }: {
   google: IntegrationStatus;
   linkedin: IntegrationStatus;
   voyager: VoyagerStatus;
+  extensionToken: string;
 }) {
   return (
     <div className="space-y-3">
       <GoogleCard data={google} />
       <LinkedInCard data={linkedin} />
+      <ExtensionPairing token={extensionToken} />
       <VoyagerCard data={voyager} />
     </div>
   );
