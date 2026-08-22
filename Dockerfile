@@ -19,12 +19,16 @@ ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     HOSTNAME=0.0.0.0 \
     PORT=3000
-COPY --from=build /app/.next/standalone ./
-COPY --from=build /app/.next/static ./.next/static
-COPY --from=build /app/public ./public
+# Ownership is set during each COPY. The earlier `chown -R node:node /app`
+# rewrote every traced node_modules file into a second, near-duplicate
+# layer — slow, and a large write burst that Docker's disk has to absorb
+# in one commit. Only the runtime data dir needs an explicit chown.
+COPY --from=build --chown=node:node /app/.next/standalone ./
+COPY --from=build --chown=node:node /app/.next/static ./.next/static
+COPY --from=build --chown=node:node /app/public ./public
 # Migrations apply on boot (src/instrumentation.ts) from this path.
-COPY --from=build /app/src/db/migrations ./src/db/migrations
-RUN mkdir -p /app/data && chown -R node:node /app
+COPY --from=build --chown=node:node /app/src/db/migrations ./src/db/migrations
+RUN mkdir -p /app/data && chown node:node /app/data
 USER node
 EXPOSE 3000
 VOLUME /app/data
