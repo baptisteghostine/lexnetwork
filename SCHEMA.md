@@ -189,7 +189,8 @@ Covers **both** API syncs and file imports (one lifecycle: started → stats →
 
 ## contact_changes
 
-`id, contact_id FK CASCADE, field TEXT NOT NULL, old_value TEXT, new_value TEXT, source TEXT NOT NULL, sync_run_id FK SET NULL, detected_at INTEGER NOT NULL, dismissed_at INTEGER, acted_at INTEGER (owner logged an interaction from the card)`.
+`id, contact_id FK CASCADE, field TEXT NOT NULL, old_value TEXT, new_value TEXT, source TEXT NOT NULL, sync_run_id FK SET NULL, detected_at INTEGER NOT NULL, dismissed_at INTEGER, acted_at INTEGER (owner logged an interaction from the card), notified_at INTEGER (went out in a network-updates email)`.
+- `notified_at` is the exactly-once ledger for the network-updates email (SPEC §5): the sweep only ever picks rows where it is NULL, and stamps them after the send returns. It is independent of `dismissed_at`/`acted_at` — the daily digest still mirrors whatever Today shows, emailed or not.
 - `idx_changes_open ON contact_changes(detected_at DESC) WHERE dismissed_at IS NULL AND acted_at IS NULL` — the Today cards. `idx_changes_contact ON contact_changes(contact_id, detected_at DESC)` — timeline.
 
 ## merge_log

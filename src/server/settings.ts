@@ -3,8 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
-import { ensureDigestJob } from "@/jobs/scheduler";
+import { ensureDigestJob, ensureSyncJobs } from "@/jobs/scheduler";
 import { buildTodayDigest } from "@/jobs/digest";
+import { runNetworkUpdates, type NetworkUpdatesResult } from "@/jobs/network-updates";
 import { requireAuth } from "@/lib/auth";
 import { sendEmail } from "@/lib/digest/send";
 import { getSetting, setSetting } from "@/lib/settings";
@@ -19,6 +20,7 @@ export type AppSettings = {
   snoozeAllPerDayFloor: number;
   digestHour: number;
   digestSendWhenEmpty: boolean;
+  networkUpdatesEmail: boolean;
   birthdaysFeb29: "feb28" | "mar1";
   birthdaysImportantOnly: boolean;
   appUrl: string;
@@ -52,6 +54,7 @@ export async function readAppSettings(): Promise<AppSettings> {
     digestHour: getSetting<number>("digest.hour") ?? 8,
     digestSendWhenEmpty:
       getSetting<boolean>("digest.send_when_empty") ?? false,
+    networkUpdatesEmail: getSetting<boolean>("network_updates.email") ?? true,
     birthdaysFeb29: getSetting<"feb28" | "mar1">("birthdays.feb29") ?? "feb28",
     birthdaysImportantOnly:
       getSetting<boolean>("birthdays.important_only") ?? true,
@@ -93,6 +96,7 @@ const settingsInput = z.object({
   snoozeAllPerDayFloor: z.coerce.number().int().min(1).max(50),
   digestHour: z.coerce.number().int().min(0).max(23),
   digestSendWhenEmpty: z.coerce.boolean(),
+  networkUpdatesEmail: z.coerce.boolean(),
   birthdaysFeb29: z.enum(["feb28", "mar1"]),
   birthdaysImportantOnly: z.coerce.boolean(),
   appUrl: z.string().trim().url().max(300),
@@ -119,6 +123,7 @@ export async function updateSettingsAction(
     snoozeAllPerDayFloor: formData.get("snoozeAllPerDayFloor"),
     digestHour: formData.get("digestHour"),
     digestSendWhenEmpty: formData.get("digestSendWhenEmpty") === "on",
+    networkUpdatesEmail: formData.get("networkUpdatesEmail") === "on",
     birthdaysFeb29: formData.get("birthdaysFeb29"),
     birthdaysImportantOnly: formData.get("birthdaysImportantOnly") === "on",
     appUrl: formData.get("appUrl"),
@@ -140,6 +145,7 @@ export async function updateSettingsAction(
   setSetting("snooze_all.per_day_floor", s.snoozeAllPerDayFloor);
   setSetting("digest.hour", s.digestHour);
   setSetting("digest.send_when_empty", s.digestSendWhenEmpty);
+  setSetting("network_updates.email", s.networkUpdatesEmail);
   setSetting("birthdays.feb29", s.birthdaysFeb29);
   setSetting("birthdays.important_only", s.birthdaysImportantOnly);
   setSetting("app_url", s.appUrl);
@@ -154,6 +160,9 @@ export async function updateSettingsAction(
   });
   // Digest hour or timezone may have moved — re-aim the pending job.
   ensureDigestJob(Date.now());
+  // Turning network updates on (or configuring SMTP for the first time)
+  // should start the sweep within a tick, not at the next interval.
+  ensureSyncJobs(Date.now());
   revalidatePath("/settings");
   return { saved: true };
 }
@@ -168,6 +177,24 @@ export async function sendDigestNowAction(): Promise<TestDigestState> {
     const email = buildTodayDigest(Date.now());
     await sendEmail(email);
     return { sent: true };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Send failed." };
+  }
+}
+
+export type NetworkUpdatesState = {
+  error?: string;
+  result?: NetworkUpdatesResult;
+};
+
+/** Settings-page button: run the network-updates sweep right now. Unlike
+ * "Send digest now" this is the real thing, not a test — it stamps what it
+ * sends, so the scheduled sweep won't repeat it. That's deliberate: a test
+ * that emailed the same news twice would defeat the point of the ledger. */
+export async function sendNetworkUpdatesNowAction(): Promise<NetworkUpdatesState> {
+  await requireAuth();
+  try {
+    return { result: await runNetworkUpdates(Date.now()) };
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Send failed." };
   }

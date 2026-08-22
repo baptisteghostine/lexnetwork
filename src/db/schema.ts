@@ -227,6 +227,11 @@ export const contactChanges = sqliteTable(
     dismissedAt: integer("dismissed_at"),
     // Owner logged an interaction from the Today card.
     actedAt: integer("acted_at"),
+    // Stamped when this change went out in a network-updates email, so the
+    // next one only carries what the owner hasn't been told yet. Distinct
+    // from the daily digest, which mirrors whatever Today shows right now
+    // and may therefore repeat a change until it's dismissed or acted on.
+    notifiedAt: integer("notified_at"),
   },
   (t) => [
     // The Today "reason to reach out" cards.

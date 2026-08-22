@@ -241,11 +241,34 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   cookie can't travel cross-origin. Parsing and import reuse §9b's
   tested parser and the shared import core, so ZIP/§9a/§9b/extension all
   land through one identity ladder. Reverses CLAUDE.md's "no browser
-  extension that scrapes LinkedIn" non-goal, recorded there. **This is
-  the path that brings locations in** — the export ZIP omits them.
-  Awaits its first live run.
+  extension that scrapes LinkedIn" non-goal, recorded there. Verified
+  live by the owner: 40 connections, then a paging fix (a page adding
+  nobody new stopped the run after the first one) and an explicit
+  `stopReason` so "that's everyone" is distinguishable from "paging
+  broke". **Known gap: it does not yet bring locations in.** Voyager's
+  connection records may carry one, but `LinkedInConnection` has no
+  location field and the parser doesn't read one, so /map stays empty
+  from this path — a correction to an earlier claim here that the
+  extension was the route to locations.
 
-423 unit tests + 15 Playwright E2E tests passing as of the extension. Open questions from SPEC.md's decision
+- ✅ **Network updates: Dex-style diff + email** (owner request,
+  2026-08-22, SPEC §5, migration 0015: `contact_changes.notified_at`).
+  The Today cards now read as diffs — old value struck through, new
+  value in the success colour, age on the right — the same grammar the
+  email uses, so the two surfaces don't describe the same move
+  differently. The email is a new `network_updates` scheduler sweep
+  (15 min, one indexed SELECT when there is nothing new, gated on the
+  Settings toggle *and* SMTP actually being configured). Deliberately
+  edge-triggered rather than folded into the daily digest: the digest
+  mirrors Today at send time and would repeat a change every morning
+  until it's dismissed, whereas `notified_at` makes this exactly-once —
+  silence for weeks, then an email minutes after an import found a move.
+  Stamp-after-send, so a crash re-sends rather than swallowing news.
+  Superseded rows get stamped too (one move per person per field in the
+  email, but nothing left to resurface). Settings gains the toggle and a
+  "Send network updates now" button that runs the real sweep.
+
+442 unit tests + 15 Playwright E2E tests passing as of the network-updates email. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---

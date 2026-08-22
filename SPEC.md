@@ -152,8 +152,9 @@ Conventions used below:
 ### Behavior
 - Every import/sync that carries title/company compares incoming vs stored values (after normalization: trim, collapse whitespace; company comparison also strips legal suffixes Inc/LLC/Ltd/GmbH and case).
 - A real change writes a `contact_changes` row (field, old, new, source, detected_at) and updates the field only if provenance rules allow (user-edited fields → conflict instead).
-- Changes surface on the Today page as "reason to reach out" cards (e.g., "Ana Silva: Stripe → Anthropic") with actions: draft opener (AI), log interaction, dismiss.
+- Changes surface on the Today page as "reason to reach out" cards under **Network updates**, rendered as a diff — old value struck through in muted text, new value in the success colour, age ("2d ago") on the right — with actions: draft opener (AI), log interaction, dismiss.
 - Title-only changes at the same company are shown but ranked below company changes.
+- **Network-updates email** (on by default, Settings → Network updates; needs SMTP). A scheduler sweep (`network_updates`, every 15 min, no-ops when there is nothing new) emails the open changes the owner hasn't been told about yet, then stamps `contact_changes.notified_at`. Edge-triggered and exactly-once, so it stays silent for weeks and then arrives right after an import found a move — as opposed to the daily digest, which mirrors Today at send time and repeats a change every morning until it's dismissed or acted on. Subject names the first person ("Ana Silva changed jobs", "Ana Silva and 2 others in your network changed jobs"); the body uses the same diff grammar as the Today card. Settings has a "Send network updates now" button, which runs the real sweep (and therefore stamps).
 
 ### Edge cases
 - Case/punctuation-only changes ("google" → "Google") are not changes.
@@ -164,6 +165,8 @@ Conventions used below:
 - [ ] Re-importing an identical LinkedIn ZIP produces zero `contact_changes` rows.
 - [ ] Import where one connection's company changed produces exactly one change row and one Today card.
 - [ ] Dismissing a change card removes it from Today permanently; the row remains on the contact's timeline.
+- [ ] A change is emailed at most once: a second sweep with no new imports sends nothing.
+- [ ] Two imports moving the same person twice produce one line in the email (the newest), and both rows get stamped.
 
 ---
 

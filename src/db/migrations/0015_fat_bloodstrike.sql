@@ -1,0 +1,1 @@
+ALTER TABLE `contact_changes` ADD `notified_at` integer;

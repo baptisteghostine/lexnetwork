@@ -3,6 +3,7 @@ import { and, asc, desc, eq, isNotNull, isNull, lt, lte, ne, or } from "drizzle-
 import { DATA_DIR, db, rawDb } from "@/db/client";
 import { jobs } from "@/db/schema";
 import { runBackup } from "@/lib/backup/run";
+import { getSmtpSettings } from "@/lib/digest/send";
 import {
   applyOutcome,
   LEASE_MS,
@@ -11,6 +12,10 @@ import {
   reclaimDecision,
 } from "@/jobs/core";
 import { ownerTimezone, runDigest } from "@/jobs/digest";
+import {
+  networkUpdatesEnabled,
+  runNetworkUpdates,
+} from "@/jobs/network-updates";
 import { fireDueReminders } from "@/lib/reminders/fire";
 import { getSetting } from "@/lib/settings";
 import { localDateKey, nextLocalHour } from "@/lib/time";
@@ -58,6 +63,9 @@ const HANDLERS: Record<string, Handler> = {
   dedupe_scan: async () => {
     runDedupeScan();
   },
+  network_updates: async () => {
+    await runNetworkUpdates(Date.now());
+  },
   backup: async () => {
     runBackup(rawDb, DATA_DIR);
   },
@@ -78,6 +86,7 @@ const SYNC_JOBS: {
     | "linkedin_sync"
     | "linkedin_voyager_sync"
     | "dedupe_scan"
+    | "network_updates"
     | "backup";
   connected: () => boolean;
   intervalMs: number;
@@ -96,6 +105,15 @@ const SYNC_JOBS: {
   // Dedupe is always on (SPEC §10): the queue only fills as sources add
   // overlapping contacts, and an empty scan is cheap.
   { kind: "dedupe_scan", connected: () => true, intervalMs: 24 * 3600 * 1000 },
+  // Network-updates email (SPEC §5). Short interval because the value is
+  // in the timing — a sync finishing at 14:00 shouldn't wait for tomorrow
+  // morning's digest — and the sweep is one indexed SELECT when there is
+  // nothing new. It exists only once SMTP can actually send.
+  {
+    kind: "network_updates",
+    connected: () => networkUpdatesEnabled() && getSmtpSettings() !== null,
+    intervalMs: 15 * 60 * 1000,
+  },
   // Nightly backup (SPEC §13) — always on; first run fires at first boot,
   // then every 24h from the last success, like dedupe_scan.
   { kind: "backup", connected: () => true, intervalMs: 24 * 3600 * 1000 },

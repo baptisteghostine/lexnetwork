@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import {
   sendDigestNowAction,
+  sendNetworkUpdatesNowAction,
   updateSettingsAction,
   type AppSettings,
   type SettingsFormState,
@@ -20,6 +21,8 @@ export function SettingsForm({ initial }: { initial: AppSettings }) {
   >(updateSettingsAction, {});
   const [testPending, startTest] = useTransition();
   const [testResult, setTestResult] = useState<string | null>(null);
+  const [updatesPending, startUpdates] = useTransition();
+  const [updatesResult, setUpdatesResult] = useState<string | null>(null);
 
   const timezones = useMemo<string[]>(() => {
     try {
@@ -209,6 +212,42 @@ export function SettingsForm({ initial }: { initial: AppSettings }) {
         </Button>
         {testResult ? (
           <p className="text-xs text-muted-foreground">{testResult}</p>
+        ) : null}
+      </div>
+
+      <Separator />
+      <SectionTitle>Network updates</SectionTitle>
+      <CheckboxField
+        name="networkUpdatesEmail"
+        defaultChecked={initial.networkUpdatesEmail}
+        label="Email me when people change jobs"
+        hint="Sent within 15 minutes of an import spotting a move, and only once per change — separate from the daily digest. Uses the SMTP settings above."
+      />
+      <div className="flex items-center gap-3">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={updatesPending}
+          onClick={() =>
+            startUpdates(async () => {
+              setUpdatesResult(null);
+              const res = await sendNetworkUpdatesNowAction();
+              setUpdatesResult(
+                res.error ??
+                  (res.result === "sent"
+                    ? "Sent — check your inbox."
+                    : res.result === "disabled"
+                      ? "Turn the setting on and save first."
+                      : "Nothing new to send — no unreported job changes right now.")
+              );
+            })
+          }
+        >
+          {updatesPending ? "Sending…" : "Send network updates now"}
+        </Button>
+        {updatesResult ? (
+          <p className="text-xs text-muted-foreground">{updatesResult}</p>
         ) : null}
       </div>
 
