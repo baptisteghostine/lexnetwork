@@ -366,6 +366,7 @@ All features: model from the provider's env var; every call logged to `ai_calls`
 - **Auto-tagging:** owner selects contacts (or "all untagged") → batched calls with each contact's profile summary + the existing tag list, prompt strongly prefers existing tags → suggestions land in a queue (contact, tag, confidence, rationale) → owner approves/rejects individually or in bulk. New-tag suggestions are visually distinct.
 - **Conversation starters:** on a contact (esp. from a job-change card): input = owner's notes on them, work history, detected change → 3 short openers, copy-button each. Never auto-sent anywhere.
 - **Note summarization:** button on notes > ~1,500 chars; summary shown above the note, stored, regenerable, and clearly labeled as AI-generated.
+- **Ask your network** (owner request, 2026-08-20): a question box (AI page; `a` anywhere) for judgment questions — "who should I leverage for X". Two stages with the database in between: (1) the question compiles to a retrieval filter (`ask_plan`, same compiler/validation as NL search); (2) the filter engine — falling back to FTS, then the warmest 50 contacts — selects a capped candidate shortlist whose compact profiles (title, company, location, tags, work history, days-since-contact) go to the model, which ranks and argues (`ask_answer`). Recommended ids are validated against the sent set — an invented contact is rejected and retried once, then refused. The answer renders as a summary plus linked picks with reasons, and always states how many profiles were shared and which retrieval source fed them.
 
 ### Edge cases
 - API key unset: AI affordances hidden, not erroring.
@@ -377,6 +378,7 @@ All features: model from the provider's env var; every call logged to `ai_calls`
 - [ ] Every AI feature use adds exactly one `ai_calls` row with nonzero token counts and latency.
 - [ ] Auto-tag suggestions for contacts in a DB with tag "investor" prefer "investor" over synonyms; nothing is applied without approval.
 - [ ] Filter JSON with an invented field name (injected in a unit test) is rejected by the validator, never executed.
+- [ ] Ask: a pick referencing a contact id that was not in the candidate list is rejected (unit-tested); every rendered pick links to a real contact; the answer states how many profiles were shared.
 
 ---
 

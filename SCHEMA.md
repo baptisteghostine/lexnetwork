@@ -211,7 +211,7 @@ Covers **both** API syncs and file imports (one lifecycle: started → stats →
 
 ## ai_calls
 
-`id, feature TEXT NOT NULL ('nl_search','auto_tag','openers','summarize'), model TEXT NOT NULL, prompt TEXT NOT NULL, response TEXT, input_tokens INTEGER, output_tokens INTEGER, latency_ms INTEGER, status TEXT ('success','error'), error TEXT, created_at`.
+`id, feature TEXT NOT NULL ('nl_search','auto_tag','openers','summarize','ask_plan','ask_answer'), model TEXT NOT NULL, prompt TEXT NOT NULL, response TEXT, input_tokens INTEGER, output_tokens INTEGER, latency_ms INTEGER, status TEXT ('success','error'), error TEXT, created_at`.
 - `idx_ai_calls_feature ON ai_calls(feature, created_at DESC)`. Prompt/response stored verbatim for audit; a settings toggle can truncate stored prompts later if the table gets fat.
 
 ## ai_suggestions  *(added table — approval queue)*

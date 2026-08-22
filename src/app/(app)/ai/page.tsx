@@ -1,4 +1,5 @@
 import { AiPanel } from "@/components/ai-panel";
+import { AskPanel } from "@/components/ask-panel";
 import { requireAuth } from "@/lib/auth";
 import { readAiAudit, readSuggestions } from "@/server/ai";
 import { aiEnabled } from "@/server/ai-client";
@@ -40,6 +41,7 @@ export default async function AiPage() {
           </p>
         </div>
       ) : null}
+      {enabled && <AskPanel />}
       <AiPanel enabled={enabled} suggestions={suggestions} audit={audit} />
     </div>
   );

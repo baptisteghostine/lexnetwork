@@ -5,7 +5,15 @@
 
 import type { Database } from "better-sqlite3";
 
-export type AiFeature = "nl_search" | "auto_tag" | "openers" | "summarize";
+export type AiFeature =
+  | "nl_search"
+  | "auto_tag"
+  | "openers"
+  | "summarize"
+  // Ask-your-network (owner request 2026-08-20): stage 1 compiles the
+  // question to a retrieval filter, stage 2 ranks the retrieved set.
+  | "ask_plan"
+  | "ask_answer";
 
 // Structural subset of @anthropic-ai/sdk's client + response — enough to
 // call and to fake in tests.

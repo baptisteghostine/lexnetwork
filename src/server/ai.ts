@@ -62,14 +62,19 @@ function catalog(): FilterCatalog {
   };
 }
 
-export async function nlSearchAction(input: {
-  query: string;
-}): Promise<NlSearchResult> {
+/**
+ * Question → validated FilterSet, with one retry carrying the validation
+ * error (SPEC §11 edge case). Shared by NL search and Ask's retrieval
+ * stage — `feature` keeps their audit rows distinguishable.
+ */
+export async function compileNlFilter(
+  query: string,
+  feature: "nl_search" | "ask_plan"
+): Promise<
+  | { ok: true; filter: import("@/lib/filters/types").FilterSet }
+  | { ok: false; error: string; raw?: string }
+> {
   await requireAuth();
-  if (!aiEnabled()) return { error: "AI is not configured." };
-  const query = input.query.trim().slice(0, 500);
-  if (!query) return { error: "Type a query first." };
-
   const cat = catalog();
   cat.customFields = (await listCustomFields()).map((f) => ({
     id: f.id,
@@ -78,18 +83,17 @@ export async function nlSearchAction(input: {
   }));
   const system = buildNlSearchSystem(cat, Date.now());
 
-  // One retry with the validation error appended (SPEC §11 edge case).
   let lastRaw = "";
   let prompt = query;
   for (let attempt = 0; attempt < 2; attempt++) {
     const result = await callAi({
-      feature: "nl_search",
+      feature,
       system,
       prompt,
       maxTokens: 2048,
       outputFormat: nlSearchOutputFormat(),
     });
-    if (!result.ok) return { error: result.error };
+    if (!result.ok) return { ok: false, error: result.error };
     lastRaw = result.text;
 
     const raw = extractJson(result.text);
@@ -97,23 +101,35 @@ export async function nlSearchAction(input: {
       raw === null
         ? { ok: false as const, errors: ["response was not JSON"] }
         : validateAiFilter(raw, cat);
-    if (validated.ok) {
-      if (validated.filter.clauses.length === 0) {
-        return {
-          error:
-            "Couldn't map this to filters — try naming tags, companies, places, or timeframes.",
-        };
-      }
-      return {
-        encoded: encodeFilterParam(validated.filter),
-        clauseCount: validated.filter.clauses.length,
-      };
-    }
+    if (validated.ok) return { ok: true, filter: validated.filter };
     prompt = `${query}\n\nYour previous attempt was invalid: ${validated.errors.join("; ")}. Return corrected filter JSON.`;
   }
   return {
+    ok: false,
     error: "Couldn't compile that query into filters.",
     raw: lastRaw.slice(0, 500),
+  };
+}
+
+export async function nlSearchAction(input: {
+  query: string;
+}): Promise<NlSearchResult> {
+  await requireAuth();
+  if (!aiEnabled()) return { error: "AI is not configured." };
+  const query = input.query.trim().slice(0, 500);
+  if (!query) return { error: "Type a query first." };
+
+  const compiled = await compileNlFilter(query, "nl_search");
+  if (!compiled.ok) return { error: compiled.error, raw: compiled.raw };
+  if (compiled.filter.clauses.length === 0) {
+    return {
+      error:
+        "Couldn't map this to filters — try naming tags, companies, places, or timeframes.",
+    };
+  }
+  return {
+    encoded: encodeFilterParam(compiled.filter),
+    clauseCount: compiled.filter.clauses.length,
   };
 }
 

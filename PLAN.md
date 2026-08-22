@@ -195,7 +195,24 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   the provider; both set → AI_PROVIDER decides (default groq). Awaits
   its first live pass with a real Groq key.
 
-405 unit tests + 15 Playwright E2E tests passing as of the Groq addition. Open questions from SPEC.md's decision
+- ✅ **Ask your network** (owner request, 2026-08-20) — judgment
+  questions over the owner's own contacts ("who should I leverage for
+  X"), SPEC §11. Two model calls with the database in between: the
+  question compiles to a retrieval filter (reusing the NL-search
+  compiler wholesale, feature `ask_plan`), the filter engine — FTS, then
+  warmest-50 fallback — selects a capped shortlist, and the model ranks
+  only what it was shown (`ask_answer`): recommended ids are validated
+  against the sent set, invented contacts rejected with one retry.
+  Answers render as a summary plus linked picks with reasons, always
+  stating how many profiles were shared and which retrieval source fed
+  them. AI page panel + `a` from anywhere. Chose this over an agentic
+  tool-use chat (free-tier 8k tokens/min makes loops 429-prone; the
+  two-stage shape keeps "model proposes, deterministic layer executes")
+  and over an AI insights feed (network statistics are SQL, not
+  intelligence). Quality scales with data richness — it sharpens as
+  Gmail history and notes accumulate.
+
+411 unit tests + 15 Playwright E2E tests passing as of the Ask addition. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---

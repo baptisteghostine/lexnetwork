@@ -3,6 +3,7 @@ import Link from "next/link";
 import { and, asc, eq, isNotNull, isNull, lte, sql } from "drizzle-orm";
 
 import { CommandPalette } from "@/components/command-palette";
+import { GlobalHotkeys } from "@/components/global-hotkeys";
 import { QuickAdd } from "@/components/quick-add";
 import { ShortcutOverlay } from "@/components/shortcut-overlay";
 import { SidebarNav } from "@/components/sidebar-nav";
@@ -110,6 +111,7 @@ export default async function AppLayout({
         {children}
       </main>
       <CommandPalette />
+      <GlobalHotkeys />
       <ShortcutOverlay />
     </div>
   );
