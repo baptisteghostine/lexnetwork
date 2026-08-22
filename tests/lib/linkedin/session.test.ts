@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildVoyagerHeaders,
   parseCookieBlob,
+  mergeSetCookies,
   redactSession,
   scrubSecrets,
 } from "@/lib/linkedin/session";
@@ -172,5 +173,41 @@ describe("full Cookie header paste (bounce diagnosis, 2026-08-20)", () => {
     const scrubbed = scrubSecrets(`sent: ${FULL}`);
     expect(scrubbed).not.toContain(LI_AT);
     expect(scrubbed).not.toContain(JSESSION);
+  });
+});
+
+describe("mergeSetCookies (the lidc redirect fix)", () => {
+  it("replaces a rotated cookie in place, keeping the rest", () => {
+    const before = `bcookie="v=2&abc"; li_at=${LI_AT}; lidc="b=OB01:s=O:r=1"`;
+    const after = mergeSetCookies(before, [
+      'lidc="b=VB02:s=V:r=2"; Expires=Sat, 23 Aug 2026 00:00:00 GMT; Path=/; Domain=linkedin.com',
+    ]);
+    expect(after).toContain('lidc="b=VB02:s=V:r=2"');
+    expect(after).not.toContain("OB01");
+    expect(after).toContain(`li_at=${LI_AT}`);
+    expect(after).toContain('bcookie="v=2&abc"');
+  });
+
+  it("appends a cookie the jar didn't have", () => {
+    const after = mergeSetCookies(`li_at=${LI_AT}`, ["lang=v=2&lang=en; Path=/"]);
+    expect(after).toBe(`li_at=${LI_AT}; lang=v=2&lang=en`);
+  });
+
+  it("ignores attribute-only junk, and matches names case-insensitively", () => {
+    // One cookie out, one cookie in — never a duplicate pair differing
+    // only by case. The server's spelling wins, since that's the name it
+    // asked to receive back.
+    const after = mergeSetCookies(`LIDC="old"`, ["lidc=new; HttpOnly", "; Path=/"]);
+    expect(after).toBe("lidc=new");
+  });
+
+  it("never drops the auth cookie while rotating others", () => {
+    const after = mergeSetCookies(
+      `li_at=${LI_AT}; JSESSIONID="${JSESSION}"`,
+      ['lidc="b=X"; Path=/']
+    );
+    expect(after).toContain(`li_at=${LI_AT}`);
+    expect(after).toContain(`JSESSIONID="${JSESSION}"`);
+    expect(after).toContain('lidc="b=X"');
   });
 });

@@ -51,8 +51,21 @@ const MAX_REDIRECTS = 5;
  */
 export async function outboundFetch(
   url: string,
-  init?: RequestInit
+  init?: RequestInit,
+  opts?: {
+    /**
+     * Let the caller handle 3xx itself (still allowlist-checked, since
+     * the caller re-enters this function for each hop). The LinkedIn
+     * sync needs this to adopt `Set-Cookie` between hops, which this
+     * wrapper deliberately does not do on anyone's behalf.
+     */
+    followRedirects?: boolean;
+  }
 ): Promise<Response> {
+  if (opts?.followRedirects === false) {
+    if (!isAllowedOutboundUrl(url)) throw new OutboundBlockedError(url);
+    return fetch(url, { ...init, redirect: "manual" });
+  }
   let current = url;
   let method = init?.method?.toUpperCase() ?? "GET";
   let body = init?.body;

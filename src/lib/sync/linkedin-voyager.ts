@@ -1,4 +1,8 @@
-import { scrubSecrets, buildVoyagerHeaders } from "@/lib/linkedin/session";
+import {
+  buildVoyagerHeaders,
+  mergeSetCookies,
+  scrubSecrets,
+} from "@/lib/linkedin/session";
 import type { LinkedInSession } from "@/lib/linkedin/session";
 import {
   parseConnectionsResponse,
@@ -73,17 +77,45 @@ function pageUrl(start: number): string {
   return `${CONNECTIONS_ENDPOINT}?${params.toString()}`;
 }
 
+/** Redirect hops honoured per page before calling it a loop. */
+const MAX_HOPS = 4;
+
 async function fetchPage(
   session: LinkedInSession,
   start: number,
   signal?: AbortSignal
 ): Promise<unknown> {
-  const response = await outboundFetch(pageUrl(start), {
-    method: "GET",
-    headers: buildVoyagerHeaders(session),
-    redirect: "manual",
-    signal,
-  });
+  // Follow redirects ourselves so each hop can adopt the cookies
+  // LinkedIn sets — `lidc` re-routes the request to the datacenter that
+  // holds the session, and without honouring it the endpoint 302s back
+  // to itself indefinitely.
+  const headers = { ...buildVoyagerHeaders(session) };
+  let url = pageUrl(start);
+  let response = await outboundFetch(
+    url,
+    { method: "GET", headers, signal },
+    { followRedirects: false }
+  );
+  for (let hop = 0; hop < MAX_HOPS; hop++) {
+    if (response.status < 300 || response.status >= 400) break;
+    const location = response.headers.get("location");
+    if (!location) break;
+    const next = new URL(location, url);
+    // Credentials never travel to another origin.
+    if (next.origin !== new URL(url).origin) break;
+    const setCookies =
+      (response.headers as Headers & { getSetCookie?: () => string[] })
+        .getSetCookie?.() ?? [];
+    if (setCookies.length > 0) {
+      headers.cookie = mergeSetCookies(headers.cookie, setCookies);
+    }
+    url = next.toString();
+    response = await outboundFetch(
+      url,
+      { method: "GET", headers, signal },
+      { followRedirects: false }
+    );
+  }
 
   // A redirect to the login page is how an expired `li_at` presents itself —
   // but it's also how LinkedIn answers a valid cookie replayed from an IP it
@@ -102,7 +134,9 @@ async function fetchPage(
     const where = scrubSecrets(location.split("?")[0]);
     const hint = /checkpoint|challenge/i.test(location)
       ? "LinkedIn wants a security challenge solved in a real browser — open linkedin.com, clear it, then re-copy the cookies. Rolo will not solve challenges."
-      : "Re-copy the cookies from a logged-in tab (Network tab → any request → Cookie header) and paste the whole header, not just the two values.";
+      : location.includes("/voyager/api/")
+        ? `The endpoint kept redirecting to itself through ${MAX_HOPS} hops even after adopting the cookies it set — the session is not being accepted for this API. Re-copy the whole Cookie header from a logged-in tab.`
+        : "Re-copy the cookies from a logged-in tab (Network tab → any request → Cookie header) and paste the whole header, not just the two values.";
     throw new VoyagerSessionError(
       `LinkedIn redirected the request (HTTP ${response.status} → ${where}) instead of answering. ${hint}`
     );

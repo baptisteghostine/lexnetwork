@@ -154,6 +154,43 @@ export function buildVoyagerHeaders(
   };
 }
 
+/**
+ * Apply `Set-Cookie` values from a response onto a cookie header, the way
+ * a browser's cookie jar would.
+ *
+ * This is what makes LinkedIn's redirects terminate: `lidc` is a
+ * datacenter-routing cookie, and when a request reaches the wrong
+ * datacenter LinkedIn answers 302 with a fresh `lidc` and the same URL.
+ * Replay the stale value and it redirects forever; adopt the new one and
+ * the retry succeeds. Ordinary HTTP cookie handling, not evasion.
+ */
+export function mergeSetCookies(
+  cookieHeader: string,
+  setCookies: string[]
+): string {
+  const jar: [string, string][] = [];
+  for (const pair of cookieHeader.split(";")) {
+    const eq = pair.indexOf("=");
+    if (eq <= 0) continue;
+    jar.push([pair.slice(0, eq).trim(), pair.slice(eq + 1).trim()]);
+  }
+  for (const raw of setCookies) {
+    // "name=value; Path=/; Expires=…" — only the first pair is the cookie.
+    const first = raw.split(";")[0] ?? "";
+    const eq = first.indexOf("=");
+    if (eq <= 0) continue;
+    const name = first.slice(0, eq).trim();
+    const value = first.slice(eq + 1).trim();
+    if (!name) continue;
+    const existing = jar.findIndex(
+      (c) => c[0].toLowerCase() === name.toLowerCase()
+    );
+    if (existing === -1) jar.push([name, value]);
+    else jar[existing] = [name, value];
+  }
+  return jar.map(([name, value]) => `${name}=${value}`).join("; ");
+}
+
 /** Safe-to-log fingerprint: enough to tell two sessions apart, useless as a credential. */
 export function redactSession(session: LinkedInSession): string {
   return `li_at:…${session.liAt.slice(-4)}`;
