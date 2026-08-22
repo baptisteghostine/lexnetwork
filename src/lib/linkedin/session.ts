@@ -151,6 +151,17 @@ export function buildVoyagerHeaders(
     "accept-language": "en-US,en;q=0.9",
     referer: "https://www.linkedin.com/mynetwork/invite-connect/connections/",
     "user-agent": USER_AGENT,
+    // Real Chrome sends these on every request. Claiming a Chrome
+    // User-Agent while omitting them is an obvious inconsistency, and
+    // sec-fetch-site in particular is how a server tells a same-origin
+    // XHR from something else — a plausible reason the endpoint kept
+    // redirecting rather than answering.
+    "sec-ch-ua": `"Chromium";v="${CHROME_VERSION}", "Google Chrome";v="${CHROME_VERSION}", "Not-A.Brand";v="99"`,
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin",
   };
 }
 

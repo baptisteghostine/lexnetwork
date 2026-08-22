@@ -80,6 +80,16 @@ describe("buildVoyagerHeaders", () => {
     expect(headers["x-li-page-instance"]).toMatch(/^urn:li:page:/);
   });
 
+  it("sends the Sec-Fetch/Sec-CH-UA headers a real Chrome always sends", () => {
+    // A Chrome User-Agent without these is self-contradictory.
+    expect(headers["sec-fetch-site"]).toBe("same-origin");
+    expect(headers["sec-fetch-mode"]).toBe("cors");
+    expect(headers["sec-ch-ua"]).toContain("Google Chrome");
+    // The claimed version must match the User-Agent's.
+    const uaVersion = /Chrome\/(\d+)/.exec(headers["user-agent"])![1];
+    expect(headers["sec-ch-ua"]).toContain(`v="${uaVersion}"`);
+  });
+
   it("is a single stable fingerprint, not randomised per call", () => {
     const again = buildVoyagerHeaders({ liAt: LI_AT, jsessionId: JSESSION });
     expect(again["user-agent"]).toBe(headers["user-agent"]);

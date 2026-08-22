@@ -55,10 +55,17 @@ function RunRow({ run }: { run: SyncRunSummary }) {
       >
         {run.status}
       </span>
-      <span className="text-muted-foreground">
+      <span className="min-w-0 text-muted-foreground">
         {run.kind} · {timeAgo(run.startedAt)}
         {detail ? ` · ${detail}` : ""}
-        {run.error ? ` · ${run.error.slice(0, 140)}` : ""}
+        {/* Failures are for diagnosing: show the whole message, wrapped
+            and selectable, rather than truncating exactly where the
+            useful part starts. */}
+        {run.error ? (
+          <span className="mt-0.5 block whitespace-pre-wrap break-words font-mono text-[11px] text-red-600 dark:text-red-400">
+            {run.error}
+          </span>
+        ) : null}
       </span>
     </li>
   );

@@ -91,6 +91,9 @@ async function fetchPage(
   // to itself indefinitely.
   const headers = { ...buildVoyagerHeaders(session) };
   let url = pageUrl(start);
+  // Trail of what each hop did, so a failure explains itself instead of
+  // needing another round of guessing.
+  const trail: string[] = [];
   let response = await outboundFetch(
     url,
     { method: "GET", headers, signal },
@@ -101,11 +104,20 @@ async function fetchPage(
     const location = response.headers.get("location");
     if (!location) break;
     const next = new URL(location, url);
-    // Credentials never travel to another origin.
-    if (next.origin !== new URL(url).origin) break;
     const setCookies =
       (response.headers as Headers & { getSetCookie?: () => string[] })
         .getSetCookie?.() ?? [];
+    // Cookie NAMES only — the values are credentials.
+    const names = setCookies
+      .map((c) => c.split("=")[0]?.trim())
+      .filter(Boolean)
+      .join(",");
+    trail.push(
+      `hop${hop + 1}: ${response.status} → ${next.pathname}${next.search}` +
+        (names ? ` [set-cookie: ${names}]` : " [no set-cookie]")
+    );
+    // Credentials never travel to another origin.
+    if (next.origin !== new URL(url).origin) break;
     if (setCookies.length > 0) {
       headers.cookie = mergeSetCookies(headers.cookie, setCookies);
     }
@@ -131,14 +143,15 @@ async function fetchPage(
     // country host are different problems, and the generic message sent
     // earlier debugging down the wrong path.
     const location = response.headers.get("location") ?? "(no location header)";
-    const where = scrubSecrets(location.split("?")[0]);
     const hint = /checkpoint|challenge/i.test(location)
       ? "LinkedIn wants a security challenge solved in a real browser — open linkedin.com, clear it, then re-copy the cookies. Rolo will not solve challenges."
       : location.includes("/voyager/api/")
-        ? `The endpoint kept redirecting to itself through ${MAX_HOPS} hops even after adopting the cookies it set — the session is not being accepted for this API. Re-copy the whole Cookie header from a logged-in tab.`
+        ? `The endpoint kept redirecting to itself through ${MAX_HOPS} hops. If no set-cookie appears above, LinkedIn is refusing this request rather than re-routing it.`
         : "Re-copy the cookies from a logged-in tab (Network tab → any request → Cookie header) and paste the whole header, not just the two values.";
     throw new VoyagerSessionError(
-      `LinkedIn redirected the request (HTTP ${response.status} → ${where}) instead of answering. ${hint}`
+      scrubSecrets(
+        `LinkedIn redirected instead of answering. ${hint}\n${trail.join("\n")}`
+      )
     );
   }
   if (response.status === 429) {
