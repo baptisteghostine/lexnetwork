@@ -72,7 +72,11 @@ export default async function TodayPage() {
             <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Network updates
             </h2>
-            <TodayChanges items={data.changes} aiEnabled={aiEnabled()} />
+            <TodayChanges
+              items={data.changes}
+              now={now}
+              aiEnabled={aiEnabled()}
+            />
           </section>
         )}
         {data.birthdays.length > 0 && (

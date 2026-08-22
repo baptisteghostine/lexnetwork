@@ -3,22 +3,31 @@
 import { useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Briefcase, X } from "lucide-react";
+import { Briefcase, X } from "lucide-react";
 
 import { ContactAvatar } from "@/components/contact-avatar";
 import { OpenersDialog } from "@/components/openers-dialog";
 import { Button } from "@/components/ui/button";
+import { changeAge } from "@/lib/digest/network-updates";
 import { actOnChangeAction, dismissChangeAction } from "@/server/changes";
 import type { OpenChange } from "@/server/today-data";
 
 // "Reason to reach out" cards (SPEC §5): job/title changes detected by
 // imports, with log-interaction, dismiss, and — when AI is configured —
 // openers grounded in the detected change (SPEC §11).
+//
+// The diff reads as a diff: the old role struck through in muted text, the
+// new one in the success colour, age on the right. That's what makes the
+// row scannable — you see *what moved* before you read either value.
 export function TodayChanges({
   items,
+  now,
   aiEnabled = false,
 }: {
   items: OpenChange[];
+  /** Passed in from the server render so the age labels don't hydrate
+   * against a different clock than the one that produced the HTML. */
+  now: number;
   aiEnabled?: boolean;
 }) {
   const router = useRouter();
@@ -43,23 +52,31 @@ export function TodayChanges({
             hasPhoto={c.contactHasPhoto}
             size="sm"
           />
-          <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px]">
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
             <Link
               href={`/contacts/${c.contactId}`}
-              className="shrink-0 font-medium hover:underline"
+              className="truncate text-[13px] font-medium hover:underline"
             >
               {c.contactName}
             </Link>
-            <span className="truncate text-muted-foreground">
-              {c.oldValue ?? "—"}
-            </span>
-            <ArrowRight className="size-3 shrink-0 text-muted-foreground" />
-            <span className="truncate font-medium">{c.newValue ?? "—"}</span>
-            {c.field === "title" ? (
-              <span className="shrink-0 text-[10px] uppercase text-muted-foreground">
-                title
+            <span className="flex min-w-0 items-baseline gap-1.5 text-[12px]">
+              {/* An absent old value means the field was empty before, so
+                  there is nothing to strike through — only news. */}
+              {c.oldValue ? (
+                <span className="truncate text-muted-foreground line-through decoration-muted-foreground/60">
+                  {c.oldValue}
+                </span>
+              ) : null}
+              <span className="truncate font-medium text-success">
+                {c.newValue ?? "—"}
               </span>
-            ) : null}
+              <span className="shrink-0 text-[10px] uppercase text-muted-foreground">
+                {c.field}
+              </span>
+            </span>
+          </span>
+          <span className="shrink-0 text-[11px] text-muted-foreground">
+            {changeAge(c.detectedAt, now)}
           </span>
           {aiEnabled && (
             <OpenersDialog
