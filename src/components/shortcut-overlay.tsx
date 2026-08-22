@@ -27,6 +27,10 @@ const SECTIONS: { title: string; rows: [string, string][] }[] = [
     ],
   },
   {
+    title: "Anywhere",
+    rows: [["q", "Log a meeting (quick add)"]],
+  },
+  {
     title: "Keep-in-touch triage",
     rows: [
       ["1 … 7", "File under that frequency"],

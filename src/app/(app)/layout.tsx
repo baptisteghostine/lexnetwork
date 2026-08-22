@@ -3,6 +3,7 @@ import Link from "next/link";
 import { and, asc, eq, isNotNull, isNull, lte, sql } from "drizzle-orm";
 
 import { CommandPalette } from "@/components/command-palette";
+import { QuickAdd } from "@/components/quick-add";
 import { ShortcutOverlay } from "@/components/shortcut-overlay";
 import { SidebarNav } from "@/components/sidebar-nav";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -78,6 +79,7 @@ export default async function AppLayout({
             Rolo
           </Link>
         </div>
+        <QuickAdd />
         <SidebarNav
           dueCount={dueCount}
           duplicateCount={duplicateCount}

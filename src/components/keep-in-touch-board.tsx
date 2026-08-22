@@ -215,12 +215,16 @@ export function KeepInTouchBoard({ board }: { board: KeepInTouchBoard }) {
           <section
             key={col.id}
             onDragOver={(e) => {
+              // Custom has no single day count to assign — a drop here
+              // would silently un-triage the contact. Not a target.
+              if (col.id === "custom") return;
               e.preventDefault();
               e.dataTransfer.dropEffect = "move";
               setDropTarget(col.id);
             }}
             onDragLeave={() => setDropTarget((t) => (t === col.id ? null : t))}
             onDrop={(e) => {
+              if (col.id === "custom") return;
               e.preventDefault();
               setDropTarget(null);
               // Prefer the payload the drag itself carried: React state can

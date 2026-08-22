@@ -7,11 +7,17 @@
 
 import { countryNames, EXTRA_PLACES } from "./countries";
 
-/** Lowercase, fold diacritics, collapse punctuation to spaces. */
+/** Lowercase, fold diacritics, collapse punctuation to spaces. Arabic is
+ * normalized too (harakat stripped, alef variants and ta marbuta folded)
+ * so "\u0627\u0644\u0625\u0645\u0627\u0631\u0627\u062a" and "\u0627\u0644\u0627\u0645\u0627\u0631\u0627\u062a" are the same key. */
 export function normalizePlace(s: string): string {
   return s
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\u064b-\u0655\u0670]/g, "")
+    .replace(/[\u0623\u0625\u0622\u0671]/g, "\u0627")
+    .replace(/\u0629/g, "\u0647")
+    .replace(/\u0649/g, "\u064a")
     .toLowerCase()
     .replace(/[().]/g, " ")
     .replace(/\s+/g, " ")
@@ -80,6 +86,70 @@ const COUNTRY_ALIASES: Record<string, string> = {
   "trinidad and tobago": "780",
   "papua new guinea": "598",
   luxemburg: "442",
+  // Native / localized country names — LinkedIn stores locations in the
+  // profile's locale, so an exported network is multilingual (the owner's
+  // real data has Schweiz, España, and Arabic strings side by side).
+  schweiz: "756",
+  suisse: "756",
+  svizzera: "756",
+  deutschland: "276",
+  allemagne: "276",
+  frankreich: "250",
+  espana: "724",
+  espagne: "724",
+  spanien: "724",
+  italia: "380",
+  italie: "380",
+  italien: "380",
+  nederland: "528",
+  "pays-bas": "528",
+  "pays bas": "528",
+  niederlande: "528",
+  belgique: "056",
+  belgie: "056",
+  belgien: "056",
+  osterreich: "040",
+  autriche: "040",
+  sverige: "752",
+  norge: "578",
+  danmark: "208",
+  suomi: "246",
+  polska: "616",
+  portugal: "620",
+  brasil: "076",
+  mexico: "484",
+  maroc: "504",
+  tunisie: "788",
+  algerie: "012",
+  "royaume-uni": "826",
+  "royaume uni": "826",
+  "etats-unis": "840",
+  "etats unis": "840",
+  "vereinigtes konigreich": "826",
+  grossbritannien: "826",
+  "vereinigte staaten": "840",
+  liban: "422",
+  "emirats arabes unis": "784",
+  "arabie saoudite": "682",
+  // Arabic country names (keys are written post-normalization: alef
+  // unified, ta marbuta → ه).
+  "لبنان": "422",
+  "الامارات": "784",
+  "الامارات العربيه المتحده": "784",
+  "السعوديه": "682",
+  "المملكه العربيه السعوديه": "682",
+  "مصر": "818",
+  "الاردن": "400",
+  "قطر": "634",
+  "الكويت": "414",
+  "البحرين": "048",
+  "العراق": "368",
+  "سوريا": "760",
+  "فلسطين": "275",
+  "المغرب": "504",
+  "تونس": "788",
+  "الجزائر": "012",
+  "سلطنه عمان": "512",
 };
 
 const US_STATES = [
@@ -155,6 +225,14 @@ const CITIES: Record<string, string> = {
   "sao paulo": "076", "rio de janeiro": "076", "buenos aires": "032",
   santiago: "152", bogota: "170", medellin: "170", lima: "604",
   quito: "218", montevideo: "858", "san juan": "630", havana: "192",
+  // Localized city spellings (keys post-normalization)
+  genf: "756", geneve: "756", zuerich: "756", wien: "040",
+  munchen: "276", muenchen: "276", koln: "276", praha: "203",
+  warszawa: "616", lisboa: "620", sevilla: "724", roma: "380",
+  milano: "380", torino: "380", firenze: "380", napoli: "380",
+  "den haag": "528", kobenhavn: "208", moskva: "643",
+  "بيروت": "422", "دبي": "784", "ابوظبي": "784", "الرياض": "682",
+  "القاهره": "818", "الدوحه": "634", "جده": "682",
 };
 
 // "Georgia" is both a US state and a country; decide from the rest of
@@ -171,11 +249,24 @@ function countryNameTable(): Map<string, string> {
       nameTable.set(normalizePlace(name), id);
     }
     for (const p of EXTRA_PLACES) nameTable.set(normalizePlace(p.name), p.id);
+    // Aliases and cities run through the same normalizer as queries, so
+    // the tables can be written naturally and never drift from it.
     for (const [alias, id] of Object.entries(COUNTRY_ALIASES)) {
-      nameTable.set(alias, id);
+      nameTable.set(normalizePlace(alias), id);
     }
   }
   return nameTable;
+}
+
+let cityTable: Map<string, string> | null = null;
+function normalizedCityTable(): Map<string, string> {
+  if (!cityTable) {
+    cityTable = new Map();
+    for (const [city, id] of Object.entries(CITIES)) {
+      cityTable.set(normalizePlace(city), id);
+    }
+  }
+  return cityTable;
 }
 
 const WRAPPERS =
@@ -188,12 +279,22 @@ function stripWrappers(part: string): string {
 }
 
 function lookupPart(part: string): string | null {
-  const names = countryNameTable();
-  const direct = names.get(part);
+  const direct = countryNameTable().get(part);
   if (direct) return direct;
   if ((US_STATES as readonly string[]).includes(part)) return "840";
   if ((CA_PROVINCES as readonly string[]).includes(part)) return "124";
-  return CITIES[part] ?? null;
+  const city = normalizedCityTable().get(part);
+  if (city) return city;
+  // Comma-less strings ("محافظة بيروت لبنان", "Lausanne Waadt Schweiz")
+  // arrive as one part — try word suffixes, where the country ends up.
+  const words = part.split(" ");
+  for (let i = 1; i < words.length && words.length > 1; i++) {
+    const suffix = words.slice(i).join(" ");
+    const hit =
+      countryNameTable().get(suffix) ?? normalizedCityTable().get(suffix);
+    if (hit) return hit;
+  }
+  return null;
 }
 
 /**

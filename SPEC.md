@@ -53,6 +53,10 @@ Conventions used below:
 - Autosave conflict (two tabs open on the same note): last write wins; this is a single-user tool. Documented, not "solved".
 - Email interactions never show a body — there is none stored. The timeline row shows subject, direction, other participants, and a "open in Gmail" link built from the thread id.
 
+### Quick log — "Who did you meet?" (owner request, 2026-08-20)
+- Global affordance (sidebar button, or `q` anywhere outside a text field): search contacts or type a new name, one line of what happened, a date (default today, never the future). Saves as a **counting manual interaction** — the keep-in-touch clock restarts from that date. An unknown name creates the contact (source `user`) in the same action.
+- AC: `q` → new name → logged: the contact exists with the interaction on their timeline. Searching an existing name logs against them without creating a duplicate. (E2E-covered.)
+
 ### Acceptance criteria
 - [ ] Typing a note and closing the tab within 2 s loses at most the last keystroke burst (autosave fired on debounce and on `beforeunload`/`visibilitychange`).
 - [ ] `@Bob Sm` pops an autocomplete; selecting creates a link; the note appears on Bob Smith's timeline flagged "mentioned".

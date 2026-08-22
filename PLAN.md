@@ -164,7 +164,24 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   counts — reported, never guessed. Places 110m drops (Singapore, Hong
   Kong, Malta…) keep bubbles at fixed anchors.
 
-378 unit tests + 13 Playwright E2E tests passing as of the map addition. Open questions from SPEC.md's decision
+- ✅ **Dex-audit round** (owner request, 2026-08-20) — reviewed Dex's
+  feature surface against Rolo and shipped the deltas that fit the
+  mission. (1) Quick log: global "Who did you meet?" modal (`q` or the
+  sidebar button, SPEC §2 amendment) — find-or-create a contact, one
+  line, a backdatable date, saved as a counting manual interaction.
+  (2) Resolver i18n: LinkedIn stores locations in each profile's locale,
+  so the owner's real (Dex-visible) data mixes German/French/Spanish/
+  Dutch/Arabic — native country names, localized city spellings, Arabic
+  normalization (harakat/alef/ta-marbuta folding), and a word-suffix
+  scan for comma-less forms like "محافظة بيروت لبنان". (3) Board fix:
+  dropping a card on the Custom column silently un-triaged the contact —
+  Custom is no longer a drop target. (4) CSV mapping: plural headers
+  (Emails, Phone Numbers) now auto-map, easing a Dex-export import.
+  Deliberately not copied from Dex: global force-directed network graph
+  and radial priority canvas (analysis on record: unreadable/unused at
+  3k contacts), voice notes, Zapier/API (non-goals).
+
+398 unit tests + 15 Playwright E2E tests passing as of the Dex-audit round. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---

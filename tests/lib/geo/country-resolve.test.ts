@@ -44,8 +44,8 @@ const CASES: [string, string | null][] = [
   ["Georgia, United States", "840"],
   ["Tbilisi, Georgia", "268"],
   ["Georgia", "268"],
-  // Diacritics and case
-  ["MÜNCHEN? no — munich", null], // scrambled input is not guessed
+  // Diacritics and case — suffix scanning reads the trailing city name
+  ["MÜNCHEN? no — munich", "276"],
   ["Genève, Switzerland", "756"],
   // Nothing recognizable
   ["Earth", null],
@@ -80,4 +80,33 @@ describe("resolveCountry", () => {
       expect(resolveCountry(loc), loc).not.toBeNull();
     }
   });
+});
+
+describe("localized and Arabic locations (Dex/LinkedIn export reality)", () => {
+  const LOCALIZED: [string, string][] = [
+    ["Lausanne, Waadt, Schweiz", "756"],
+    ["Zürich, Zürich, Schweiz", "756"],
+    ["Genf, Genf, Schweiz", "756"],
+    ["München, Bayern, Deutschland", "276"],
+    ["Madrid, Comunidad de Madrid, España", "724"],
+    ["Amsterdam, Nederland", "528"],
+    ["Wien, Österreich", "040"],
+    ["Paris, Île-de-France, France", "250"],
+    ["Lyon, Auvergne-Rhône-Alpes, France", "250"],
+    ["Roma, Italia", "380"],
+    ["København, Danmark", "208"],
+    ["Vereinigtes Königreich", "826"],
+    ["États-Unis", "840"],
+    // Arabic, including the comma-less governorate form
+    ["محافظة بيروت لبنان", "422"],
+    ["دبي الإمارات العربية المتحدة", "784"],
+    ["الرياض السعودية", "682"],
+    ["القاهرة, مصر", "818"],
+    ["بيروت", "422"],
+  ];
+  for (const [input, expected] of LOCALIZED) {
+    it(`${JSON.stringify(input)} → ${expected}`, () => {
+      expect(resolveCountry(input)).toBe(expected);
+    });
+  }
 });
