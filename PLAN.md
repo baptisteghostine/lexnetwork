@@ -212,7 +212,22 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   intelligence). Quality scales with data richness — it sharpens as
   Gmail history and notes accumulate.
 
-411 unit tests + 15 Playwright E2E tests passing as of the Ask addition. Open questions from SPEC.md's decision
+- ✅ **LinkedIn Voyager browser presentation** (owner amendment,
+  2026-08-20) — the opt-in weekly sync (§9b) never worked: its honest
+  self-identifying User-Agent was declined by Voyager, which answers only
+  its own web client. The owner reversed the specific "no browser
+  impersonation" clause — account-restriction risk restated and
+  accepted, decision recorded in CLAUDE.md §LinkedIn and SPEC §9b — so
+  buildVoyagerHeaders now presents as desktop Chrome with the web app's
+  x-li-track/x-li-lang/x-li-page-instance headers. The narrower
+  no-evasion terms deliberately still hold: one static fingerprint (no
+  per-request randomisation), no proxy rotation, no CAPTCHA/challenge
+  solving, fail-loud-and-stop on refusal — and the pacing/page-cap/
+  never-log safeguards are untouched. Still an undocumented API that
+  will break on LinkedIn's schedule; awaits its first live run with a
+  real session.
+
+412 unit tests + 15 Playwright E2E tests passing as of the Voyager amendment. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---

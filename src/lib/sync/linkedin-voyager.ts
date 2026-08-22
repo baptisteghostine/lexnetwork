@@ -14,9 +14,16 @@ import { outboundFetch } from "@/lib/net/fetch";
  * between pages, and a hard page cap. That is both the polite way to treat
  * someone else's servers and — practically — what keeps a personal account out
  * of trouble, since burst traffic is the thing automated-access detection
- * actually keys on. There is no fingerprint randomisation, proxy rotation, or
- * challenge solving here, and none should be added: if LinkedIn declines the
- * request, the job surfaces that honestly and stops.
+ * actually keys on.
+ *
+ * The client presents as the LinkedIn web app (buildVoyagerHeaders), which
+ * is what lets Voyager answer at all — an owner-accepted reversal of the
+ * original no-evasion clause (CLAUDE.md §LinkedIn, SPEC §9b), with the
+ * account-restriction risk on the owner's account. What is NOT done, and
+ * must not be added: fingerprint *randomisation*, proxy rotation, or
+ * challenge/CAPTCHA solving. One stable browser signature, honest failure
+ * on refusal — the job still surfaces a bounce and stops rather than
+ * escalating.
  */
 
 const CONNECTIONS_ENDPOINT =

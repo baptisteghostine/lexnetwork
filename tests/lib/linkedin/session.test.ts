@@ -67,9 +67,21 @@ describe("buildVoyagerHeaders", () => {
     expect(headers.cookie).toContain(`li_at=${LI_AT}`);
   });
 
-  it("identifies itself as Rolo rather than impersonating a browser build", () => {
-    expect(headers["user-agent"]).toContain("Rolo");
-    expect(headers["user-agent"]).not.toMatch(/Chrome\/|Safari\/|Firefox\//);
+  it("presents as the LinkedIn web client so Voyager answers (owner amendment)", () => {
+    // The private Voyager API only responds to its own web app; a bot UA
+    // is bounced to a login page. The owner reversed the no-evasion
+    // clause (CLAUDE.md §LinkedIn, SPEC §9b) to make the sync work.
+    expect(headers["user-agent"]).toMatch(/Chrome\/\d+/);
+    expect(headers["x-li-lang"]).toBe("en_US");
+    const track = JSON.parse(headers["x-li-track"]) as { mpName: string };
+    expect(track.mpName).toBe("voyager-web");
+    expect(headers["x-li-page-instance"]).toMatch(/^urn:li:page:/);
+  });
+
+  it("is a single stable fingerprint, not randomised per call", () => {
+    const again = buildVoyagerHeaders({ liAt: LI_AT, jsessionId: JSESSION });
+    expect(again["user-agent"]).toBe(headers["user-agent"]);
+    expect(again["x-li-track"]).toBe(headers["x-li-track"]);
   });
 });
 

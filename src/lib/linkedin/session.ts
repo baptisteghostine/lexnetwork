@@ -64,9 +64,46 @@ export function parseCookieBlob(raw: string): LinkedInSession | null {
   return { liAt, jsessionId };
 }
 
+// A fixed, realistic desktop-Chrome client fingerprint. Owner amendment
+// (2026-08-20): the original honest User-Agent was declined by Voyager,
+// which only answers its own web client — so to make the owner-opted-in
+// sync function at all, the client now presents as that web app. This is
+// the "impersonating a browser build" the earlier no-evasion clause
+// forbade; the owner reversed that clause with the account-restriction
+// risk stated and accepted (CLAUDE.md §LinkedIn, SPEC §9b).
+//
+// Deliberately STATIC, not randomised: one stable, real browser
+// signature. Rotating fingerprints per request is both pointless here
+// and the more aggressive form of evasion; a single consistent client is
+// what a normal browser looks like. The other safeguards are untouched —
+// serial requests, page delay, hard page cap, fail-loud, never-log.
+const CHROME_VERSION = "126";
+const USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
+  `Chrome/${CHROME_VERSION}.0.0.0 Safari/537.36`;
+
+/** LinkedIn's web client stamps every Voyager call with a client-tracking
+ * blob; the endpoint 400s or bounces without a plausible one. */
+function xLiTrack(): string {
+  return JSON.stringify({
+    clientVersion: "1.13.10000",
+    mpVersion: "1.13.10000",
+    osName: "web",
+    timezoneOffset: 0,
+    timezone: "Etc/UTC",
+    deviceFormFactor: "DESKTOP",
+    mpName: "voyager-web",
+    displayDensity: 1,
+    displayWidth: 1920,
+    displayHeight: 1080,
+  });
+}
+
 /**
- * Voyager rejects requests whose `csrf-token` header doesn't match the
- * JSESSIONID cookie. The cookie is sent quoted, the header must not be.
+ * Headers that make a Voyager request indistinguishable from the LinkedIn
+ * web app (the only client the private API answers). `csrf-token` must
+ * equal the JSESSIONID cookie value, sent unquoted while the cookie is
+ * quoted.
  */
 export function buildVoyagerHeaders(
   session: LinkedInSession
@@ -76,10 +113,13 @@ export function buildVoyagerHeaders(
     "csrf-token": session.jsessionId,
     accept: "application/vnd.linkedin.normalized+json+2.1",
     "x-restli-protocol-version": "2.0.0",
+    "x-li-lang": "en_US",
+    "x-li-track": xLiTrack(),
+    "x-li-page-instance":
+      "urn:li:page:d_flagship3_people_connections;rolo-connections-sync",
     "accept-language": "en-US,en;q=0.9",
-    // Identifies the client honestly rather than impersonating a specific
-    // browser build. Rolo is not trying to look like something it isn't.
-    "user-agent": "Rolo-Personal-CRM/0.1 (+self-hosted; single-user)",
+    referer: "https://www.linkedin.com/mynetwork/invite-connect/connections/",
+    "user-agent": USER_AGENT,
   };
 }
 
