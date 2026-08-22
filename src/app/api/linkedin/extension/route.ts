@@ -93,7 +93,15 @@ export async function POST(req: NextRequest) {
     }
     session.pages += 1;
     return NextResponse.json(
-      { ok: true, received: session.connections.size },
+      {
+        ok: true,
+        // `parsed` is what this page held; `received` is the running
+        // unique total. The extension needs both to tell "end of list"
+        // from "the same window served again".
+        parsed: parsed.connections.length,
+        received: session.connections.size,
+        total: parsed.total,
+      },
       { headers: CORS }
     );
   }

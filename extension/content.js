@@ -45,6 +45,12 @@ async function runSync(report) {
   const sessionId = crypto.randomUUID();
   let total = null;
   let seen = 0;
+  // A page that adds nobody new usually means `start` isn't advancing the
+  // window and LinkedIn is re-serving the first page. One such page could
+  // be a coincidence at the tail; two in a row is a paging failure worth
+  // naming, not a silent early stop that looks like success.
+  let noNewStreak = 0;
+  let stopReason = `hit the ${MAX_PAGES}-page cap`;
 
   for (let page = 0; page < MAX_PAGES; page++) {
     const res = await fetch(pageUrl(page * PAGE_SIZE), {
@@ -78,17 +84,36 @@ async function runSync(report) {
 
     report({ page: page + 1, seen, total });
 
-    // An empty page, or a page that added nobody new, is the end of the
-    // list whatever the reported total claims.
     const elements = Array.isArray(payload?.elements) ? payload.elements.length : 0;
-    if (elements === 0 || seen === before) break;
+    if (elements === 0 && (ack.parsed ?? 0) === 0) {
+      stopReason = `page ${page + 1} came back empty`;
+      break;
+    }
+    if (seen === before) {
+      noNewStreak += 1;
+      if (noNewStreak >= 2) {
+        stopReason =
+          `pages ${page} and ${page + 1} added nobody new — LinkedIn is re-serving the same window, so 'start' is not paging`;
+        break;
+      }
+    } else {
+      noNewStreak = 0;
+    }
+    if (total !== null && seen >= total) {
+      stopReason = `reached the reported total of ${total}`;
+      break;
+    }
 
     await sleep(PAGE_DELAY_MS);
   }
 
-  const done = await chrome.runtime.sendMessage({ type: "done", sessionId });
+  const done = await chrome.runtime.sendMessage({
+    type: "done",
+    sessionId,
+    stopReason,
+  });
   if (!done?.ok) throw new Error(done?.error ?? "Rolo rejected the import.");
-  return done.result;
+  return { ...done.result, stopReason };
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

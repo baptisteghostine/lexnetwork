@@ -46,7 +46,10 @@ $("sync").addEventListener("click", async () => {
       const s = r.stats ?? {};
       say(
         `Done — ${r.connections ?? 0} connections over ${r.pages ?? 0} pages.\n` +
-          `New ${s.new ?? 0} · updated ${s.updated ?? 0} · unchanged ${s.unchanged ?? 0}`,
+          `New ${s.new ?? 0} · updated ${s.updated ?? 0} · unchanged ${s.unchanged ?? 0}\n` +
+          // Why it stopped is the difference between "that's everyone"
+          // and "paging broke after one page".
+          `Stopped: ${r.stopReason ?? "unknown"}`,
         "ok"
       );
     }
