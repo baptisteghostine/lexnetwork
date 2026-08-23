@@ -2,7 +2,7 @@
 // client bundle: the atlas + projection math ship once with the app and
 // render locally — no tile server, no API key, nothing phoned.
 
-import { geoNaturalEarth1, geoPath } from "d3-geo";
+import { geoCentroid, geoNaturalEarth1, geoPath } from "d3-geo";
 import type { Geometry } from "geojson";
 
 import { countryFeatures, EXTRA_PLACES } from "./countries";
@@ -70,6 +70,31 @@ export function worldGeometry(): WorldGeometry {
   cachedProjection = projection;
   cached = { shapes, extraPoints };
   return cached;
+}
+
+let cachedCentroids: Map<string, [number, number]> | null = null;
+
+/** Country anchor points as lon/lat (spherical centroids) — what a tile
+ * renderer needs, where the SVG map wants projected x/y. Extra places
+ * (Singapore, HK…) use their fixed anchors. */
+export function countryCentroidsLonLat(): Map<string, [number, number]> {
+  if (cachedCentroids) return cachedCentroids;
+  const map = new Map<string, [number, number]>();
+  for (const f of countryFeatures()) {
+    const c = geoCentroid({
+      type: "Feature",
+      geometry: f.geometry as Geometry,
+      properties: {},
+    });
+    if (Number.isFinite(c[0]) && Number.isFinite(c[1])) {
+      map.set(f.id, [c[0], c[1]]);
+    }
+  }
+  for (const p of EXTRA_PLACES) {
+    if (!map.has(p.id)) map.set(p.id, p.lonLat);
+  }
+  cachedCentroids = map;
+  return map;
 }
 
 /** Bubble radius: area proportional to count, clamped to stay readable. */

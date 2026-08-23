@@ -13,6 +13,7 @@ import {
   saveVoyagerSessionAction,
   setEnrichEnabledAction,
   setGeocodeEnabledAction,
+  setMapboxTokenAction,
   setVoyagerEnabledAction,
   syncNowAction,
   updateMyAddressesAction,
@@ -651,6 +652,81 @@ function GeocodeCard({ data }: { data: GeocodeStatus }) {
   );
 }
 
+/** Mapbox rendering (SPEC §7a, owner-amended 2026-08-24): paste a public
+ * token → the map page swaps the bundled SVG for the interactive globe.
+ * Clearing the token swaps it straight back. */
+function MapboxCard({ configured }: { configured: boolean }) {
+  const [pending, start] = useTransition();
+  const [token, setToken] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+  const save = (value: string) =>
+    start(async () => {
+      setError(null);
+      const res = await setMapboxTokenAction({ token: value });
+      if ("error" in res) {
+        setError(res.error);
+        return;
+      }
+      setToken("");
+      router.refresh();
+    });
+  return (
+    <div className="space-y-2 rounded-md border border-border p-3">
+      <div className="flex items-baseline justify-between">
+        <h3 className="text-[13px] font-medium">Map rendering</h3>
+        <span className="text-[11px] text-muted-foreground">
+          {configured ? "Mapbox globe" : "built-in map"}
+        </span>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Paste a Mapbox <span className="font-medium">public token</span>{" "}
+        (starts with <code>pk.</code>) and the Map tab becomes the
+        interactive Dex-style globe — zoom, pan, tiles. Find it at{" "}
+        <a
+          href="https://account.mapbox.com/access-tokens/"
+          target="_blank"
+          rel="noreferrer"
+          className="underline underline-offset-2 hover:text-foreground"
+        >
+          account.mapbox.com → Access tokens
+        </a>{" "}
+        (the &ldquo;Default public token&rdquo; works). Tiles load in your
+        browser with your token; pins still come from Rolo&rsquo;s own
+        data. Clear it to go back to the built-in map.
+      </p>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Input
+          placeholder={configured ? "pk.… (saved)" : "pk.…"}
+          type="password"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          className="w-72"
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={pending || token.trim() === ""}
+          onClick={() => save(token)}
+        >
+          {pending ? "Saving…" : "Save"}
+        </Button>
+        {configured && (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={pending}
+            onClick={() => save("")}
+          >
+            Clear
+          </Button>
+        )}
+        {error && <span className="text-xs text-destructive">{error}</span>}
+      </div>
+    </div>
+  );
+}
+
 export function IntegrationsPanel({
   google,
   linkedin,
@@ -658,6 +734,7 @@ export function IntegrationsPanel({
   extensionToken,
   enrich,
   geocode,
+  mapboxConfigured,
 }: {
   google: IntegrationStatus;
   linkedin: IntegrationStatus;
@@ -665,6 +742,7 @@ export function IntegrationsPanel({
   extensionToken: string;
   enrich: EnrichStatus;
   geocode: GeocodeStatus;
+  mapboxConfigured: boolean;
 }) {
   return (
     <div className="space-y-3">
@@ -672,6 +750,7 @@ export function IntegrationsPanel({
       <LinkedInCard data={linkedin} />
       <ExtensionPairing token={extensionToken} enrich={enrich} />
       <GeocodeCard data={geocode} />
+      <MapboxCard configured={mapboxConfigured} />
       <VoyagerCard data={voyager} />
     </div>
   );

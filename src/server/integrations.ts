@@ -184,6 +184,7 @@ export async function readIntegrations(): Promise<{
   extensionToken: string;
   enrich: EnrichStatus;
   geocode: GeocodeStatus;
+  mapboxConfigured: boolean;
 }> {
   await requireAuth();
   return {
@@ -194,7 +195,29 @@ export async function readIntegrations(): Promise<{
     extensionToken: ensureExtensionToken(),
     enrich: enrichStatusNow(),
     geocode: { enabled: geocodeEnabled(), ...geocodeProgress() },
+    mapboxConfigured: (getSetting<string>("mapbox.token") ?? "") !== "",
   };
+}
+
+/** Mapbox rendering (SPEC §7a, owner-amended 2026-08-24). The token is a
+ * public (pk.) token — it ships to the owner's own browser by design, so
+ * plain settings storage is the right box, not the encrypted one. Empty
+ * string clears, falling the map back to the bundled SVG. */
+export async function setMapboxTokenAction(input: {
+  token: string;
+}): Promise<{ ok: true } | { error: string }> {
+  await requireAuth();
+  const token = input.token.trim();
+  if (token !== "" && !/^pk\.[A-Za-z0-9._-]{20,}$/.test(token)) {
+    return {
+      error:
+        "That doesn't look like a Mapbox public token — it should start with pk.",
+    };
+  }
+  setSetting("mapbox.token", token || null);
+  revalidatePath("/settings");
+  revalidatePath("/map");
+  return { ok: true };
 }
 
 /** SPEC decision #4: Nominatim, off by default — flipping this on is the

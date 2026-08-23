@@ -135,7 +135,13 @@ export async function readMapData(
     counts,
     bubbleCounts,
     // Members stay server-side; the client needs only the pin itself.
-    cities: cityGroups.map(({ members: _members, ...pin }) => pin),
+    cities: cityGroups.map((g) => ({
+      key: g.key,
+      lat: g.lat,
+      lng: g.lng,
+      label: g.label,
+      count: g.count,
+    })),
     geocodeOn: geocodeEnabled(),
     totalPlaced,
     noLocation,

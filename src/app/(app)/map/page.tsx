@@ -1,9 +1,12 @@
 import Link from "next/link";
 
 import { ContactAvatar } from "@/components/contact-avatar";
+import { MapboxMap, type CountryBubble } from "@/components/mapbox-map";
 import { WorldMap } from "@/components/world-map";
 import { requireAuth } from "@/lib/auth";
 import { countryNames } from "@/lib/geo/countries";
+import { countryCentroidsLonLat } from "@/lib/geo/world";
+import { getSetting } from "@/lib/settings";
 import { readMapData } from "@/server/map";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +24,21 @@ export default async function MapPage({ searchParams }: PageProps<"/map">) {
     .map(([id, count]) => ({ id, count, name: names.get(id) ?? id }))
     .sort((a, b) => b.count - a.count);
 
+  // Renderer choice (SPEC §7a, owner-amended 2026-08-24): Mapbox globe
+  // when the owner pasted a token, the bundled SVG otherwise — same
+  // data, same click-through URLs either way.
+  const mapboxToken = getSetting<string>("mapbox.token") ?? "";
+  const centroids = countryCentroidsLonLat();
+  const countryBubbles: CountryBubble[] = Object.entries(data.bubbleCounts)
+    .filter(([id, n]) => n > 0 && centroids.has(id))
+    .map(([id, n]) => ({
+      id,
+      name: names.get(id) ?? id,
+      lng: centroids.get(id)![0],
+      lat: centroids.get(id)![1],
+      count: n,
+    }));
+
   return (
     <div className="flex h-[calc(100vh-0px)] min-h-0">
       <div className="min-w-0 flex-1 overflow-y-auto">
@@ -33,12 +51,20 @@ export default async function MapPage({ searchParams }: PageProps<"/map">) {
           </p>
         </header>
         <div className="p-4">
-          <WorldMap
-            counts={data.bubbleCounts}
-            cities={data.cities}
-            selectedId={selectedId}
-            selectedCityKey={selectedCity}
-          />
+          {mapboxToken ? (
+            <MapboxMap
+              token={mapboxToken}
+              cities={data.cities}
+              countryBubbles={countryBubbles}
+            />
+          ) : (
+            <WorldMap
+              counts={data.bubbleCounts}
+              cities={data.cities}
+              selectedId={selectedId}
+              selectedCityKey={selectedCity}
+            />
+          )}
           {data.cities.length > 0 ? (
             <p className="mt-1 text-right text-[10px] text-muted-foreground/70">
               City placement data © OpenStreetMap contributors

@@ -18,6 +18,7 @@ const SRC = path.join(__dirname, "../../../src");
 const UI_LINK_HOSTS = new Set([
   "mail.google.com", // Gmail compose links (Today `o`, contact page)
   "www.linkedin.com", // "Get a copy of your data" export-page link
+  "account.mapbox.com", // "where to find your token" link in Settings
   "localhost", // app_url default
 ]);
 

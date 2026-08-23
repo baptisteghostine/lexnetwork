@@ -317,6 +317,23 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   end-to-end with a stubbed transport: one lookup placed two contacts,
   the miss stamped without a pin, second run no-oped.
 
+- ✅ **Mapbox globe rendering** (owner request, 2026-08-24, SPEC §7a +
+  CLAUDE.md privacy-invariant amendment; dependency: `mapbox-gl`, a WebGL
+  vector-tile renderer nothing existing covers). The owner chose to make
+  a Mapbox account after seeing the pins working; rendering swaps to the
+  interactive Dex-style globe when a public token is pasted in Settings →
+  Map rendering, and back to the bundled SVG when cleared — same city
+  pins, same country bubbles (spherical centroids via geoCentroid), same
+  click-through URLs, so the side panel is renderer-blind and the E2E
+  suite keeps exercising the token-less fallback. Division of labour
+  stands: Nominatim finds coordinates (free, cached in the DB), Mapbox
+  only draws them; tiles load in the owner's browser with their own
+  token. Token validated as pk.…, stored plain (public by design),
+  account.mapbox.com added to the no-phoning-home owner-link carve-outs.
+  Verified: production build clean with the dynamic import, 478 unit
+  tests, map E2E green on the fallback path. Awaits first live render
+  with the owner's real token.
+
 - ✅ **Dex parity round 2: message snippets, profile anatomy, editable
   list** (owner request, 2026-08-23, SPEC §1/§2 amendments, no schema
   change). (1) messages.csv's CONTENT column was parsed away — every
@@ -335,7 +352,7 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   (no-op commits flip nothing — false-conflict guard), Frequency picker
   in the row, social-link icons, last-touch age column.
 
-478 unit tests + 15 Playwright E2E tests passing as of city placement. Open questions from SPEC.md's decision
+478 unit tests + 15 Playwright E2E tests passing as of Mapbox rendering. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---

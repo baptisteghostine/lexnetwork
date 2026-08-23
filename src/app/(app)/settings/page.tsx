@@ -36,6 +36,7 @@ export default async function SettingsPage() {
           extensionToken={integrations.extensionToken}
           enrich={integrations.enrich}
           geocode={integrations.geocode}
+          mapboxConfigured={integrations.mapboxConfigured}
         />
       </div>
       <div className="max-w-lg space-y-3 px-5 pb-4">
