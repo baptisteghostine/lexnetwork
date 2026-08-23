@@ -340,13 +340,13 @@ export function ContactsList({
             setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.id)))
           }
         />
-        <span className="w-56 pl-9">Name</span>
-        <span className="w-44 px-1">Title</span>
-        <span className="w-40 px-1">Company</span>
-        <span className="flex-1">Tags</span>
-        <span className="w-16">Links</span>
-        <span className="w-20 text-right">Last touch</span>
-        <span className="w-24 pl-1">Frequency</span>
+        <span className="min-w-0 flex-1 pl-9 md:w-56 md:flex-none">Name</span>
+        <span className="hidden w-44 px-1 md:block">Title</span>
+        <span className="hidden w-40 px-1 lg:block">Company</span>
+        <span className="hidden flex-1 lg:block">Tags</span>
+        <span className="hidden w-16 md:block">Links</span>
+        <span className="hidden w-20 text-right sm:block">Last touch</span>
+        <span className="hidden w-24 pl-1 sm:block">Frequency</span>
       </div>
       <ul>
         {rows.map((c) => (
@@ -370,7 +370,7 @@ export function ContactsList({
               hasPhoto={c.hasPhoto}
               size="sm"
             />
-            <span className="flex w-56 items-center gap-1.5">
+            <span className="flex min-w-0 flex-1 items-center gap-1.5 md:w-56 md:flex-none">
               <Link
                 href={`/contacts/${c.id}`}
                 className="truncate text-[13px] font-medium hover:underline"
@@ -389,17 +389,17 @@ export function ContactsList({
             </span>
             <EditableCell
               value={c.title}
-              width="w-44"
+              width="hidden md:block w-44"
               label={`title of ${c.displayName}`}
               save={saveField(c.id, "title")}
             />
             <EditableCell
               value={c.company}
-              width="w-40"
+              width="hidden lg:block w-40"
               label={`company of ${c.displayName}`}
               save={saveField(c.id, "company")}
             />
-            <span className="flex flex-1 gap-1 overflow-hidden">
+            <span className="hidden flex-1 gap-1 overflow-hidden lg:flex">
               {c.tags.map((t) => (
                 <Badge
                   key={t.id}
@@ -411,7 +411,7 @@ export function ContactsList({
                 </Badge>
               ))}
             </span>
-            <span className="flex w-16 items-center gap-1">
+            <span className="hidden w-16 items-center gap-1 md:flex">
               {c.links.slice(0, 3).map((l) => (
                 <a
                   key={l.url}
@@ -425,12 +425,12 @@ export function ContactsList({
                 </a>
               ))}
             </span>
-            <span className="w-20 text-right text-[11px] text-muted-foreground">
+            <span className="hidden w-20 text-right text-[11px] text-muted-foreground sm:block">
               {c.lastInteractionAt !== null
                 ? changeAge(c.lastInteractionAt, now)
                 : ""}
             </span>
-            <span className="w-24 pl-1">
+            <span className="hidden w-24 pl-1 sm:block">
               <CadenceCell
                 contactId={c.id}
                 cadenceDays={c.cadenceDays}

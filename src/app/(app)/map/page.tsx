@@ -41,7 +41,9 @@ export default async function MapPage({ searchParams }: PageProps<"/map">) {
     }));
 
   return (
-    <div className="flex h-[calc(100vh-0px)] min-h-0">
+    // Phone: map on top, list below, one scrolling document. Desktop:
+    // side-by-side panes at full height (SPEC §12 responsive note).
+    <div className="flex min-h-screen flex-col md:h-[calc(100vh-0px)] md:min-h-0 md:flex-row">
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex shrink-0 items-baseline justify-between border-b border-border px-5 py-2.5">
           <h1 className="text-sm font-semibold">Map</h1>
@@ -53,7 +55,9 @@ export default async function MapPage({ searchParams }: PageProps<"/map">) {
         </header>
         {mapboxToken ? (
           // Full-bleed globe: the map is the page, helpers float on it.
-          <div className="relative min-h-0 flex-1">
+          // Phone gives it a fixed slice of the viewport so the list
+          // below stays reachable.
+          <div className="relative h-[55dvh] md:h-auto md:min-h-0 md:flex-1">
             <MapboxMap
               token={mapboxToken}
               cities={data.cities}
@@ -82,7 +86,7 @@ export default async function MapPage({ searchParams }: PageProps<"/map">) {
             </div>
           </div>
         ) : (
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="md:min-h-0 md:flex-1 md:overflow-y-auto">
             <div className="p-4">
               <WorldMap
                 counts={data.bubbleCounts}
@@ -131,7 +135,7 @@ export default async function MapPage({ searchParams }: PageProps<"/map">) {
         )}
       </div>
 
-      <aside className="flex w-72 shrink-0 flex-col border-l border-border">
+      <aside className="flex w-full shrink-0 flex-col border-t border-border md:w-72 md:border-l md:border-t-0">
         {data.selected ? (
           <>
             <div className="flex items-baseline justify-between border-b border-border px-4 py-2.5">

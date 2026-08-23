@@ -334,6 +334,21 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   tests, map E2E green on the fallback path. Awaits first live render
   with the owner's real token.
 
+- ✅ **Responsive pass** (owner request, 2026-08-24, SPEC §12 note) —
+  Tailscale put Rolo on the owner's phone, which made the desktop-first
+  layouts a real problem rather than a theoretical one. Everything is
+  `md:`-gated so desktop is pixel-identical: below it, the fixed sidebar
+  becomes a sticky top bar + slide-over drawer reusing the same nav
+  content (open-state derived from the pathname it was opened on, so
+  navigating closes it without a setState-in-effect); profile, settings,
+  and map stack their side panes under the main column as one scrolling
+  document (the Mapbox globe gets a 55dvh slice so the list below stays
+  reachable); the contacts table slims to name-first with columns
+  returning at sm/md/lg; Today rows drop the headline column on phones;
+  and a global CSS rule renders controls at 16px below md — phone Safari
+  zooms into any focused input under 16px, which Rolo's 13px density
+  triggered on every tap. Full E2E suite green at desktop viewport.
+
 - ✅ **Settings redesign** (owner request, 2026-08-24, Dex parity, SPEC
   §12 note). One endless scroll became the Dex anatomy: a grouped sub-nav
   rail (?tab= links, all server-rendered) and one section at a time in a
@@ -364,7 +379,7 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   (no-op commits flip nothing — false-conflict guard), Frequency picker
   in the row, social-link icons, last-touch age column.
 
-478 unit tests + 15 Playwright E2E tests passing as of the settings redesign. Open questions from SPEC.md's decision
+478 unit tests + 15 Playwright E2E tests passing as of the responsive pass. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---

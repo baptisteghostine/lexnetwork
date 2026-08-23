@@ -72,8 +72,25 @@ export default async function SettingsPage({
   const dataStatus = tab === "data" ? await readDataStatus() : null;
 
   return (
-    <div className="flex h-screen min-h-0">
-      <aside className="w-52 shrink-0 space-y-5 overflow-y-auto border-r border-border px-3 py-4">
+    <div className="flex min-h-screen flex-col md:h-screen md:min-h-0 md:flex-row">
+      {/* Phone: the rail becomes a scrollable pill bar (SPEC §12). */}
+      <div className="flex gap-1.5 overflow-x-auto border-b border-border px-3 py-2 md:hidden">
+        {ALL_SECTIONS.map((item) => (
+          <Link
+            key={item.id}
+            href={`/settings?tab=${item.id}`}
+            className={cn(
+              "shrink-0 rounded-full px-3 py-1 text-[12px] transition-colors",
+              tab === item.id
+                ? "bg-primary font-medium text-primary-foreground"
+                : "bg-muted text-muted-foreground"
+            )}
+          >
+            {item.label}
+          </Link>
+        ))}
+      </div>
+      <aside className="hidden w-52 shrink-0 space-y-5 overflow-y-auto border-r border-border px-3 py-4 md:block">
         <h1 className="px-2 text-sm font-semibold">Settings</h1>
         {SECTIONS.map((g) => (
           <div key={g.group}>
@@ -101,8 +118,8 @@ export default async function SettingsPage({
         ))}
       </aside>
 
-      <main className="min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-2xl px-6 py-8">
+      <main className="min-w-0 flex-1 md:overflow-y-auto">
+        <div className="mx-auto max-w-2xl px-4 py-6 md:px-6 md:py-8">
           <header className="mb-5">
             <h2 className="text-xl font-semibold tracking-tight">
               {section.title}

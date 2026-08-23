@@ -4,6 +4,7 @@ import { and, asc, eq, isNotNull, isNull, lte, sql } from "drizzle-orm";
 
 import { CommandPalette } from "@/components/command-palette";
 import { GlobalHotkeys } from "@/components/global-hotkeys";
+import { MobileShell } from "@/components/mobile-shell";
 import { QuickAdd } from "@/components/quick-add";
 import { ShortcutOverlay } from "@/components/shortcut-overlay";
 import { SidebarNav } from "@/components/sidebar-nav";
@@ -69,9 +70,34 @@ export default async function AppLayout({
   // allowed to fail silently.
   const backupFailure = readBackupStatus(rawDb).failing;
 
+  // One nav, two frames: the fixed desktop sidebar, and the same content
+  // inside the phone drawer (SPEC §12 responsive note).
+  const navContent = (
+    <>
+      <QuickAdd />
+      <SidebarNav
+        dueCount={dueCount}
+        duplicateCount={duplicateCount}
+        views={pinnedViews}
+      />
+      <div className="flex items-center justify-between gap-1 border-t border-border p-2">
+        <form action={logoutAction} className="flex-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start text-muted-foreground"
+          >
+            Log out
+          </Button>
+        </form>
+        <ThemeToggle initialDark={initialDark} />
+      </div>
+    </>
+  );
+
   return (
     <div className="flex min-h-screen">
-      <aside className="flex w-48 shrink-0 flex-col border-r border-border bg-card">
+      <aside className="hidden w-48 shrink-0 flex-col border-r border-border bg-card md:flex">
         <div className="px-4 py-3.5">
           <Link
             href="/today"
@@ -80,26 +106,10 @@ export default async function AppLayout({
             Rolo
           </Link>
         </div>
-        <QuickAdd />
-        <SidebarNav
-          dueCount={dueCount}
-          duplicateCount={duplicateCount}
-          views={pinnedViews}
-        />
-        <div className="flex items-center justify-between gap-1 border-t border-border p-2">
-          <form action={logoutAction} className="flex-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full justify-start text-muted-foreground"
-            >
-              Log out
-            </Button>
-          </form>
-          <ThemeToggle initialDark={initialDark} />
-        </div>
+        {navContent}
       </aside>
       <main className="min-w-0 flex-1">
+        <MobileShell>{navContent}</MobileShell>
         {backupFailure ? (
           <div className="border-b border-red-200 bg-red-50 px-5 py-1.5 text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
             The last backup failed.{" "}

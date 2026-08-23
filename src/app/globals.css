@@ -102,3 +102,14 @@
     font-feature-settings: "tnum", "cv05";
   }
 }
+
+/* Phone Safari zooms the page into any focused input whose font is under
+   16px — Rolo's 13px density triggers it on every tap. Bumping controls
+   to 16px below md keeps the viewport still; desktop keeps its density. */
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}

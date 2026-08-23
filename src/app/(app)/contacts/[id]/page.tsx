@@ -162,7 +162,7 @@ export default async function ContactPage({
   }
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex min-h-screen flex-col md:h-screen">
       <header className="flex shrink-0 items-center justify-between border-b border-border px-5 py-2.5">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Link href="/contacts" className="hover:text-foreground">
@@ -189,9 +189,11 @@ export default async function ContactPage({
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
+      {/* Phone: one document, main then reference fields. Desktop: two
+          independently scrolling panes (SPEC §12 responsive note). */}
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         {/* Main column (Dex anatomy: identity + activity center stage) */}
-        <main className="min-w-0 flex-1 overflow-y-auto px-6 py-5">
+        <main className="min-w-0 flex-1 px-4 py-5 md:overflow-y-auto md:px-6">
           <div className="mx-auto max-w-2xl space-y-5">
             {/* Identity header */}
             <div className="flex items-start gap-4">
@@ -352,7 +354,7 @@ export default async function ContactPage({
         </main>
 
         {/* Detail sidebar (Dex anatomy: reference fields on the right) */}
-        <aside className="w-80 shrink-0 space-y-4 overflow-y-auto border-l border-border bg-card/40 px-5 py-4">
+        <aside className="w-full shrink-0 space-y-4 border-t border-border bg-card/40 px-5 py-4 md:w-80 md:overflow-y-auto md:border-l md:border-t-0">
           <CadenceControl
             contactId={contact.id}
             cadenceDays={contact.cadenceDays}

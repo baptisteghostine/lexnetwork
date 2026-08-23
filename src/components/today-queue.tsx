@@ -178,7 +178,7 @@ export function TodayQueue({ items }: { items: DueItem[] }) {
               hasPhoto={item.hasPhoto}
               size="sm"
             />
-            <span className="flex w-52 items-center gap-1.5">
+            <span className="flex min-w-0 flex-1 items-center gap-1.5 sm:w-52 sm:flex-none">
               <span className="truncate text-[13px] font-medium">
                 {item.displayName}
               </span>
@@ -186,7 +186,7 @@ export function TodayQueue({ items }: { items: DueItem[] }) {
                 <Star className="size-3 shrink-0 fill-warning text-warning" />
               ) : null}
             </span>
-            <span className="flex-1 truncate text-[12px] text-muted-foreground">
+            <span className="hidden flex-1 truncate text-[12px] text-muted-foreground sm:block">
               {[item.title, item.company].filter(Boolean).join(" · ")}
             </span>
             <span
