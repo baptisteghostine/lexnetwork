@@ -8,7 +8,8 @@ export type LinkedInScalarField =
   | "first_name"
   | "last_name"
   | "company"
-  | "title";
+  | "title"
+  | "location";
 
 export type LinkedInSnapshot = {
   contactId: number;
@@ -54,6 +55,7 @@ function incomingScalars(
     last_name: row.lastName || null,
     company: row.company,
     title: row.position,
+    location: row.location,
   };
 }
 

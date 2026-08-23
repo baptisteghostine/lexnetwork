@@ -205,6 +205,10 @@ export function voyagerToConnection(
     email: null,
     company,
     position: title,
+    // Verified against a live payload (2026-08-23): the connections
+    // endpoint returns no geographic field of any name. Locations come
+    // from the per-profile enricher (SPEC §9d), never from here.
+    location: null,
     connectedOn:
       connection.connectedAt === null
         ? null

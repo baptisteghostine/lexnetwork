@@ -139,7 +139,8 @@ function loadSnapshot(contactId: number): LinkedInSnapshot | null {
       r.field === "first_name" ||
       r.field === "last_name" ||
       r.field === "company" ||
-      r.field === "title"
+      r.field === "title" ||
+      r.field === "location"
     ) {
       provenance[r.field] = r.source;
     }
@@ -151,6 +152,7 @@ function loadSnapshot(contactId: number): LinkedInSnapshot | null {
       last_name: c.lastName,
       company: c.company,
       title: c.title,
+      location: c.location,
     },
     provenance,
   };
@@ -158,12 +160,13 @@ function loadSnapshot(contactId: number): LinkedInSnapshot | null {
 
 const FIELD_COLUMN: Record<
   LinkedInScalarField,
-  "firstName" | "lastName" | "company" | "title"
+  "firstName" | "lastName" | "company" | "title" | "location"
 > = {
   first_name: "firstName",
   last_name: "lastName",
   company: "company",
   title: "title",
+  location: "location",
 };
 
 function upsertProvenance(
@@ -345,9 +348,13 @@ export function executeLinkedInRows(opts: {
   connections: LinkedInConnection[];
   messages: LinkedInMessage[];
   ownerName: string | null;
-  runKind: "linkedin_import" | "linkedin_api_sync" | "linkedin_voyager_sync";
+  runKind:
+    | "linkedin_import"
+    | "linkedin_api_sync"
+    | "linkedin_voyager_sync"
+    | "linkedin_profile_enrich";
   fileName?: string;
-  fileSha256?: string;
+  fileSha256?: string | null;
 }): { runId: number; report: LinkedInReport } {
   const { connections, messages, ownerName } = opts;
   const runId = db

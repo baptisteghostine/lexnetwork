@@ -163,6 +163,10 @@ const FIELD_KEYS = {
   company: ["company"],
   position: ["position", "title"],
   connectedOn: ["connectedon", "connecteddate"],
+  // Speculative, like the rest of this key-tolerant mapper: the DMA
+  // snapshot mirrors Connections.csv, which has no location column — but
+  // if a record ever carries one, taking it costs nothing.
+  location: ["location", "geolocation", "geolocationname", "locationname"],
 } as const;
 
 function pick(
@@ -199,5 +203,6 @@ export function mapConnectionRecord(
     company: pick(byKey, FIELD_KEYS.company),
     position: pick(byKey, FIELD_KEYS.position),
     connectedOn: pick(byKey, FIELD_KEYS.connectedOn),
+    location: pick(byKey, FIELD_KEYS.location),
   };
 }

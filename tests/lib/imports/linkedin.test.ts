@@ -98,11 +98,16 @@ describe("planConnection (SPEC §5 + §8 rules)", () => {
       last_name: "Silva",
       company: "Stripe",
       title: "Product Manager",
+      location: null,
       ...over,
     },
     provenance,
   });
-  const row = (company: string, position: string) => ({
+  const row = (
+    company: string,
+    position: string,
+    location: string | null = null
+  ) => ({
     firstName: "Ana",
     lastName: "Silva",
     profileUrl: "linkedin.com/in/ana",
@@ -111,6 +116,7 @@ describe("planConnection (SPEC §5 + §8 rules)", () => {
     company,
     position,
     connectedOn: null,
+    location,
   });
 
   it("first sighting: all new, zero changes (no baseline)", () => {

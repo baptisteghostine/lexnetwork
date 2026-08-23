@@ -17,6 +17,13 @@ export type LinkedInConnection = {
   company: string | null;
   position: string | null;
   connectedOn: string | null;
+  /**
+   * Freeform, as LinkedIn writes it ("Zurich, Zurich, Switzerland") and in
+   * the profile's own locale. Always null from Connections.csv and from the
+   * connections API — neither carries a location (verified against a live
+   * payload, 2026-08-23). Only the profile enricher (SPEC §9d) fills it.
+   */
+  location: string | null;
 };
 
 export type LinkedInMessage = {
@@ -123,6 +130,7 @@ export function parseConnections(text: string): LinkedInConnection[] {
       company: get(iCompany) || null,
       position: get(iPosition) || null,
       connectedOn: get(iConnected) || null,
+      location: null, // Connections.csv has no location column
     });
   }
   return out;
