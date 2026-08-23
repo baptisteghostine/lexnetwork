@@ -27,8 +27,11 @@ export type CountryBubble = {
   count: number;
 };
 
-const LIGHT_STYLE = "mapbox://styles/mapbox/light-v11";
-const DARK_STYLE = "mapbox://styles/mapbox/dark-v11";
+// Mapbox Standard: the full-colour earth — blue oceans, green terrain,
+// atmosphere halo (the Dex look, owner-preferred over the muted
+// monochrome basemap first shipped). Dark mode maps to its night
+// lighting preset instead of a different style.
+const STANDARD_STYLE = "mapbox://styles/mapbox/standard";
 
 function pinElement(count: number, label: string, max: number): HTMLElement {
   const el = document.createElement("div");
@@ -73,11 +76,18 @@ export function MapboxMap({
       const dark = document.documentElement.classList.contains("dark");
       const map = new mapboxgl.Map({
         container: containerRef.current,
-        style: dark ? DARK_STYLE : LIGHT_STYLE,
+        style: STANDARD_STYLE,
         projection: "globe",
         center: [15, 30],
         zoom: 1.4,
         attributionControl: true,
+      });
+      map.on("style.load", () => {
+        map.setConfigProperty(
+          "basemap",
+          "lightPreset",
+          dark ? "night" : "day"
+        );
       });
       mapRef.current = map;
       map.addControl(new mapboxgl.NavigationControl({ showCompass: false }));
