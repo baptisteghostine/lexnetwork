@@ -334,6 +334,18 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   tests, map E2E green on the fallback path. Awaits first live render
   with the owner's real token.
 
+- ✅ **Settings redesign** (owner request, 2026-08-24, Dex parity, SPEC
+  §12 note). One endless scroll became the Dex anatomy: a grouped sub-nav
+  rail (?tab= links, all server-rendered) and one section at a time in a
+  centered column of label-left/control-right card rows. The structural
+  change under the styling: the monolithic settings action split into
+  per-section actions that each write only their own keys — the moment
+  the form splits across pages, a single all-keys action would let one
+  section's save wipe every other section's values with parsed-empty
+  defaults. Sections also load only their own data (integrations status,
+  backup status, custom fields are fetched per tab). Full E2E suite
+  re-run green after the restructure.
+
 - ✅ **Dex parity round 2: message snippets, profile anatomy, editable
   list** (owner request, 2026-08-23, SPEC §1/§2 amendments, no schema
   change). (1) messages.csv's CONTENT column was parsed away — every
@@ -352,7 +364,7 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   (no-op commits flip nothing — false-conflict guard), Frequency picker
   in the row, social-link icons, last-touch age column.
 
-478 unit tests + 15 Playwright E2E tests passing as of Mapbox rendering. Open questions from SPEC.md's decision
+478 unit tests + 15 Playwright E2E tests passing as of the settings redesign. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---

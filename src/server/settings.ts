@@ -69,7 +69,14 @@ export async function readAppSettings(): Promise<AppSettings> {
   };
 }
 
-const settingsInput = z.object({
+export type SettingsFormState = { error?: string; saved?: boolean };
+
+// Settings save per SECTION (SPEC §12 settings anatomy): each action
+// validates and writes only its own keys, so posting one section's form
+// can never wipe another section's values — the failure mode a single
+// monolithic action invites the moment the form splits into pages.
+
+const generalInput = z.object({
   timezone: z
     .string()
     .trim()
@@ -92,14 +99,61 @@ const settingsInput = z.object({
     .toUpperCase()
     .regex(/^[A-Z]{2}$/, "Region must be a 2-letter country code, e.g. CH.")
     .or(z.literal("")),
+  appUrl: z.string().trim().url().max(300),
+});
+
+export async function updateGeneralAction(
+  _prev: SettingsFormState,
+  formData: FormData
+): Promise<SettingsFormState> {
+  await requireAuth();
+  const parsed = generalInput.safeParse({
+    timezone: formData.get("timezone"),
+    phoneDefaultRegion: formData.get("phoneDefaultRegion") ?? "",
+    appUrl: formData.get("appUrl"),
+  });
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  setSetting("timezone", parsed.data.timezone);
+  setSetting("phone_default_region", parsed.data.phoneDefaultRegion || null);
+  setSetting("app_url", parsed.data.appUrl);
+  // Timezone moves the digest's local send hour — re-aim the pending job.
+  ensureDigestJob(Date.now());
+  revalidatePath("/settings");
+  return { saved: true };
+}
+
+const keepInTouchInput = z.object({
   snoozeAllHorizonDays: z.coerce.number().int().min(1).max(365),
   snoozeAllPerDayFloor: z.coerce.number().int().min(1).max(50),
+  birthdaysFeb29: z.enum(["feb28", "mar1"]),
+  birthdaysImportantOnly: z.coerce.boolean(),
+});
+
+export async function updateKeepInTouchAction(
+  _prev: SettingsFormState,
+  formData: FormData
+): Promise<SettingsFormState> {
+  await requireAuth();
+  const parsed = keepInTouchInput.safeParse({
+    snoozeAllHorizonDays: formData.get("snoozeAllHorizonDays"),
+    snoozeAllPerDayFloor: formData.get("snoozeAllPerDayFloor"),
+    birthdaysFeb29: formData.get("birthdaysFeb29"),
+    birthdaysImportantOnly: formData.get("birthdaysImportantOnly") === "on",
+  });
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+  const s = parsed.data;
+  setSetting("snooze_all.horizon_days", s.snoozeAllHorizonDays);
+  setSetting("snooze_all.per_day_floor", s.snoozeAllPerDayFloor);
+  setSetting("birthdays.feb29", s.birthdaysFeb29);
+  setSetting("birthdays.important_only", s.birthdaysImportantOnly);
+  revalidatePath("/settings");
+  return { saved: true };
+}
+
+const notificationsInput = z.object({
   digestHour: z.coerce.number().int().min(0).max(23),
   digestSendWhenEmpty: z.coerce.boolean(),
   networkUpdatesEmail: z.coerce.boolean(),
-  birthdaysFeb29: z.enum(["feb28", "mar1"]),
-  birthdaysImportantOnly: z.coerce.boolean(),
-  appUrl: z.string().trim().url().max(300),
   smtpHost: z.string().trim().max(300),
   smtpPort: z.coerce.number().int().min(1).max(65535),
   smtpSecure: z.coerce.boolean(),
@@ -109,24 +163,15 @@ const settingsInput = z.object({
   smtpTo: z.string().trim().max(300),
 });
 
-export type SettingsFormState = { error?: string; saved?: boolean };
-
-export async function updateSettingsAction(
+export async function updateNotificationsAction(
   _prev: SettingsFormState,
   formData: FormData
 ): Promise<SettingsFormState> {
   await requireAuth();
-  const parsed = settingsInput.safeParse({
-    timezone: formData.get("timezone"),
-    phoneDefaultRegion: formData.get("phoneDefaultRegion") ?? "",
-    snoozeAllHorizonDays: formData.get("snoozeAllHorizonDays"),
-    snoozeAllPerDayFloor: formData.get("snoozeAllPerDayFloor"),
+  const parsed = notificationsInput.safeParse({
     digestHour: formData.get("digestHour"),
     digestSendWhenEmpty: formData.get("digestSendWhenEmpty") === "on",
     networkUpdatesEmail: formData.get("networkUpdatesEmail") === "on",
-    birthdaysFeb29: formData.get("birthdaysFeb29"),
-    birthdaysImportantOnly: formData.get("birthdaysImportantOnly") === "on",
-    appUrl: formData.get("appUrl"),
     smtpHost: formData.get("smtpHost") ?? "",
     smtpPort: formData.get("smtpPort") || 587,
     smtpSecure: formData.get("smtpSecure") === "on",
@@ -135,20 +180,11 @@ export async function updateSettingsAction(
     smtpFrom: formData.get("smtpFrom") ?? "",
     smtpTo: formData.get("smtpTo") ?? "",
   });
-  if (!parsed.success) {
-    return { error: parsed.error.issues[0].message };
-  }
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
   const s = parsed.data;
-  setSetting("timezone", s.timezone);
-  setSetting("phone_default_region", s.phoneDefaultRegion || null);
-  setSetting("snooze_all.horizon_days", s.snoozeAllHorizonDays);
-  setSetting("snooze_all.per_day_floor", s.snoozeAllPerDayFloor);
   setSetting("digest.hour", s.digestHour);
   setSetting("digest.send_when_empty", s.digestSendWhenEmpty);
   setSetting("network_updates.email", s.networkUpdatesEmail);
-  setSetting("birthdays.feb29", s.birthdaysFeb29);
-  setSetting("birthdays.important_only", s.birthdaysImportantOnly);
-  setSetting("app_url", s.appUrl);
   setSetting("smtp", {
     host: s.smtpHost,
     port: s.smtpPort,
@@ -158,10 +194,9 @@ export async function updateSettingsAction(
     from: s.smtpFrom,
     to: s.smtpTo,
   });
-  // Digest hour or timezone may have moved — re-aim the pending job.
+  // Digest hour may have moved; SMTP appearing enables the network-updates
+  // sweep — both scheduled within a tick, not an interval away.
   ensureDigestJob(Date.now());
-  // Turning network updates on (or configuring SMTP for the first time)
-  // should start the sweep within a tick, not at the next interval.
   ensureSyncJobs(Date.now());
   revalidatePath("/settings");
   return { saved: true };
