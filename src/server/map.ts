@@ -22,14 +22,23 @@ export type MapContact = {
   hasPhoto: boolean;
 };
 
+/** Enough of a contact to draw them as a map marker: photo or initials. */
+export type PinPerson = {
+  id: number;
+  displayName: string;
+  hasPhoto: boolean;
+};
+
 export type MapData = {
   /** Full per-country totals: choropleth shading + the side list. */
   counts: Record<string, number>;
   /** Country bubbles show only contacts NOT pinned to a city, so each
    * person appears exactly once on the map. */
   bubbleCounts: Record<string, number>;
-  /** Geocoded city pins (SPEC §7a city placement). */
-  cities: CityPin[];
+  /** A one-person country bubble renders as that person, not a count. */
+  bubbleSingles: Record<string, PinPerson>;
+  /** Geocoded city pins; `single` set when the pin is one person. */
+  cities: (CityPin & { single: PinPerson | null })[];
   geocodeOn: boolean;
   totalPlaced: number;
   noLocation: number;
@@ -60,6 +69,7 @@ export async function readMapData(
 
   const counts: Record<string, number> = {};
   const bubbleCounts: Record<string, number> = {};
+  const bubbleMembers = new Map<string, MapContact[]>();
   const cityRows: {
     location: string;
     lat: number;
@@ -111,7 +121,13 @@ export async function readMapData(
     counts[country] = (counts[country] ?? 0) + 1;
     // Each person appears once: city pin when geocoded, country bubble
     // otherwise.
-    if (!pinned) bubbleCounts[country] = (bubbleCounts[country] ?? 0) + 1;
+    if (!pinned) {
+      bubbleCounts[country] = (bubbleCounts[country] ?? 0) + 1;
+      bubbleMembers.set(country, [
+        ...(bubbleMembers.get(country) ?? []).slice(0, 1),
+        toContact(row),
+      ]);
+    }
     totalPlaced += 1;
     if (selectedCity === null && selectedId !== null && country === selectedId) {
       selectedContacts.push(toContact(row));
@@ -134,14 +150,35 @@ export async function readMapData(
   return {
     counts,
     bubbleCounts,
-    // Members stay server-side; the client needs only the pin itself.
+    // Members stay server-side except the one case a marker needs a
+    // face: a single-person pin renders as that person.
     cities: cityGroups.map((g) => ({
       key: g.key,
       lat: g.lat,
       lng: g.lng,
       label: g.label,
       count: g.count,
+      single:
+        g.count === 1
+          ? {
+              id: g.members[0].contact.id,
+              displayName: g.members[0].contact.displayName,
+              hasPhoto: g.members[0].contact.hasPhoto,
+            }
+          : null,
     })),
+    bubbleSingles: Object.fromEntries(
+      [...bubbleMembers.entries()]
+        .filter(([id, m]) => m.length === 1 && bubbleCounts[id] === 1)
+        .map(([id, m]) => [
+          id,
+          {
+            id: m[0].id,
+            displayName: m[0].displayName,
+            hasPhoto: m[0].hasPhoto,
+          },
+        ])
+    ),
     geocodeOn: geocodeEnabled(),
     totalPlaced,
     noLocation,

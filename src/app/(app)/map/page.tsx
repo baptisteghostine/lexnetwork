@@ -37,6 +37,7 @@ export default async function MapPage({ searchParams }: PageProps<"/map">) {
       lng: centroids.get(id)![0],
       lat: centroids.get(id)![1],
       count: n,
+      single: data.bubbleSingles[id] ?? null,
     }));
 
   return (
