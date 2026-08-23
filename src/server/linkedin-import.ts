@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import {
@@ -39,7 +39,12 @@ export type UnmatchedConversation = {
   conversationId: string;
   counterpartName: string;
   counterpartProfileUrl: string | null;
-  messages: { direction: "inbound" | "outbound"; occurredAt: number }[];
+  messages: {
+    direction: "inbound" | "outbound";
+    occurredAt: number;
+    /** Absent in reports written before snippets existed. */
+    snippet?: string | null;
+  }[];
 };
 
 export type LinkedInReport = {
@@ -254,7 +259,11 @@ function ensureSocialUrl(contactId: number, rawUrl: string, now: number): void {
 export function insertLinkedInMessages(
   contactId: number,
   conversationId: string,
-  messages: { direction: "inbound" | "outbound"; occurredAt: number }[],
+  messages: {
+    direction: "inbound" | "outbound";
+    occurredAt: number;
+    snippet?: string | null;
+  }[],
   runId: number | null
 ): number {
   const now = Date.now();
@@ -267,7 +276,10 @@ export function insertLinkedInMessages(
         kind: "message",
         direction: m.direction,
         occurredAt: m.occurredAt,
-        title: null,
+        // The snippet is the message's timeline face ("Hi Kate, it's
+        // Baptiste from LBS…") — same column manual and email interactions
+        // use for theirs.
+        title: m.snippet ?? null,
         source: SOURCE,
         sourceKey: `${conversationId}:${m.occurredAt}`,
         // LinkedIn messages count in either direction (SPEC §3).
@@ -275,7 +287,18 @@ export function insertLinkedInMessages(
         syncRunId: runId,
         createdAt: now,
       })
-      .onConflictDoNothing()
+      // Re-importing a ZIP is the normal ritual, and messages imported
+      // before snippets existed sit with title NULL — fill exactly those,
+      // touch nothing else. The WHERE keeps `changes` honest: pure dupes
+      // still count 0, so messagesLinked doesn't inflate on re-import.
+      .onConflictDoUpdate({
+        target: [interactions.contactId, interactions.source, interactions.sourceKey],
+        // uq_interactions_source is a partial index; SQLite only matches
+        // the ON CONFLICT target when its WHERE is restated.
+        targetWhere: sql`source_key IS NOT NULL`,
+        set: { title: sql`excluded.title` },
+        setWhere: sql`${interactions.title} IS NULL AND excluded.title IS NOT NULL`,
+      })
       .run();
     inserted += res.changes;
   }
@@ -562,16 +585,24 @@ export function executeLinkedInRows(opts: {
         conversationId,
         counterpartName: name,
         counterpartProfileUrl: url ?? null,
-        messages: msgs
-          .slice(0, 200)
-          .map((m) => ({ direction: m.direction, occurredAt: m.occurredAt })),
+        messages: msgs.slice(0, 200).map((m) => ({
+          direction: m.direction,
+          occurredAt: m.occurredAt,
+          // Kept in the report so linking the conversation later writes
+          // the same snippets a direct match would have.
+          snippet: m.snippet ?? null,
+        })),
       });
       continue;
     }
     report.messagesLinked += insertLinkedInMessages(
       contactId,
       conversationId,
-      msgs.map((m) => ({ direction: m.direction, occurredAt: m.occurredAt })),
+      msgs.map((m) => ({
+        direction: m.direction,
+        occurredAt: m.occurredAt,
+        snippet: m.snippet ?? null,
+      })),
       runId
     );
     touched.add(contactId);

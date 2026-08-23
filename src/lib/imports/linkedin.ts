@@ -33,7 +33,28 @@ export type LinkedInMessage = {
   counterpartName: string;
   counterpartProfileUrl: string | null;
   occurredAt: number;
+  /**
+   * First ~line of the message body, bounded — enough to recognise a
+   * conversation on the timeline ("Hi Kate, it's Baptiste from LBS…"),
+   * never the archive of it. The full text stays in the owner's ZIP.
+   * Note: the Gmail body prohibition (CLAUDE.md) is about a *sync scope*
+   * the owner never granted; this is content the owner deliberately
+   * exported and uploaded themselves.
+   */
+  snippet: string | null;
 };
+
+export const MESSAGE_SNIPPET_MAX = 160;
+
+/** Collapse whitespace and cut on a word boundary with an ellipsis. */
+export function messageSnippet(content: string): string | null {
+  const flat = content.replace(/\s+/g, " ").trim();
+  if (!flat) return null;
+  if (flat.length <= MESSAGE_SNIPPET_MAX) return flat;
+  const cut = flat.slice(0, MESSAGE_SNIPPET_MAX);
+  const lastSpace = cut.lastIndexOf(" ");
+  return `${cut.slice(0, lastSpace > MESSAGE_SNIPPET_MAX / 2 ? lastSpace : MESSAGE_SNIPPET_MAX)}…`;
+}
 
 export type LinkedInArchiveFiles = {
   connections: string | null;
@@ -175,6 +196,7 @@ export function parseMessages(
   const iTo = col(table.headers, "to");
   const iRecipientUrls = col(table.headers, "recipient profile urls");
   const iDate = col(table.headers, "date");
+  const iContent = col(table.headers, "content");
   if (iConvo < 0 || iFrom < 0 || iDate < 0) return [];
 
   const owner = ownerName?.trim().toLowerCase() ?? null;
@@ -198,6 +220,7 @@ export function parseMessages(
         outbound ? recipientUrl : get(iSenderUrl)
       ),
       occurredAt,
+      snippet: iContent >= 0 ? messageSnippet(get(iContent)) : null,
     });
   }
   return out;

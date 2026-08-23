@@ -4,6 +4,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  MESSAGE_SNIPPET_MAX,
+  messageSnippet,
   normalizeLinkedInUrl,
   parseConnections,
   parseLinkedInDate,
@@ -78,6 +80,31 @@ describe("messages.csv parsing", () => {
       "linkedin.com/in/ana-silva-example"
     );
     expect(msgs[3].counterpartName).toBe("Zara Ahmed");
+  });
+
+  it("carries a snippet of the message body (SPEC §8: the timeline face)", () => {
+    const msgs = parseMessages(read("messages.csv"), owner);
+    expect(msgs[0].snippet).toBe("Hey! Are you around next week?");
+    expect(msgs[1].snippet).toBe("Yes — Tuesday works.");
+  });
+
+  it("tolerates an export without a CONTENT column", () => {
+    const noContent =
+      "CONVERSATION ID,FROM,SENDER PROFILE URL,TO,RECIPIENT PROFILE URLS,DATE\n" +
+      "c1,Ana Silva,https://linkedin.com/in/ana,Baptiste Ghostine,,2026-07-30 09:15:22 UTC\n";
+    const msgs = parseMessages(noContent, "Baptiste Ghostine");
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].snippet).toBeNull();
+  });
+
+  it("bounds snippets on a word, never mid-word", () => {
+    const long = "word ".repeat(80).trim(); // 399 chars
+    const s = messageSnippet(long)!;
+    expect(s.length).toBeLessThanOrEqual(MESSAGE_SNIPPET_MAX + 1); // +ellipsis
+    expect(s.endsWith("…")).toBe(true);
+    expect(s.replace("…", "").endsWith("word")).toBe(true);
+    expect(messageSnippet("  \n  ")).toBeNull();
+    expect(messageSnippet("Line one\nLine two")).toBe("Line one Line two");
   });
 
   it("parses LinkedIn's UTC timestamp format", () => {
