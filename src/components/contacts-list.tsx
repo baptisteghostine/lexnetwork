@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -8,11 +8,13 @@ import {
   ArchiveRestore,
   CircleAlert,
   Clock,
+  Globe,
   Sparkles,
   Star,
   Tag,
 } from "lucide-react";
 
+import { GitHubIcon, LinkedInIcon, XIcon } from "@/components/brand-icons";
 import { ContactAvatar } from "@/components/contact-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,9 +27,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { CADENCE_PRESETS } from "@/lib/cadence/engine";
+import { changeAge } from "@/lib/digest/network-updates";
 import { suggestTagsAction } from "@/server/ai";
-import { bulkSetCadenceAction } from "@/server/cadence";
-import { bulkAddTagAction, bulkSetArchivedAction } from "@/server/contacts";
+import { bulkSetCadenceAction, setCadenceAction } from "@/server/cadence";
+import {
+  bulkAddTagAction,
+  bulkSetArchivedAction,
+  updateContactFieldAction,
+} from "@/server/contacts";
 import { cn } from "@/lib/utils";
 
 export type ContactRow = {
@@ -39,7 +46,148 @@ export type ContactRow = {
   cadenceDays: number | null;
   hasPhoto: boolean;
   overdue: boolean;
+  lastInteractionAt: number | null;
+  links: { platform: string; url: string }[];
   tags: { id: number; name: string; color: string }[];
+};
+
+/**
+ * Notion-style cell: reads as text, and clicking it puts a real input in
+ * the same spot. Commit on Enter or blur, cancel on Escape. The saved
+ * value is kept locally so the row reads correctly before the server
+ * round-trip refreshes the page.
+ */
+function EditableCell({
+  value,
+  width,
+  save,
+  label,
+}: {
+  value: string | null;
+  width: string;
+  save: (next: string) => Promise<void>;
+  label: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [current, setCurrent] = useState(value);
+  const [draft, setDraft] = useState("");
+  const committed = useRef(false);
+
+  const commit = async () => {
+    if (committed.current) return; // Enter already committed; blur follows
+    committed.current = true;
+    setEditing(false);
+    const next = draft.trim();
+    if (next === (current ?? "")) return;
+    setCurrent(next || null); // optimistic — the refresh confirms it
+    await save(next);
+  };
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        aria-label={label}
+        defaultValue={current ?? ""}
+        onFocus={(e) => {
+          committed.current = false;
+          setDraft(e.target.value);
+          e.target.select();
+        }}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => void commit()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") void commit();
+          if (e.key === "Escape") {
+            committed.current = true;
+            setEditing(false);
+          }
+        }}
+        className={cn(
+          width,
+          "rounded border border-primary bg-background px-1 py-0.5 text-[13px] outline-none ring-2 ring-primary/20"
+        )}
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      aria-label={`Edit ${label}`}
+      onClick={() => setEditing(true)}
+      className={cn(
+        width,
+        "cursor-text truncate rounded border border-transparent px-1 py-0.5 text-left text-[13px] hover:border-border",
+        current ? "text-muted-foreground" : "text-muted-foreground/40"
+      )}
+    >
+      {current ?? "—"}
+    </button>
+  );
+}
+
+/** The frequency cell doubles as its own picker (Dex: "Set frequency"
+ * lives in the row, not behind an edit screen). */
+function CadenceCell({
+  contactId,
+  cadenceDays,
+  onDone,
+}: {
+  contactId: number;
+  cadenceDays: number | null;
+  onDone: () => void;
+}) {
+  const label =
+    cadenceDays !== null
+      ? (CADENCE_PRESETS.find((p) => p.days === cadenceDays)?.label ??
+        `${cadenceDays}d`)
+      : null;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "w-24 truncate rounded border border-transparent px-1 py-0.5 text-left text-[12px] hover:border-border",
+            label ? "text-muted-foreground" : "text-muted-foreground/40"
+          )}
+        >
+          {label ?? "Set frequency"}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuLabel>Keep in touch</DropdownMenuLabel>
+        {CADENCE_PRESETS.map((p) => (
+          <DropdownMenuItem
+            key={p.days}
+            onSelect={() =>
+              void setCadenceAction(contactId, p.days).then(onDone)
+            }
+          >
+            {p.label}
+          </DropdownMenuItem>
+        ))}
+        {cadenceDays !== null && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={() =>
+                void setCadenceAction(contactId, null).then(onDone)
+              }
+            >
+              Remove cadence
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+const LINK_ICON: Record<string, React.ReactNode> = {
+  linkedin: <LinkedInIcon className="size-3" />,
+  twitter: <XIcon className="size-2.5" />,
+  github: <GitHubIcon className="size-3" />,
 };
 
 export function ContactsList({
@@ -47,11 +195,14 @@ export function ContactsList({
   allTags,
   archivedView,
   aiEnabled = false,
+  now,
 }: {
   rows: ContactRow[];
   allTags: { id: number; name: string; color: string }[];
   archivedView: boolean;
   aiEnabled?: boolean;
+  /** Server clock, so relative ages match what the server rendered. */
+  now: number;
 }) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -73,6 +224,13 @@ export function ContactsList({
       setSelected(new Set());
       router.refresh();
     });
+
+  const saveField =
+    (contactId: number, field: "title" | "company") =>
+    async (value: string) => {
+      await updateContactFieldAction({ contactId, field, value });
+      router.refresh();
+    };
 
   return (
     <div>
@@ -182,11 +340,13 @@ export function ContactsList({
             setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.id)))
           }
         />
-        <span className="w-64 pl-9">Name</span>
-        <span className="w-44">Title</span>
-        <span className="w-44">Company</span>
+        <span className="w-56 pl-9">Name</span>
+        <span className="w-44 px-1">Title</span>
+        <span className="w-40 px-1">Company</span>
         <span className="flex-1">Tags</span>
-        <span className="w-20 text-right">Cadence</span>
+        <span className="w-16">Links</span>
+        <span className="w-20 text-right">Last touch</span>
+        <span className="w-24 pl-1">Frequency</span>
       </div>
       <ul>
         {rows.map((c) => (
@@ -210,7 +370,7 @@ export function ContactsList({
               hasPhoto={c.hasPhoto}
               size="sm"
             />
-            <span className="flex w-64 items-center gap-1.5">
+            <span className="flex w-56 items-center gap-1.5">
               <Link
                 href={`/contacts/${c.id}`}
                 className="truncate text-[13px] font-medium hover:underline"
@@ -227,12 +387,18 @@ export function ContactsList({
                 />
               ) : null}
             </span>
-            <span className="w-44 truncate text-[13px] text-muted-foreground">
-              {c.title}
-            </span>
-            <span className="w-44 truncate text-[13px] text-muted-foreground">
-              {c.company}
-            </span>
+            <EditableCell
+              value={c.title}
+              width="w-44"
+              label={`title of ${c.displayName}`}
+              save={saveField(c.id, "title")}
+            />
+            <EditableCell
+              value={c.company}
+              width="w-40"
+              label={`company of ${c.displayName}`}
+              save={saveField(c.id, "company")}
+            />
             <span className="flex flex-1 gap-1 overflow-hidden">
               {c.tags.map((t) => (
                 <Badge
@@ -245,11 +411,31 @@ export function ContactsList({
                 </Badge>
               ))}
             </span>
-            <span className="w-20 text-right text-[10px] text-muted-foreground">
-              {c.cadenceDays !== null
-                ? (CADENCE_PRESETS.find((p) => p.days === c.cadenceDays)
-                    ?.label ?? `${c.cadenceDays}d`)
+            <span className="flex w-16 items-center gap-1">
+              {c.links.slice(0, 3).map((l) => (
+                <a
+                  key={l.url}
+                  href={l.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={l.url.replace(/^https?:\/\/(www\.)?/, "")}
+                  className="flex size-5 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:text-primary"
+                >
+                  {LINK_ICON[l.platform] ?? <Globe className="size-3" />}
+                </a>
+              ))}
+            </span>
+            <span className="w-20 text-right text-[11px] text-muted-foreground">
+              {c.lastInteractionAt !== null
+                ? changeAge(c.lastInteractionAt, now)
                 : ""}
+            </span>
+            <span className="w-24 pl-1">
+              <CadenceCell
+                contactId={c.id}
+                cadenceDays={c.cadenceDays}
+                onDone={() => router.refresh()}
+              />
             </span>
           </li>
         ))}

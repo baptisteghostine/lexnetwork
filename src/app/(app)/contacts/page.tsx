@@ -7,7 +7,12 @@ import { aiEnabled } from "@/server/ai-client";
 import { FilterBar } from "@/components/filter-bar";
 import { Button } from "@/components/ui/button";
 import { db } from "@/db/client";
-import { contactTags, tags as tagsTable, views } from "@/db/schema";
+import {
+  contactSocials,
+  contactTags,
+  tags as tagsTable,
+  views,
+} from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
 import { decodeFilterParam } from "@/lib/filters/encode";
 import {
@@ -166,6 +171,30 @@ export default async function ContactsPage({
     tagsByContact.set(t.contactId, list);
   }
 
+  // Social links per visible row (same fetch-then-filter shape as tags
+  // above). LinkedIn first — it's the one that's almost always there.
+  const socialRows = db
+    .select({
+      contactId: contactSocials.contactId,
+      platform: contactSocials.platform,
+      url: contactSocials.url,
+    })
+    .from(contactSocials)
+    .all()
+    .filter((s) => rowIds.has(s.contactId));
+  const linksByContact = new Map<number, { platform: string; url: string }[]>();
+  for (const s of socialRows) {
+    const list = linksByContact.get(s.contactId) ?? [];
+    list.push({ platform: s.platform, url: s.url });
+    linksByContact.set(s.contactId, list);
+  }
+  for (const list of linksByContact.values()) {
+    list.sort(
+      (a, b) =>
+        Number(b.platform === "linkedin") - Number(a.platform === "linkedin")
+    );
+  }
+
   const ai = aiEnabled();
 
   return (
@@ -234,6 +263,7 @@ export default async function ContactsPage({
             archivedView={archivedView}
             allTags={allTags}
             aiEnabled={ai}
+            now={nowMs}
             rows={rows.map((c) => ({
               id: c.id,
               displayName: c.displayName,
@@ -243,6 +273,8 @@ export default async function ContactsPage({
               cadenceDays: c.cadenceDays,
               hasPhoto: c.photoPath !== null,
               overdue: c.nextTouchAt !== null && c.nextTouchAt <= nowMs,
+              lastInteractionAt: c.lastInteractionAt,
+              links: linksByContact.get(c.id) ?? [],
               tags: tagsByContact.get(c.id) ?? [],
             }))}
           />

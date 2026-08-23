@@ -293,7 +293,25 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   none has been confirmed against live LinkedIn. Everything else is
   verified end-to-end against a real database.
 
-465 unit tests + 15 Playwright E2E tests passing as of the location enricher. Open questions from SPEC.md's decision
+- ✅ **Dex parity round 2: message snippets, profile anatomy, editable
+  list** (owner request, 2026-08-23, SPEC §1/§2 amendments, no schema
+  change). (1) messages.csv's CONTENT column was parsed away — every
+  message interaction sat titleless. Now a bounded 160-char snippet lands
+  in `interactions.title`; re-imports backfill pre-snippet rows via an
+  upsert whose setWhere targets exactly title-IS-NULL (partial-index
+  conflict target restated; verified against a real DB — dupes still
+  count zero). Owner-exported content, not a Gmail-invariant issue.
+  (2) Profile page restructured to Dex's anatomy: identity header with
+  icon-per-channel row, Added/Last/Next/Frequency stat row, Recent
+  interactions strip ("You: Hi Kate…" + relative age), timeline center
+  stage, reference fields in a right sidebar. Brand glyphs are three
+  inline SVGs (lucide dropped its brand set). (3) Contacts list edits
+  like Notion cells: Title/Company click-to-edit in place through a
+  single-field action that flips only the touched field's provenance
+  (no-op commits flip nothing — false-conflict guard), Frequency picker
+  in the row, social-link icons, last-touch age column.
+
+468 unit tests + 15 Playwright E2E tests passing as of Dex parity round 2. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---

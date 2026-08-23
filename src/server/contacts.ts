@@ -297,6 +297,64 @@ export async function updateContactAction(
   redirect(`/contacts/${contactId}`);
 }
 
+// The inline-editable table cells (SPEC §7: the list edits like cells,
+// not like a form). One field per save keeps the provenance rule exact:
+// only the touched field flips to 'user'.
+const INLINE_FIELDS = {
+  title: "title",
+  company: "company",
+  location: "location",
+} as const;
+type InlineField = keyof typeof INLINE_FIELDS;
+
+const inlineFieldInput = z.object({
+  contactId: z.number().int().positive(),
+  field: z.enum(["title", "company", "location"]),
+  value: z.string().trim().max(200),
+});
+
+export async function updateContactFieldAction(input: {
+  contactId: number;
+  field: InlineField;
+  value: string;
+}): Promise<{ ok: true; value: string | null } | { error: string }> {
+  await requireAuth();
+  const parsed = inlineFieldInput.safeParse(input);
+  if (!parsed.success) return { error: "Invalid edit." };
+  const { contactId, field } = parsed.data;
+  const value = parsed.data.value || null;
+
+  const prev = db
+    .select()
+    .from(contacts)
+    .where(eq(contacts.id, contactId))
+    .get();
+  if (!prev) return { error: "Contact not found." };
+  // An untouched commit (click in, click out) must not flip provenance to
+  // 'user' — that would provoke a false conflict on the next import.
+  if ((prev[INLINE_FIELDS[field]] ?? null) === value) {
+    return { ok: true, value };
+  }
+
+  const now = Date.now();
+  db.transaction(() => {
+    db.update(contacts)
+      .set({ [INLINE_FIELDS[field]]: value, updatedAt: now })
+      .where(eq(contacts.id, contactId))
+      .run();
+    db.insert(contactFieldSources)
+      .values({ contactId, field, source: "user", updatedAt: now })
+      .onConflictDoUpdate({
+        target: [contactFieldSources.contactId, contactFieldSources.field],
+        set: { source: "user", updatedAt: now },
+      })
+      .run();
+  });
+  revalidatePath("/contacts");
+  revalidatePath(`/contacts/${contactId}`);
+  return { ok: true, value };
+}
+
 export async function toggleStarAction(contactId: number): Promise<void> {
   await requireAuth();
   const row = db

@@ -20,6 +20,8 @@ Conventions used below:
 - Custom fields: owner defines fields of type text, number, date, single-select, multi-select. They appear on every contact profile and are filterable.
 - Tags: flat, colored, freely assignable. Groups: hierarchical (one parent max), each with an emoji; a contact can be in many groups.
 - Star: boolean, prominent in lists. Archive: hides the contact from all default lists, search (unless "include archived" toggled), the Today queue, digests, and birthdays; archived contacts keep all data and can be unarchived.
+- **The contacts list edits like cells, not like a form** (owner request, 2026-08-23, Dex parity): Title and Company are click-to-edit in place (Enter/blur saves, Escape cancels), Frequency is a picker in the row. One field per save, so provenance stays exact — only the touched field flips to `user`, and an untouched commit (click in, click out) flips nothing, or re-imports would see false conflicts. The list also shows social-link icons, and last interaction as a relative age.
+- **Profile anatomy** (owner request, 2026-08-23, Dex parity): identity header (xl avatar, name, headline, location, one icon per way to reach them), a stat row (Added · Last interaction · Next touch · Frequency), the Recent-interactions strip (SPEC §2), then the timeline; reference fields (cadence, tags, fields, work history, education, custom fields, relationships) in a right sidebar.
 
 ### Edge cases
 - Contact with no name (email-only capture from Gmail): display as the email address until named.
@@ -52,6 +54,8 @@ Conventions used below:
 - A mention of a contact that is later merged: mention rows are repointed to the winning contact by the merge.
 - Autosave conflict (two tabs open on the same note): last write wins; this is a single-user tool. Documented, not "solved".
 - Email interactions never show a body — there is none stored. The timeline row shows subject, direction, other participants, and a "open in Gmail" link built from the thread id.
+- LinkedIn message interactions carry a **bounded snippet** of the message (160 chars, cut on a word) in `interactions.title` — a recognition aid ("You: Hi Kate, it's Baptiste from LBS…"), not an archive; the full text stays in the owner's ZIP. This is distinct from the Gmail rule above: Gmail bodies are a sync scope the owner never granted, whereas these are messages the owner deliberately exported and uploaded. Re-imports backfill snippets onto rows imported before this existed (title IS NULL only) without inflating link counts.
+- The contact profile leads with a **Recent interactions** strip (Dex): the last three interactions with their snippet/title, direction ("You:" when outbound), and relative age — the "where were we?" answer before the timeline.
 
 ### Quick log — "Who did you meet?" (owner request, 2026-08-20)
 - Global affordance (sidebar button, or `q` anywhere outside a text field): search contacts or type a new name, one line of what happened, a date (default today, never the future). Saves as a **counting manual interaction** — the keep-in-touch clock restarts from that date. An unknown name creates the contact (source `user`) in the same action.
@@ -253,7 +257,7 @@ Re-running any import with the same file: 100% unchanged, zero writes. An identi
 - Accept the whole ZIP; locate `Connections.csv`, `messages.csv`, `Profile.csv` case-insensitively, tolerating LinkedIn's "notes" preamble lines above the header in Connections.csv.
 - Connections.csv → name, company, position, connected-on, profile URL (identity key), email when present.
 - Diff vs previous LinkedIn run → job changes (§5).
-- messages.csv → per-conversation, map counterpart to contact (by profile URL when present, else exact name match among LinkedIn-sourced contacts); write message interactions (direction from FROM field), idempotent on (conversation id, message timestamp). Max message timestamp per contact feeds `last_interaction_at`.
+- messages.csv → per-conversation, map counterpart to contact (by profile URL when present, else exact name match among LinkedIn-sourced contacts); write message interactions (direction from FROM field, bounded CONTENT snippet as the title), idempotent on (conversation id, message timestamp). Max message timestamp per contact feeds `last_interaction_at`.
 - Report ends with a summary: X connections (new/updated), Y job changes, Z messages linked, W unmatched conversations (listed, with a "link to contact" picker).
 
 ### Acceptance criteria
