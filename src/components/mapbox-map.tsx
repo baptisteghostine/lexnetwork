@@ -53,10 +53,13 @@ export function MapboxMap({
   token,
   cities,
   countryBubbles,
+  fill = false,
 }: {
   token: string;
   cities: CityPin[];
   countryBubbles: CountryBubble[];
+  /** Fill the parent (full-bleed page) instead of a fixed-height card. */
+  fill?: boolean;
 }) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -146,7 +149,11 @@ export function MapboxMap({
   return (
     <div
       ref={containerRef}
-      className="h-[560px] w-full overflow-hidden rounded-lg border border-border"
+      className={
+        fill
+          ? "h-full w-full"
+          : "h-[560px] w-full overflow-hidden rounded-lg border border-border"
+      }
       role="img"
       aria-label="Contacts on an interactive world map"
     />

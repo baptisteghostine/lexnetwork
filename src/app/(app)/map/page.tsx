@@ -41,8 +41,8 @@ export default async function MapPage({ searchParams }: PageProps<"/map">) {
 
   return (
     <div className="flex h-[calc(100vh-0px)] min-h-0">
-      <div className="min-w-0 flex-1 overflow-y-auto">
-        <header className="flex items-baseline justify-between border-b border-border px-5 py-2.5">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex shrink-0 items-baseline justify-between border-b border-border px-5 py-2.5">
           <h1 className="text-sm font-semibold">Map</h1>
           <p className="text-xs text-muted-foreground">
             {data.totalPlaced.toLocaleString()} contacts placed in{" "}
@@ -50,56 +50,82 @@ export default async function MapPage({ searchParams }: PageProps<"/map">) {
             {data.noLocation > 0 ? ` · ${data.noLocation} without a location` : ""}
           </p>
         </header>
-        <div className="p-4">
-          {mapboxToken ? (
+        {mapboxToken ? (
+          // Full-bleed globe: the map is the page, helpers float on it.
+          <div className="relative min-h-0 flex-1">
             <MapboxMap
               token={mapboxToken}
               cities={data.cities}
               countryBubbles={countryBubbles}
+              fill
             />
-          ) : (
-            <WorldMap
-              counts={data.bubbleCounts}
-              cities={data.cities}
-              selectedId={selectedId}
-              selectedCityKey={selectedCity}
-            />
-          )}
-          {data.cities.length > 0 ? (
-            <p className="mt-1 text-right text-[10px] text-muted-foreground/70">
-              City placement data © OpenStreetMap contributors
-            </p>
-          ) : null}
-          {!data.geocodeOn && data.totalPlaced > 0 ? (
-            <p className="mt-2 text-[11px] text-muted-foreground">
-              Want city-level pins like Dex? Turn on{" "}
-              <span className="font-medium">
-                Settings → Integrations → Place cities with OpenStreetMap
-              </span>{" "}
-              — free, no account, and only the location text ever leaves
-              Rolo.
-            </p>
-          ) : null}
-        </div>
-        {data.unrecognized.length > 0 && (
-          <div className="border-t border-border px-5 py-3">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Locations the map couldn&rsquo;t place
-            </h2>
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              Editing these contacts&rsquo; locations to a &ldquo;City,
-              Country&rdquo; form will put them on the map.
-            </p>
-            <ul className="mt-2 flex flex-wrap gap-2 text-xs">
-              {data.unrecognized.map((u) => (
-                <li
-                  key={u.location}
-                  className="rounded-md border border-border px-2 py-1 text-muted-foreground"
-                >
-                  {u.location} · {u.count}
-                </li>
-              ))}
-            </ul>
+            <div className="pointer-events-none absolute bottom-6 left-3 z-10 max-w-[60%] space-y-1.5">
+              {data.unrecognized.length > 0 && (
+                <ul className="flex flex-wrap gap-1.5 text-[11px]">
+                  {data.unrecognized.map((u) => (
+                    <li
+                      key={u.location}
+                      title='This location string could not be placed — edit it to a "City, Country" form.'
+                      className="rounded-md border border-border bg-background/85 px-1.5 py-0.5 text-muted-foreground backdrop-blur"
+                    >
+                      {u.location} · {u.count}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {data.cities.length > 0 ? (
+                <p className="text-[10px] text-muted-foreground/80 [text-shadow:0_0_4px_var(--background)]">
+                  City placement data © OpenStreetMap contributors
+                </p>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="p-4">
+              <WorldMap
+                counts={data.bubbleCounts}
+                cities={data.cities}
+                selectedId={selectedId}
+                selectedCityKey={selectedCity}
+              />
+              {data.cities.length > 0 ? (
+                <p className="mt-1 text-right text-[10px] text-muted-foreground/70">
+                  City placement data © OpenStreetMap contributors
+                </p>
+              ) : null}
+              {!data.geocodeOn && data.totalPlaced > 0 ? (
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  Want city-level pins like Dex? Turn on{" "}
+                  <span className="font-medium">
+                    Settings → Integrations → Place cities with OpenStreetMap
+                  </span>{" "}
+                  — free, no account, and only the location text ever leaves
+                  Rolo.
+                </p>
+              ) : null}
+            </div>
+            {data.unrecognized.length > 0 && (
+              <div className="border-t border-border px-5 py-3">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Locations the map couldn&rsquo;t place
+                </h2>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Editing these contacts&rsquo; locations to a &ldquo;City,
+                  Country&rdquo; form will put them on the map.
+                </p>
+                <ul className="mt-2 flex flex-wrap gap-2 text-xs">
+                  {data.unrecognized.map((u) => (
+                    <li
+                      key={u.location}
+                      className="rounded-md border border-border px-2 py-1 text-muted-foreground"
+                    >
+                      {u.location} · {u.count}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
       </div>
