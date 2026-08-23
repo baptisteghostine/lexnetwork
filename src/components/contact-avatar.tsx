@@ -20,6 +20,7 @@ const SIZES = {
   sm: "size-6 text-[10px]",
   md: "size-8 text-[11px]",
   lg: "size-14 text-lg",
+  xl: "size-20 text-2xl",
 } as const;
 
 function initials(name: string): string {

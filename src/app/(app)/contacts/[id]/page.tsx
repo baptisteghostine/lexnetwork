@@ -1,6 +1,17 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CircleAlert, Star } from "lucide-react";
+import {
+  CircleAlert,
+  Globe,
+  Handshake,
+  Mail,
+  MapPin,
+  MessageSquare,
+  Phone,
+  Star,
+} from "lucide-react";
+
+import { GitHubIcon, LinkedInIcon, XIcon } from "@/components/brand-icons";
 
 import { CadenceControl } from "@/components/cadence-control";
 import { ContactActions } from "@/components/contact-actions";
@@ -17,7 +28,8 @@ import {
   listCustomFields,
 } from "@/server/custom-fields";
 import { requireAuth } from "@/lib/auth";
-import { DAY_MS } from "@/lib/cadence/engine";
+import { CADENCE_PRESETS, DAY_MS } from "@/lib/cadence/engine";
+import { changeAge } from "@/lib/digest/network-updates";
 import { now as currentTime } from "@/lib/time";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,6 +40,7 @@ import {
   getContactTimeline,
   listGroups,
   listTags,
+  type TimelineInteraction,
 } from "@/server/queries";
 
 export const dynamic = "force-dynamic";
@@ -96,6 +109,18 @@ export default async function ContactPage({
       ? Math.floor((nowMs - contact.nextTouchAt) / DAY_MS)
       : null;
 
+  // Dex's "Recent interactions" strip: the last few touches, right under
+  // the name — the "where were we?" answer before scrolling the timeline.
+  const recent = timeline
+    .filter((i): i is TimelineInteraction => i.type === "interaction")
+    .slice(0, 3);
+
+  const cadenceLabel =
+    contact.cadenceDays !== null
+      ? (CADENCE_PRESETS.find((p) => p.days === contact.cadenceDays)?.label ??
+        `${contact.cadenceDays}d`)
+      : null;
+
   // SPEC §1: hovering a field shows where its value came from.
   const sourceTitle = (field: string): string | undefined => {
     const p = provenance[field];
@@ -103,6 +128,38 @@ export default async function ContactPage({
     const label = SOURCE_LABEL[p.source] ?? `From ${p.source}`;
     return `${label} · ${new Date(p.updatedAt).toLocaleDateString()}`;
   };
+
+  // Icon row under the name (Dex): one icon per way to reach this person.
+  const iconLinks: { key: string; href: string; icon: React.ReactNode; label: string }[] = [];
+  if (emails[0]) {
+    iconLinks.push({
+      key: "mail",
+      href: `mailto:${emails[0].email}`,
+      icon: <Mail className="size-3.5" />,
+      label: `Email ${emails[0].email}`,
+    });
+  }
+  if (phones[0]) {
+    iconLinks.push({
+      key: "phone",
+      href: `tel:${phones[0].phoneRaw}`,
+      icon: <Phone className="size-3.5" />,
+      label: `Call ${phones[0].phoneRaw}`,
+    });
+  }
+  const PLATFORM_ICON: Record<string, React.ReactNode> = {
+    linkedin: <LinkedInIcon className="size-3.5" />,
+    twitter: <XIcon className="size-3" />,
+    github: <GitHubIcon className="size-3.5" />,
+  };
+  for (const s of socials) {
+    iconLinks.push({
+      key: `s${s.id}`,
+      href: s.url,
+      icon: PLATFORM_ICON[s.platform] ?? <Globe className="size-3.5" />,
+      label: s.url.replace(/^https?:\/\/(www\.)?/, ""),
+    });
+  }
 
   return (
     <div className="flex h-screen flex-col">
@@ -133,42 +190,169 @@ export default async function ContactPage({
       </header>
 
       <div className="flex min-h-0 flex-1">
-        {/* Detail panel (Dex anatomy: fields left, timeline right) */}
-        <aside className="w-80 shrink-0 space-y-4 overflow-y-auto border-r border-border bg-card/40 px-5 py-4">
-          <div className="flex items-start gap-3">
-            <ContactAvatar
-              contactId={contact.id}
-              name={contact.displayName}
-              hasPhoto={contact.photoPath !== null}
-              size="lg"
-            />
-            <div className="min-w-0 pt-0.5">
-              <div className="flex items-center gap-1.5">
-                <h1 className="truncate text-[15px] font-semibold">
-                  {contact.displayName}
-                </h1>
-                {contact.starred ? (
-                  <Star className="size-3.5 shrink-0 fill-warning text-warning" />
+        {/* Main column (Dex anatomy: identity + activity center stage) */}
+        <main className="min-w-0 flex-1 overflow-y-auto px-6 py-5">
+          <div className="mx-auto max-w-2xl space-y-5">
+            {/* Identity header */}
+            <div className="flex items-start gap-4">
+              <ContactAvatar
+                contactId={contact.id}
+                name={contact.displayName}
+                hasPhoto={contact.photoPath !== null}
+                size="xl"
+              />
+              <div className="min-w-0 flex-1 pt-1">
+                <div className="flex items-center gap-2">
+                  <h1 className="truncate text-xl font-semibold tracking-tight">
+                    {contact.displayName}
+                  </h1>
+                  {contact.starred ? (
+                    <Star className="size-4 shrink-0 fill-warning text-warning" />
+                  ) : null}
+                </div>
+                {(contact.title || contact.company) && (
+                  <p
+                    className="mt-0.5 truncate text-[13px] text-muted-foreground"
+                    title={sourceTitle("title") ?? sourceTitle("company")}
+                  >
+                    {[contact.title, contact.company]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                )}
+                {contact.location ? (
+                  <p
+                    className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground"
+                    title={sourceTitle("location")}
+                  >
+                    <MapPin className="size-3" />
+                    {contact.location}
+                  </p>
                 ) : null}
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {daysOverdue !== null ? (
+                    <Badge variant="outline" className="gap-1 border-overdue/40 text-overdue">
+                      <CircleAlert className="size-3" />
+                      {daysOverdue === 0 ? "Due today" : `Overdue ${daysOverdue}d`}
+                    </Badge>
+                  ) : null}
+                  {iconLinks.map((l) => (
+                    <a
+                      key={l.key}
+                      href={l.href}
+                      target={l.href.startsWith("http") ? "_blank" : undefined}
+                      rel="noreferrer"
+                      title={l.label}
+                      aria-label={l.label}
+                      className="flex size-7 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+                    >
+                      {l.icon}
+                    </a>
+                  ))}
+                </div>
               </div>
-              {(contact.title || contact.company) && (
-                <p className="truncate text-xs text-muted-foreground">
-                  {[contact.title, contact.company]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-              )}
-              {daysOverdue !== null ? (
-                <p className="mt-1 flex items-center gap-1 text-[11px] font-medium text-overdue">
-                  <CircleAlert className="size-3" />
-                  {daysOverdue === 0
-                    ? "Due today"
-                    : `Overdue ${daysOverdue}d`}
-                </p>
-              ) : null}
+            </div>
+
+            {/* Stat row (Dex: Added · First met · Last interaction · Frequency) */}
+            <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-4">
+              <Stat label="Added">
+                {changeAge(contact.createdAt, nowMs)}
+              </Stat>
+              <Stat label="Last interaction">
+                {contact.lastInteractionAt !== null
+                  ? changeAge(contact.lastInteractionAt, nowMs)
+                  : "—"}
+              </Stat>
+              <Stat label="Next touch">
+                {contact.nextTouchAt !== null
+                  ? daysOverdue !== null
+                    ? daysOverdue === 0
+                      ? "today"
+                      : `${daysOverdue}d overdue`
+                    : `in ${Math.max(1, Math.ceil((contact.nextTouchAt - nowMs) / DAY_MS))}d`
+                  : "—"}
+              </Stat>
+              <Stat label="Frequency">{cadenceLabel ?? "not set"}</Stat>
+            </div>
+
+            {/* Recent interactions (Dex): the last word before the timeline */}
+            {recent.length > 0 && (
+              <section className="space-y-1.5">
+                <h2 className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Recent interactions
+                </h2>
+                <ol className="space-y-1">
+                  {recent.map(({ interaction, at }) => (
+                    <li
+                      key={interaction.id}
+                      className="flex items-baseline gap-2 rounded-md border border-border/60 bg-card/40 px-3 py-1.5 text-[13px]"
+                    >
+                      <span className="translate-y-0.5 text-muted-foreground">
+                        {interaction.kind === "message" ? (
+                          <MessageSquare className="size-3.5" />
+                        ) : interaction.kind === "email" ? (
+                          <Mail className="size-3.5" />
+                        ) : (
+                          <Handshake className="size-3.5" />
+                        )}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">
+                        {interaction.direction === "outbound" ? (
+                          <span className="font-medium">You: </span>
+                        ) : null}
+                        {interaction.title ?? (
+                          <span className="text-muted-foreground">
+                            {interaction.kind === "message"
+                              ? "Message"
+                              : interaction.kind === "email"
+                                ? "Email"
+                                : interaction.kind === "meeting"
+                                  ? "Meeting"
+                                  : "Caught up"}
+                          </span>
+                        )}
+                      </span>
+                      <span className="shrink-0 text-[11px] text-muted-foreground">
+                        {changeAge(at, nowMs)}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            )}
+
+            {contact.descriptionMd ? (
+              <p
+                className="whitespace-pre-wrap text-[13px] text-muted-foreground"
+                title={sourceTitle("description_md")}
+              >
+                {contact.descriptionMd}
+              </p>
+            ) : null}
+
+            {/* Timeline stream */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Timeline
+                </h2>
+                <div className="flex gap-2">
+                  {ai && <OpenersDialog contactId={contact.id} />}
+                  <LogInteraction contactId={contact.id} />
+                  <AddNoteButton contactId={contact.id} />
+                </div>
+              </div>
+              <Timeline
+                items={timeline}
+                newestNoteId={newestEmptyNoteId}
+                aiEnabled={ai}
+              />
             </div>
           </div>
+        </main>
 
+        {/* Detail sidebar (Dex anatomy: reference fields on the right) */}
+        <aside className="w-80 shrink-0 space-y-4 overflow-y-auto border-l border-border bg-card/40 px-5 py-4">
           <CadenceControl
             contactId={contact.id}
             cadenceDays={contact.cadenceDays}
@@ -329,41 +513,25 @@ export default async function ContactPage({
 
           <Separator />
           <RelationshipsCard contactId={contact.id} edges={relationships} />
-
-          {contact.descriptionMd ? (
-            <>
-              <Separator />
-              <p
-                className="whitespace-pre-wrap text-[13px] text-muted-foreground"
-                title={sourceTitle("description_md")}
-              >
-                {contact.descriptionMd}
-              </p>
-            </>
-          ) : null}
         </aside>
-
-        {/* Timeline stream */}
-        <main className="min-w-0 flex-1 overflow-y-auto px-5 py-4">
-          <div className="mx-auto max-w-2xl space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Timeline
-              </h2>
-              <div className="flex gap-2">
-                {ai && <OpenersDialog contactId={contact.id} />}
-                <LogInteraction contactId={contact.id} />
-                <AddNoteButton contactId={contact.id} />
-              </div>
-            </div>
-            <Timeline
-              items={timeline}
-              newestNoteId={newestEmptyNoteId}
-              aiEnabled={ai}
-            />
-          </div>
-        </main>
       </div>
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="bg-background px-3 py-2">
+      <dt className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </dt>
+      <dd className="mt-0.5 text-[13px] font-medium">{children}</dd>
     </div>
   );
 }
