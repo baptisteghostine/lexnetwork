@@ -24,6 +24,18 @@ export type WorldGeometry = {
 };
 
 let cached: WorldGeometry | null = null;
+let cachedProjection: ReturnType<typeof geoNaturalEarth1> | null = null;
+
+/** lon/lat → SVG x/y in the same projection the country shapes use, so
+ * city pins land exactly on their polygons. Null off-projection. */
+export function projectPoint(
+  lng: number,
+  lat: number
+): [number, number] | null {
+  if (!cachedProjection) worldGeometry();
+  const p = cachedProjection?.([lng, lat]);
+  return p ? [p[0], p[1]] : null;
+}
 
 export function worldGeometry(): WorldGeometry {
   if (cached) return cached;
@@ -55,6 +67,7 @@ export function worldGeometry(): WorldGeometry {
       ? [{ id: p.id, name: p.name, point: [projected[0], projected[1]] as [number, number] }]
       : [];
   });
+  cachedProjection = projection;
   cached = { shapes, extraPoints };
   return cached;
 }

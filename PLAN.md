@@ -293,6 +293,30 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   none has been confirmed against live LinkedIn. Everything else is
   verified end-to-end against a real database.
 
+- ✅ **City placement via Nominatim** (owner request, 2026-08-24, SPEC
+  §7a, decision #4 delivered; migration 0017:
+  `contacts.geocode_attempted_at`). The owner asked for an external API
+  "as long as it's free" after seeing Dex's city-level map; Nominatim is
+  the one geocoder with no account, no key, and no tier — and the
+  architecture had been waiting for it (allowlist entry, `geocode` job
+  kind, lat/lng columns all pre-reserved). A recurring job geocodes each
+  *distinct location string* once at Nominatim's 1 req/s, most-shared
+  first, batches of 150 under the job lease, misses stamped and retried
+  after 90 days, answers fanned out to every contact sharing the string
+  (~2200 contacts ≈ a few hundred lookups, done in an hour or two).
+  Only the location text is ever sent. Every location write path clears
+  stale coordinates so moved contacts re-geocode. On the map, geocoded
+  contacts become city pins — greedy ~5 km anchor clustering (a grid
+  would split points straddling a cell boundary; the unit test that
+  caught exactly that is in the battery), order-independent, labeled by
+  the most common string's city half — with click-to-list, a "By city"
+  side ranking, and OSM attribution. Each person appears exactly once:
+  pin when geocoded, country bubble otherwise. Rendering stays bundled
+  d3 — no tile server, no Mapbox account. Off by default; the Settings
+  card is the consent and shows pinned/total progress. Verified
+  end-to-end with a stubbed transport: one lookup placed two contacts,
+  the miss stamped without a pin, second run no-oped.
+
 - ✅ **Dex parity round 2: message snippets, profile anatomy, editable
   list** (owner request, 2026-08-23, SPEC §1/§2 amendments, no schema
   change). (1) messages.csv's CONTENT column was parsed away — every
@@ -311,7 +335,7 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   (no-op commits flip nothing — false-conflict guard), Frequency picker
   in the row, social-link icons, last-touch age column.
 
-468 unit tests + 15 Playwright E2E tests passing as of Dex parity round 2. Open questions from SPEC.md's decision
+478 unit tests + 15 Playwright E2E tests passing as of city placement. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---

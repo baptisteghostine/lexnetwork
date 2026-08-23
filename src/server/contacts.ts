@@ -283,8 +283,17 @@ export async function updateContactAction(
       .from(contacts)
       .where(eq(contacts.id, contactId))
       .get();
+    const locationChanged =
+      (scalarValues(p).location ?? null) !== (prev?.location ?? null);
     db.update(contacts)
-      .set({ ...scalarValues(p), updatedAt: now })
+      .set({
+        ...scalarValues(p),
+        updatedAt: now,
+        // A changed location invalidates its pin (SPEC §7a).
+        ...(locationChanged
+          ? { locationLat: null, locationLng: null, geocodeAttemptedAt: null }
+          : {}),
+      })
       .where(eq(contacts.id, contactId))
       .run();
     writeMultiValueRows(contactId, p, now);
@@ -339,7 +348,14 @@ export async function updateContactFieldAction(input: {
   const now = Date.now();
   db.transaction(() => {
     db.update(contacts)
-      .set({ [INLINE_FIELDS[field]]: value, updatedAt: now })
+      .set({
+        [INLINE_FIELDS[field]]: value,
+        updatedAt: now,
+        // A changed location invalidates its pin (SPEC §7a).
+        ...(field === "location"
+          ? { locationLat: null, locationLng: null, geocodeAttemptedAt: null }
+          : {}),
+      })
       .where(eq(contacts.id, contactId))
       .run();
     db.insert(contactFieldSources)

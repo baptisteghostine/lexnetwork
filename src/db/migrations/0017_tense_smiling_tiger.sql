@@ -1,0 +1,1 @@
+ALTER TABLE `contacts` ADD `geocode_attempted_at` integer;

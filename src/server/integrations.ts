@@ -15,6 +15,7 @@ import {
   enrichEnabled,
   linkedInLocationCounts,
 } from "@/server/sync/linkedin-enrich";
+import { geocodeEnabled, geocodeProgress } from "@/server/sync/geocode";
 import { getSetting, setSetting } from "@/lib/settings";
 import { ensureSyncJobs, enqueueJob } from "@/jobs/scheduler";
 import {
@@ -170,12 +171,19 @@ export type EnrichStatus = {
   linkedInContacts: number;
 };
 
+export type GeocodeStatus = {
+  enabled: boolean;
+  contactsWithLocation: number;
+  contactsPlaced: number;
+};
+
 export async function readIntegrations(): Promise<{
   google: IntegrationStatus;
   linkedin: IntegrationStatus;
   voyager: VoyagerStatus;
   extensionToken: string;
   enrich: EnrichStatus;
+  geocode: GeocodeStatus;
 }> {
   await requireAuth();
   return {
@@ -185,7 +193,23 @@ export async function readIntegrations(): Promise<{
     // Generated on first view; the extension needs it to post (SPEC §9c).
     extensionToken: ensureExtensionToken(),
     enrich: enrichStatusNow(),
+    geocode: { enabled: geocodeEnabled(), ...geocodeProgress() },
   };
+}
+
+/** SPEC decision #4: Nominatim, off by default — flipping this on is the
+ * owner configuring the integration, which is what the outbound-host
+ * allowlist entry has been waiting for. */
+export async function setGeocodeEnabledAction(input: {
+  enabled: boolean;
+}): Promise<{ ok: true }> {
+  await requireAuth();
+  setSetting("geocode.enabled", input.enabled);
+  // First batch inside a tick, not an interval away.
+  ensureSyncJobs(Date.now());
+  revalidatePath("/settings");
+  revalidatePath("/map");
+  return { ok: true };
 }
 
 function enrichStatusNow(): EnrichStatus {

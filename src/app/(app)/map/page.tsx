@@ -13,7 +13,8 @@ export default async function MapPage({ searchParams }: PageProps<"/map">) {
   await requireAuth();
   const params = await searchParams;
   const selectedId = typeof params.c === "string" ? params.c : null;
-  const data = await readMapData(selectedId);
+  const selectedCity = typeof params.city === "string" ? params.city : null;
+  const data = await readMapData(selectedId, selectedCity);
 
   const names = countryNames();
   const ranked = Object.entries(data.counts)
@@ -32,7 +33,27 @@ export default async function MapPage({ searchParams }: PageProps<"/map">) {
           </p>
         </header>
         <div className="p-4">
-          <WorldMap counts={data.counts} selectedId={data.selected?.id ?? null} />
+          <WorldMap
+            counts={data.bubbleCounts}
+            cities={data.cities}
+            selectedId={selectedId}
+            selectedCityKey={selectedCity}
+          />
+          {data.cities.length > 0 ? (
+            <p className="mt-1 text-right text-[10px] text-muted-foreground/70">
+              City placement data © OpenStreetMap contributors
+            </p>
+          ) : null}
+          {!data.geocodeOn && data.totalPlaced > 0 ? (
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Want city-level pins like Dex? Turn on{" "}
+              <span className="font-medium">
+                Settings → Integrations → Place cities with OpenStreetMap
+              </span>{" "}
+              — free, no account, and only the location text ever leaves
+              Rolo.
+            </p>
+          ) : null}
         </div>
         {data.unrecognized.length > 0 && (
           <div className="border-t border-border px-5 py-3">
@@ -97,11 +118,33 @@ export default async function MapPage({ searchParams }: PageProps<"/map">) {
             </ul>
           </>
         ) : (
-          <>
-            <div className="border-b border-border px-4 py-2.5">
+          <div className="flex-1 overflow-y-auto">
+            {data.cities.length > 0 ? (
+              <>
+                <div className="border-b border-border px-4 py-2.5">
+                  <h2 className="text-[13px] font-semibold">By city</h2>
+                </div>
+                <ul className="p-2">
+                  {data.cities.slice(0, 15).map((c) => (
+                    <li key={c.key}>
+                      <Link
+                        href={`/map?city=${c.key}`}
+                        className="flex items-baseline justify-between rounded-md px-2 py-1.5 text-[12.5px] hover:bg-accent"
+                      >
+                        <span className="truncate">{c.label}</span>
+                        <span className="tabular-nums text-muted-foreground">
+                          {c.count}
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+            <div className="border-b border-t border-border px-4 py-2.5">
               <h2 className="text-[13px] font-semibold">By country</h2>
             </div>
-            <ul className="flex-1 overflow-y-auto p-2">
+            <ul className="p-2">
               {ranked.length === 0 ? (
                 <p className="px-2 py-6 text-center text-xs text-muted-foreground">
                   No contacts with recognizable locations yet.
@@ -122,7 +165,7 @@ export default async function MapPage({ searchParams }: PageProps<"/map">) {
                 ))
               )}
             </ul>
-          </>
+          </div>
         )}
       </aside>
     </div>

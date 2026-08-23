@@ -198,7 +198,14 @@ export function applyScalarWrite(
     return;
   }
   db.update(contacts)
-    .set({ [FIELD_COLUMNS[field]]: value, updatedAt: now })
+    .set({
+      [FIELD_COLUMNS[field]]: value,
+      updatedAt: now,
+      // A changed location invalidates its geocoded pin (SPEC §7a).
+      ...(field === "location"
+        ? { locationLat: null, locationLng: null, geocodeAttemptedAt: null }
+        : {}),
+    })
     .where(eq(contacts.id, contactId))
     .run();
 }

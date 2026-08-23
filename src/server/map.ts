@@ -7,6 +7,8 @@ import { contacts } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
 import { countryNames } from "@/lib/geo/countries";
 import { resolveCountry } from "@/lib/geo/country-resolve";
+import { groupCityPins, type CityPin } from "@/lib/geo/geocode";
+import { geocodeEnabled } from "@/server/sync/geocode";
 
 // Data for the map page (SPEC §7a): one pass over non-archived contacts,
 // resolver in lib/geo where it's unit-tested.
@@ -21,7 +23,14 @@ export type MapContact = {
 };
 
 export type MapData = {
+  /** Full per-country totals: choropleth shading + the side list. */
   counts: Record<string, number>;
+  /** Country bubbles show only contacts NOT pinned to a city, so each
+   * person appears exactly once on the map. */
+  bubbleCounts: Record<string, number>;
+  /** Geocoded city pins (SPEC §7a city placement). */
+  cities: CityPin[];
+  geocodeOn: boolean;
   totalPlaced: number;
   noLocation: number;
   /** Distinct location strings the resolver couldn't place, most common first. */
@@ -29,7 +38,10 @@ export type MapData = {
   selected: { id: string; name: string; contacts: MapContact[] } | null;
 };
 
-export async function readMapData(selectedId: string | null): Promise<MapData> {
+export async function readMapData(
+  selectedId: string | null,
+  selectedCity: string | null = null
+): Promise<MapData> {
   await requireAuth();
   const rows = db
     .select({
@@ -38,6 +50,8 @@ export async function readMapData(selectedId: string | null): Promise<MapData> {
       title: contacts.title,
       company: contacts.company,
       location: contacts.location,
+      locationLat: contacts.locationLat,
+      locationLng: contacts.locationLng,
       photoPath: contacts.photoPath,
     })
     .from(contacts)
@@ -45,50 +59,97 @@ export async function readMapData(selectedId: string | null): Promise<MapData> {
     .all();
 
   const counts: Record<string, number> = {};
+  const bubbleCounts: Record<string, number> = {};
+  const cityRows: {
+    location: string;
+    lat: number;
+    lng: number;
+    contact: MapContact;
+  }[] = [];
   const unrecognizedCounts = new Map<string, number>();
   let noLocation = 0;
   let totalPlaced = 0;
   const selectedContacts: MapContact[] = [];
+
+  const toContact = (row: (typeof rows)[number]): MapContact => ({
+    id: row.id,
+    displayName: row.displayName,
+    title: row.title,
+    company: row.company,
+    location: row.location,
+    hasPhoto: row.photoPath !== null,
+  });
 
   for (const row of rows) {
     if (!row.location || row.location.trim() === "") {
       noLocation += 1;
       continue;
     }
+    const pinned = row.locationLat !== null && row.locationLng !== null;
+    if (pinned) {
+      cityRows.push({
+        location: row.location,
+        lat: row.locationLat as number,
+        lng: row.locationLng as number,
+        contact: toContact(row),
+      });
+    }
     const country = resolveCountry(row.location);
     if (country === null) {
-      unrecognizedCounts.set(
-        row.location,
-        (unrecognizedCounts.get(row.location) ?? 0) + 1
-      );
+      // A geocoded contact is on the map even when the country resolver
+      // is stumped — only the doubly-unplaceable land in this list.
+      if (!pinned) {
+        unrecognizedCounts.set(
+          row.location,
+          (unrecognizedCounts.get(row.location) ?? 0) + 1
+        );
+      } else {
+        totalPlaced += 1;
+      }
       continue;
     }
     counts[country] = (counts[country] ?? 0) + 1;
+    // Each person appears once: city pin when geocoded, country bubble
+    // otherwise.
+    if (!pinned) bubbleCounts[country] = (bubbleCounts[country] ?? 0) + 1;
     totalPlaced += 1;
-    if (selectedId !== null && country === selectedId) {
-      selectedContacts.push({
-        id: row.id,
-        displayName: row.displayName,
-        title: row.title,
-        company: row.company,
-        location: row.location,
-        hasPhoto: row.photoPath !== null,
-      });
+    if (selectedCity === null && selectedId !== null && country === selectedId) {
+      selectedContacts.push(toContact(row));
     }
   }
 
-  selectedContacts.sort((a, b) => a.displayName.localeCompare(b.displayName));
   const names = countryNames();
+  const cityGroups = groupCityPins(cityRows);
+  const selectedCityPin =
+    selectedCity !== null
+      ? (cityGroups.find((c) => c.key === selectedCity) ?? null)
+      : null;
+  if (selectedCityPin) {
+    // City selection replaces country selection — the contacts are the
+    // group's members, whichever exact key each one rounds to.
+    selectedContacts.length = 0;
+    selectedContacts.push(...selectedCityPin.members.map((m) => m.contact));
+  }
+  selectedContacts.sort((a, b) => a.displayName.localeCompare(b.displayName));
   return {
     counts,
+    bubbleCounts,
+    // Members stay server-side; the client needs only the pin itself.
+    cities: cityGroups.map(({ members: _members, ...pin }) => pin),
+    geocodeOn: geocodeEnabled(),
     totalPlaced,
     noLocation,
     unrecognized: [...unrecognizedCounts.entries()]
       .map(([location, count]) => ({ location, count }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 12),
-    selected:
-      selectedId !== null && names.has(selectedId)
+    selected: selectedCityPin
+      ? {
+          id: `city:${selectedCityPin.key}`,
+          name: selectedCityPin.label,
+          contacts: selectedContacts,
+        }
+      : selectedId !== null && names.has(selectedId)
         ? {
             id: selectedId,
             name: names.get(selectedId)!,

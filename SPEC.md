@@ -212,10 +212,12 @@ Conventions used below:
 
 ---
 
-## 7a. Map (contacts by country)
+## 7a. Map (contacts by country, pinned to cities)
 
 ### Behavior
 - **/map** renders a world map with a count bubble per country (bubble area ∝ contact count) over lightly shaded country polygons. Clicking a country (polygon or bubble) lists that country's contacts in the side panel; with nothing selected the panel ranks countries by count.
+- **City placement (owner-enabled 2026-08-24, decision #4 delivered).** When "Place cities with OpenStreetMap" is on (Settings → Integrations, off by default), a recurring `geocode` job resolves each **distinct location string** once through Nominatim — max 1 req/s per their policy, batches of 150 per run to stay inside the job lease, most-shared strings first so one lookup places the most people, misses stamped (`contacts.geocode_attempted_at`, retried after 90 days), results fanned out to every contact sharing the string. Only the location text is ever sent — never names, emails, or anything else. Any write path that changes a contact's location clears its coordinates and stamp, so moved contacts re-geocode.
+- Geocoded contacts render as **city pins** (greedy ~5 km anchor clustering, order-independent, so "Zurich, Switzerland" and "Zürich, Zurich, Switzerland" are one pin labeled with the most common string's city half); clicking a pin lists that city's people; the side panel adds a "By city" ranking. Each person appears exactly once: city pin when geocoded, country bubble otherwise; country shading and the country list still count everyone. The map shows "City placement data © OpenStreetMap contributors" whenever pins are on it, per Nominatim's attribution requirement.
 - **Fully self-contained** (the §13 privacy invariant applied to maps): geometry is Natural Earth 110m bundled with the app (`world-atlas` + `topojson-client`), projection is d3-geo's Natural Earth — no tile server, no API key, zero network requests. Places the 110m simplification drops (Singapore, Hong Kong, Malta, Bahrain…) keep a bubble at a fixed anchor point.
 - **Country resolution is offline and honest**: `lib/geo/country-resolve.ts` maps freeform `contacts.location` strings to ISO numeric country ids — LinkedIn's "City, Region, Country" forms, country aliases (UK/USA/UAE…), US states and Canadian provinces, metro wrappers ("Greater X Area"), and a curated major-city table. Anything unrecognized is **reported in an "unplaced" list** (with counts, most common first) rather than guessed; fixing a contact's location to "City, Country" is the documented remedy. "Georgia" resolves by context (other parts of the string), defaulting to the country only when it stands alone.
 - Archived contacts are excluded; contacts with no location are counted separately in the header.
@@ -223,7 +225,9 @@ Conventions used below:
 ### Acceptance criteria
 - [ ] Unit: resolver battery — LinkedIn three-part forms, aliases, states/provinces, metro wrappers, diacritics, 110m-missing places, Georgia disambiguation, unrecognized → null.
 - [ ] E2E: two Swiss contacts and one Indian contact → bubbles read 2 and 1; clicking Switzerland lists exactly the two; an unplaceable location string appears in the unplaced list by name.
-- [ ] Grep-level: the map page, components, and geo lib reference no external hosts (covered by the §13 no-phoning-home test).
+- [ ] Grep-level: map rendering references no external hosts (covered by the §13 no-phoning-home test); Nominatim is reachable only through `outboundFetch` and only when the owner enabled the toggle.
+- [ ] Unit: Nominatim URL/response parsing (string coords, empty-array miss, junk rejected), pin clustering (boundary-straddling points merge, distinct cities don't, order-independent), key round-trips through URLs.
+- [ ] DB-level: one lookup places every contact sharing the string; misses are stamped and not re-asked; a second run no-ops. (Verified end-to-end with a stubbed transport, 2026-08-24.)
 
 
 ## 8. Import Pipeline

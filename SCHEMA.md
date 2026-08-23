@@ -23,8 +23,9 @@ Tables the brief listed are all here, plus **four additions** (each flagged inli
 | title | TEXT | current title (denormalized from work_history's current row when imports write both) |
 | company | TEXT | current company, same note |
 | location | TEXT | freeform as entered |
-| location_lat / location_lng | REAL | nullable; set by geocoder |
+| location_lat / location_lng | REAL | nullable; set by the geocode job (SPEC §7a) |
 | location_checked_at | INTEGER | nullable; last LinkedIn profile-location lookup (SPEC §9d), stamped on every attempt including misses so the queue advances |
+| geocode_attempted_at | INTEGER | nullable; last Nominatim lookup for this location string (SPEC §7a), stamped on misses too, cleared with lat/lng whenever the location text changes |
 | bio | TEXT | short one-liner from imports |
 | description_md | TEXT | owner's freeform markdown |
 | birthday_month | INTEGER | 1–12, nullable |

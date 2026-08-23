@@ -34,6 +34,11 @@ export const contacts = sqliteTable(
     // location instead of retrying them forever; a re-check window lets
     // them come round again eventually.
     locationCheckedAt: integer("location_checked_at"),
+    // Last Nominatim lookup for this contact's location string (SPEC §7a
+    // city placement, decision #4). Stamped on misses too, same rationale
+    // as location_checked_at; cleared by imports when the location text
+    // itself changes, so a moved contact re-geocodes.
+    geocodeAttemptedAt: integer("geocode_attempted_at"),
     bio: text("bio"),
     descriptionMd: text("description_md"),
     birthdayMonth: integer("birthday_month"),

@@ -3,25 +3,33 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
+import type { CityPin } from "@/lib/geo/geocode";
 import {
   bubbleRadius,
   MAP_HEIGHT,
   MAP_WIDTH,
+  projectPoint,
   worldGeometry,
 } from "@/lib/geo/world";
 import { cn } from "@/lib/utils";
 
 // The map itself (SPEC §7a): country polygons shaded by presence, a
 // count bubble per country (the Dex pattern), click → the page reloads
-// with that country's contact list in the side panel. All geometry is
-// bundled — this component makes zero network requests of its own.
+// with that country's contact list in the side panel. Geocoded contacts
+// render as city pins instead of feeding a country bubble, so each
+// person appears exactly once. All geometry is bundled — this component
+// makes zero network requests of its own.
 
 export function WorldMap({
   counts,
+  cities = [],
   selectedId,
+  selectedCityKey = null,
 }: {
   counts: Record<string, number>;
+  cities?: CityPin[];
   selectedId: string | null;
+  selectedCityKey?: string | null;
 }) {
   const router = useRouter();
   const [hovered, setHovered] = useState<string | null>(null);
@@ -49,8 +57,22 @@ export function WorldMap({
       .sort((a, b) => b.r - a.r);
   }, [counts, geometry, maxCount]);
 
+  const maxCity = Math.max(0, ...cities.map((c) => c.count));
+  const cityDots = useMemo(
+    () =>
+      cities
+        .flatMap((c) => {
+          const point = projectPoint(c.lng, c.lat);
+          return point ? [{ ...c, point, r: bubbleRadius(c.count, maxCity) * 0.75 }] : [];
+        })
+        .sort((a, b) => b.r - a.r),
+    [cities, maxCity]
+  );
+
   const select = (id: string) =>
     router.push(id === selectedId ? "/map" : `/map?c=${id}`);
+  const selectCity = (key: string) =>
+    router.push(key === selectedCityKey ? "/map" : `/map?city=${key}`);
 
   return (
     <svg
@@ -113,6 +135,37 @@ export function WorldMap({
           </text>
           <title>
             {b.name} — {b.count} contact{b.count === 1 ? "" : "s"}
+          </title>
+        </g>
+      ))}
+      {cityDots.map((c) => (
+        <g
+          key={c.key}
+          data-city={c.key}
+          transform={`translate(${c.point[0]}, ${c.point[1]})`}
+          onClick={() => selectCity(c.key)}
+          className="cursor-pointer"
+        >
+          <circle
+            r={c.r}
+            className={cn(
+              "fill-primary stroke-background transition-opacity",
+              selectedCityKey === c.key ? "opacity-100" : "opacity-90"
+            )}
+            strokeWidth={1.5}
+          />
+          {c.r >= 7 ? (
+            <text
+              textAnchor="middle"
+              dominantBaseline="central"
+              className="pointer-events-none fill-primary-foreground font-medium"
+              fontSize={Math.max(8, Math.min(11, c.r))}
+            >
+              {c.count}
+            </text>
+          ) : null}
+          <title>
+            {c.label} — {c.count} contact{c.count === 1 ? "" : "s"}
           </title>
         </g>
       ))}

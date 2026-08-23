@@ -35,6 +35,7 @@ export default async function SettingsPage() {
           voyager={integrations.voyager}
           extensionToken={integrations.extensionToken}
           enrich={integrations.enrich}
+          geocode={integrations.geocode}
         />
       </div>
       <div className="max-w-lg space-y-3 px-5 pb-4">

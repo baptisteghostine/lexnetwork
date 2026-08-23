@@ -483,7 +483,20 @@ export function executeLinkedInRows(opts: {
           const cid = contactId as number;
           for (const w of plan.writes) {
             db.update(contacts)
-              .set({ [FIELD_COLUMN[w.field]]: w.value, updatedAt: now })
+              .set({
+                [FIELD_COLUMN[w.field]]: w.value,
+                updatedAt: now,
+                // A new location string invalidates the old pin: clear the
+                // coordinates and the attempt stamp so the geocode job
+                // re-places this contact (SPEC §7a).
+                ...(w.field === "location"
+                  ? {
+                      locationLat: null,
+                      locationLng: null,
+                      geocodeAttemptedAt: null,
+                    }
+                  : {}),
+              })
               .where(eq(contacts.id, cid))
               .run();
             upsertProvenance(cid, w.field, runId, now);

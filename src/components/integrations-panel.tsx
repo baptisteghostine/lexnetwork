@@ -12,11 +12,13 @@ import {
   saveIntegrationCredsAction,
   saveVoyagerSessionAction,
   setEnrichEnabledAction,
+  setGeocodeEnabledAction,
   setVoyagerEnabledAction,
   syncNowAction,
   updateMyAddressesAction,
   voyagerSyncNowAction,
   type EnrichStatus,
+  type GeocodeStatus,
   type IntegrationStatus,
   type SyncRunSummary,
   type VoyagerStatus,
@@ -599,24 +601,77 @@ function EnrichControls({ data }: { data: EnrichStatus }) {
   );
 }
 
+/** Nominatim city placement (SPEC §7a, decision #4). Off by default —
+ * ticking it is the owner configuring the one optional third party that
+ * ever sees a location string (and only ever the string). */
+function GeocodeCard({ data }: { data: GeocodeStatus }) {
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  const left = Math.max(0, data.contactsWithLocation - data.contactsPlaced);
+  return (
+    <div className="space-y-2 rounded-md border border-border p-3">
+      <div className="flex items-baseline justify-between">
+        <h3 className="text-[13px] font-medium">City placement</h3>
+        <span className="text-[11px] text-muted-foreground">
+          OpenStreetMap · free, no account
+        </span>
+      </div>
+      <label className="flex items-start gap-2 text-xs">
+        <input
+          type="checkbox"
+          className="mt-0.5"
+          defaultChecked={data.enabled}
+          disabled={pending}
+          onChange={(e) =>
+            start(async () => {
+              await setGeocodeEnabledAction({ enabled: e.target.checked });
+              router.refresh();
+            })
+          }
+        />
+        <span>
+          <span className="font-medium">Place cities with OpenStreetMap</span>
+          <span className="block text-muted-foreground">
+            Turns &ldquo;Zurich, Zurich, Switzerland&rdquo; into a pin on the
+            map. Sends only the location text to Nominatim — never names,
+            emails, or anything else — one lookup per second, each distinct
+            place asked once. A full network takes an hour or two in the
+            background.
+          </span>
+        </span>
+      </label>
+      {data.contactsWithLocation > 0 && (
+        <p className="text-[11px] text-muted-foreground">
+          {data.contactsPlaced} of {data.contactsWithLocation} contacts with a
+          location are pinned
+          {data.enabled && left > 0 ? ` · ${left} queued` : ""}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function IntegrationsPanel({
   google,
   linkedin,
   voyager,
   extensionToken,
   enrich,
+  geocode,
 }: {
   google: IntegrationStatus;
   linkedin: IntegrationStatus;
   voyager: VoyagerStatus;
   extensionToken: string;
   enrich: EnrichStatus;
+  geocode: GeocodeStatus;
 }) {
   return (
     <div className="space-y-3">
       <GoogleCard data={google} />
       <LinkedInCard data={linkedin} />
       <ExtensionPairing token={extensionToken} enrich={enrich} />
+      <GeocodeCard data={geocode} />
       <VoyagerCard data={voyager} />
     </div>
   );

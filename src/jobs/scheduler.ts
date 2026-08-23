@@ -20,6 +20,7 @@ import { fireDueReminders } from "@/lib/reminders/fire";
 import { getSetting } from "@/lib/settings";
 import { localDateKey, nextLocalHour } from "@/lib/time";
 import { getAccount } from "@/server/sync/accounts";
+import { geocodeEnabled, runGeocode } from "@/server/sync/geocode";
 import { runCalendarSync } from "@/server/sync/calendar";
 import { runGmailSync } from "@/server/sync/gmail";
 import { runLinkedInSync } from "@/server/sync/linkedin";
@@ -66,6 +67,9 @@ const HANDLERS: Record<string, Handler> = {
   network_updates: async () => {
     await runNetworkUpdates(Date.now());
   },
+  geocode: async () => {
+    await runGeocode(Date.now());
+  },
   backup: async () => {
     runBackup(rawDb, DATA_DIR);
   },
@@ -87,6 +91,7 @@ const SYNC_JOBS: {
     | "linkedin_voyager_sync"
     | "dedupe_scan"
     | "network_updates"
+    | "geocode"
     | "backup";
   connected: () => boolean;
   intervalMs: number;
@@ -112,6 +117,14 @@ const SYNC_JOBS: {
   {
     kind: "network_updates",
     connected: () => networkUpdatesEnabled() && getSmtpSettings() !== null,
+    intervalMs: 15 * 60 * 1000,
+  },
+  // City placement (SPEC §7a, decision #4): each run works one paced
+  // batch of distinct location strings; 15 min between batches clears a
+  // whole network in a couple of hours without ever crowding Nominatim.
+  {
+    kind: "geocode",
+    connected: () => geocodeEnabled(),
     intervalMs: 15 * 60 * 1000,
   },
   // Nightly backup (SPEC §13) — always on; first run fires at first boot,
