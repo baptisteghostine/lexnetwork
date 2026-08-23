@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,10 +11,12 @@ import {
   disconnectVoyagerAction,
   saveIntegrationCredsAction,
   saveVoyagerSessionAction,
+  setEnrichEnabledAction,
   setVoyagerEnabledAction,
   syncNowAction,
   updateMyAddressesAction,
   voyagerSyncNowAction,
+  type EnrichStatus,
   type IntegrationStatus,
   type SyncRunSummary,
   type VoyagerStatus,
@@ -499,7 +502,13 @@ function VoyagerCard({ data }: { data: VoyagerStatus }) {
   );
 }
 
-function ExtensionPairing({ token }: { token: string }) {
+function ExtensionPairing({
+  token,
+  enrich,
+}: {
+  token: string;
+  enrich: EnrichStatus;
+}) {
   const [shown, setShown] = useState(false);
   const [copied, setCopied] = useState(false);
   return (
@@ -538,6 +547,54 @@ function ExtensionPairing({ token }: { token: string }) {
           {copied ? "Copied" : "Copy"}
         </Button>
       </div>
+      <EnrichControls data={enrich} />
+    </div>
+  );
+}
+
+/** Location backfill (SPEC §9d). Off by default: turning it on is the owner
+ * accepting per-profile automated access, which is a bigger ask than the
+ * connection list — so it needs a deliberate click, not a default. */
+function EnrichControls({ data }: { data: EnrichStatus }) {
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  const remaining = Math.max(0, data.linkedInContacts - data.located);
+  return (
+    <div className="space-y-2 border-t border-border pt-3">
+      <label className="flex items-start gap-2 text-xs">
+        <input
+          type="checkbox"
+          className="mt-0.5"
+          defaultChecked={data.enabled}
+          disabled={pending}
+          onChange={(e) =>
+            start(async () => {
+              await setEnrichEnabledAction({ enabled: e.target.checked });
+              router.refresh();
+            })
+          }
+        />
+        <span>
+          <span className="font-medium">Fill in locations from profiles</span>
+          <span className="block text-muted-foreground">
+            The connections list carries no location, so each one costs a
+            separate profile read. Capped at {data.dailyCap}/day, most
+            important people first — press “Fill in locations” in the
+            extension while you browse. Same terms as the sync: automated
+            access breaches LinkedIn&apos;s User Agreement, and the
+            account-restriction risk is yours.
+          </span>
+        </span>
+      </label>
+      {data.linkedInContacts > 0 && (
+        <p className="text-[11px] text-muted-foreground">
+          {data.located} of {data.linkedInContacts} LinkedIn contacts have a
+          location
+          {remaining > 0
+            ? ` · ${remaining} to go, about ${Math.ceil(remaining / Math.max(1, data.dailyCap))} day${Math.ceil(remaining / Math.max(1, data.dailyCap)) === 1 ? "" : "s"} at this rate`
+            : " · complete"}
+        </p>
+      )}
     </div>
   );
 }
@@ -547,17 +604,19 @@ export function IntegrationsPanel({
   linkedin,
   voyager,
   extensionToken,
+  enrich,
 }: {
   google: IntegrationStatus;
   linkedin: IntegrationStatus;
   voyager: VoyagerStatus;
   extensionToken: string;
+  enrich: EnrichStatus;
 }) {
   return (
     <div className="space-y-3">
       <GoogleCard data={google} />
       <LinkedInCard data={linkedin} />
-      <ExtensionPairing token={extensionToken} />
+      <ExtensionPairing token={extensionToken} enrich={enrich} />
       <VoyagerCard data={voyager} />
     </div>
   );

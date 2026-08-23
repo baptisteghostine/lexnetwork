@@ -10,14 +10,14 @@ async function settings() {
   return { ...DEFAULTS, ...(await chrome.storage.local.get(DEFAULTS)) };
 }
 
-async function postToRolo(body) {
+async function postToRolo(body, path = "/api/linkedin/extension") {
   const { roloUrl, token } = await settings();
   if (!token) {
     return { ok: false, error: "No pairing token — set it in the extension popup." };
   }
   let res;
   try {
-    res = await fetch(`${roloUrl.replace(/\/+$/, "")}/api/linkedin/extension`, {
+    res = await fetch(`${roloUrl.replace(/\/+$/, "")}${path}`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -49,6 +49,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === "done") {
     postToRolo({ sessionId: msg.sessionId, done: true }).then((r) =>
       sendResponse(r.ok ? { ok: true, result: r } : r)
+    );
+    return true;
+  }
+  if (msg?.type === "enrichNext") {
+    postToRolo({ action: "next", batchSize: msg.batchSize }, "/api/linkedin/enrich").then(
+      sendResponse
+    );
+    return true;
+  }
+  if (msg?.type === "enrichResult") {
+    postToRolo({ action: "result", results: msg.results }, "/api/linkedin/enrich").then(
+      sendResponse
     );
     return true;
   }

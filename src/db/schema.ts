@@ -28,6 +28,12 @@ export const contacts = sqliteTable(
     location: text("location"),
     locationLat: real("location_lat"),
     locationLng: real("location_lng"),
+    // Last time the LinkedIn profile enricher (SPEC §9d) looked this
+    // contact up, whether or not it found anything. Stamped on every
+    // attempt so the queue advances past people whose profile carries no
+    // location instead of retrying them forever; a re-check window lets
+    // them come round again eventually.
+    locationCheckedAt: integer("location_checked_at"),
     bio: text("bio"),
     descriptionMd: text("description_md"),
     birthdayMonth: integer("birthday_month"),

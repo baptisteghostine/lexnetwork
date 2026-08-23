@@ -33,6 +33,8 @@
         cursor: pointer;
       }
       button:disabled { background: #a1a1aa; cursor: default; }
+      button.secondary { background: #fff; color: #3f3f46; border: 1px solid #d4d4d8; }
+      button.secondary:disabled { color: #a1a1aa; background: #fafafa; }
       #status { margin-top: 10px; font-size: 12px; white-space: pre-wrap; }
       .muted { color: #71717a; font-size: 11px; margin-top: 8px; }
       .err { color: #dc2626; }
@@ -47,10 +49,16 @@
     <input id="token" type="password" placeholder="paste token" />
     <button id="save">Save</button>
     <button id="sync">Sync connections</button>
+    <button id="enrich" class="secondary">Fill in locations</button>
     <div id="status"></div>
     <p class="muted">
       Runs in this browser using your logged-in session. Open a linkedin.com
       tab first. Paces slowly — a few thousand connections takes a while.
+    </p>
+    <p class="muted">
+      Locations aren't in the connections list, so they're read one profile
+      at a time, a capped number per day, most important people first. Leave
+      it running while you browse; closing the tab just pauses it.
     </p>
   </body>
   <script src="popup.js"></script>

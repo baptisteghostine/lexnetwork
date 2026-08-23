@@ -1,0 +1,1 @@
+ALTER TABLE `contacts` ADD `location_checked_at` integer;

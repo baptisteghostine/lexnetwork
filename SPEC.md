@@ -345,7 +345,34 @@ Re-running any import with the same file: 100% unchanged, zero writes. An identi
 ### Acceptance criteria
 - [ ] Unit: a raw Voyager page forwarded verbatim (JSON round-tripped) parses to connections; company entities in the same payload are not contacts; a drifted shape yields zero, which the endpoint reports as failure.
 - [ ] Unit: the pairing token is compared in constant time; a wrong or absent token gets 401.
-- [ ] Manual: with the extension loaded and a linkedin.com tab open, "Sync connections" imports the owner's connections — *with locations*, which the export ZIP omits — and re-running is idempotent.
+- [ ] Manual: with the extension loaded and a linkedin.com tab open, "Sync connections" imports the owner's connections, and re-running is idempotent. **Verified live 2026-08-22**, after a paging fix (a page adding nobody new ended the run after the first one) and an explicit `stopReason` so "that's everyone" is distinguishable from "paging broke".
+
+---
+
+## 9d. LinkedIn profile-location enrichment
+
+*Added 2026-08-23 at the owner's explicit request (~2200 connections), after the connections endpoint was proven to carry no geography. Same ToS breach and same account-restriction risk as §9b/§9c, accepted again with the per-profile cost stated. Off by default.*
+
+**The finding that forces this design.** The connections endpoint returns *no* location, under any key. Verified against a live payload on 2026-08-23 by enumerating every key at every depth of the response: `firstName, lastName, headline, publicIdentifier, profilePicture, memorialized, entityUrn` and paging/image scaffolding — nothing geographic. The export ZIP's Connections.csv has no location column either. Location exists only on the individual profile, which costs **one request per contact**.
+
+- Off until the owner ticks Settings → Integrations → "Fill in locations from profiles". The toggle is the consent, exactly like §9b's.
+- **A trickle, not a sweep.** A capped number of profiles per day (default 100, hard ceiling 300), 4 s apart, serial, driven by the extension while a linkedin.com tab is open. At ~2200 connections that is roughly three weeks. The slowness is the safety property: it is the difference between traffic that looks like reading LinkedIn and traffic that looks like emptying it.
+- **Priority order: starred → on a cadence → most recently interacted → newest.** The map is useful long before it is complete; filling alphabetically would mean three weeks of a half-drawn map that says nothing.
+- The budget is a rolling 24 hours, not a calendar day — a calendar reset would let a run starting at 23:50 spend two days of budget in ten minutes.
+- `contacts.location_checked_at` is stamped on **every attempt**, including profiles with no location, so the queue advances instead of re-offering the same placeless people. Re-checks are eligible after 180 days; locations move on the order of years.
+- Results feed `executeLinkedInRows` like every other LinkedIn source, so a location inherits the identity ladder and provenance rules for free: an owner-typed location is reported as a conflict, never silently overwritten. `LinkedInScalarField` gains `location`; it is deliberately **not** a job change (no Today card, no network-updates email) — moving city is not a reason to reach out the way changing employer is.
+- Extraction is structural (`extractLocation`), like §9b's parser: search for place-shaped keys anywhere in the payload rather than a fixed path, so a rename costs a field and not the feature. URNs and bare ids that share those key names are rejected.
+- The profile endpoint has moved before, so the extension tries known forms in order and remembers whichever answers.
+- **Fail loud:** a round of ≥10 profiles where *none* had a location is reported as suspected shape drift, not as a clean run. A 429 stops the whole run — never routed around.
+
+### Acceptance criteria
+- [ ] Unit: queue order is starred → cadence → recent → newest, and is total (equal candidates never reorder between calls).
+- [ ] Unit: the daily cap trims the last batch and never goes negative when lowered mid-day; the cap itself is clamped to ≤300.
+- [ ] Unit: `extractLocation` finds a nested location, prefers the most specific key, rejects `urn:`/numeric values, and returns null on a connections-shaped payload.
+- [ ] Unit: company/school URLs never enter the queue.
+- [ ] Every attempted profile is stamped checked, so a second batch offers different people (verified end-to-end against a live database, 2026-08-23).
+- [ ] A result whose contact vanished mid-flight is dropped, never turned into a nameless new contact.
+- [ ] Manual: awaiting first live run — the profile endpoint candidates are unverified against LinkedIn.
 
 
 ## 10. Deduplication & Merge

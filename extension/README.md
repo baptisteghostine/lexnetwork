@@ -73,3 +73,38 @@ Failures are loud: zero parsed connections is an error, never a silent
 "you have no connections". The parser lives in
 `src/lib/linkedin/voyager.ts` and is deliberately structural (duck-typed
 profile objects anywhere in the payload) to survive renames.
+
+## Filling in locations
+
+The connections list carries **no location** — verified against a live
+payload by enumerating every key at every depth. Names, headlines, photos,
+connection dates; nothing geographic. The export ZIP has no location
+column either. Location exists only on each individual profile, which
+costs one request per person.
+
+So **Fill in locations** is a slow trickle, not a sweep:
+
+- A capped number of profiles a day (default 100, ceiling 300), 4 s apart
+- Most important people first — starred, then anyone on a keep-in-touch
+  cadence, then whoever you spoke to most recently
+- Each contact is fetched once, not every sync; locations barely move
+- Stop any time. Closing the tab pauses it; nothing is half-written
+
+At ~2,200 connections that's roughly three weeks — but the map is worth
+looking at after the first day, because the people you actually track are
+at the front of the queue.
+
+Turn it on first in Rolo: **Settings → Integrations → Fill in locations
+from profiles**. It's off by default because per-profile access is a
+bigger ask than reading your own connection list, and that's your call to
+make.
+
+### When *this* breaks
+
+The profile endpoint has moved before, so the extension tries the known
+forms and remembers whichever answers. Location extraction is structural —
+it looks for place-shaped keys anywhere in the response rather than a
+fixed path — and rejects URNs and bare ids that share those key names.
+A round of ten or more profiles where *none* had a location is reported as
+suspected shape drift, not as a clean run. Keys live in
+`src/lib/linkedin/enrich.ts`.

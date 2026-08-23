@@ -24,6 +24,7 @@ Tables the brief listed are all here, plus **four additions** (each flagged inli
 | company | TEXT | current company, same note |
 | location | TEXT | freeform as entered |
 | location_lat / location_lng | REAL | nullable; set by geocoder |
+| location_checked_at | INTEGER | nullable; last LinkedIn profile-location lookup (SPEC §9d), stamped on every attempt including misses so the queue advances |
 | bio | TEXT | short one-liner from imports |
 | description_md | TEXT | owner's freeform markdown |
 | birthday_month | INTEGER | 1–12, nullable |
@@ -184,7 +185,7 @@ Everything externally-sourced or manually logged (notes live in `notes`):
 
 Covers **both** API syncs and file imports (one lifecycle: started → stats → finished/failed):
 
-`id, kind TEXT NOT NULL ('gmail','calendar','google_contacts','csv_import','vcard_import','linkedin_import','linkedin_api_sync','linkedin_voyager_sync','dedupe_scan','export','backup'), integration_account_id FK ON DELETE SET NULL, file_name TEXT, file_sha256 TEXT, mapping_json TEXT (CSV column mapping used), cursor_before TEXT, cursor_after TEXT, status TEXT ('running','success','failed','partial'), stats_json TEXT ({new, updated, unchanged, conflicts, errors,…}), report_json TEXT (row-level diff report; large, loaded lazily), error TEXT, started_at, finished_at`.
+`id, kind TEXT NOT NULL ('gmail','calendar','google_contacts','csv_import','vcard_import','linkedin_import','linkedin_api_sync','linkedin_voyager_sync','linkedin_profile_enrich','dedupe_scan','export','backup'), integration_account_id FK ON DELETE SET NULL, file_name TEXT, file_sha256 TEXT, mapping_json TEXT (CSV column mapping used), cursor_before TEXT, cursor_after TEXT, status TEXT ('running','success','failed','partial'), stats_json TEXT ({new, updated, unchanged, conflicts, errors,…}), report_json TEXT (row-level diff report; large, loaded lazily), error TEXT, started_at, finished_at`.
 - `idx_sync_runs_kind ON sync_runs(kind, started_at DESC)`, `idx_sync_runs_sha ON sync_runs(file_sha256)` (the "already imported this exact file" check).
 
 ## contact_changes
@@ -206,7 +207,7 @@ Covers **both** API syncs and file imports (one lifecycle: started → stats →
 
 ## jobs
 
-`id, kind TEXT NOT NULL ('gmail_sync','calendar_sync','linkedin_sync','linkedin_voyager_sync','digest','backup','dedupe_scan','reminder_fire','geocode','ai_batch_tag'), payload_json TEXT, dedupe_key TEXT (UNIQUE where NOT NULL — prevents double-enqueue of e.g. today's digest), run_at INTEGER NOT NULL, started_at INTEGER, finished_at INTEGER, status TEXT NOT NULL ('pending','running','success','failed','dead'), attempts INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 5, last_error TEXT, created_at`.
+`id, kind TEXT NOT NULL ('gmail_sync','calendar_sync','linkedin_sync','linkedin_voyager_sync','digest','network_updates','backup','dedupe_scan','reminder_fire','geocode','ai_batch_tag'), payload_json TEXT, dedupe_key TEXT (UNIQUE where NOT NULL — prevents double-enqueue of e.g. today's digest), run_at INTEGER NOT NULL, started_at INTEGER, finished_at INTEGER, status TEXT NOT NULL ('pending','running','success','failed','dead'), attempts INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 5, last_error TEXT, created_at`.
 - `idx_jobs_pending ON jobs(run_at) WHERE status = 'pending'` — the scheduler's poll (every ~15 s). Backoff: `run_at += 2^attempts * 30s`. Stale 'running' rows older than a lease window are reclaimed at startup (crash recovery). Recurring jobs re-enqueue their next run on completion — schedule lives in code, durability in this table.
 - Implementation note (Phase 5): reminder firing does NOT create per-fire job rows — the scheduler tick sweeps due reminders inline, with `reminders.fired_at` as the exactly-once ledger (idempotent across crashes, no reminder↔job sync to keep straight). The `reminder_fire` kind stays reserved for future one-off scheduled fires if ever needed.
 

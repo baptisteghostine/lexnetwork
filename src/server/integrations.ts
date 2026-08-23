@@ -7,7 +7,14 @@ import { z } from "zod";
 import { db } from "@/db/client";
 import { integrationAccounts, jobs, syncRuns } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
+import { clampDailyCap } from "@/lib/linkedin/enrich";
 import { parseCookieBlob } from "@/lib/linkedin/session";
+import {
+  dailyCap,
+  enrichCandidates,
+  enrichEnabled,
+  linkedInLocationCounts,
+} from "@/server/sync/linkedin-enrich";
 import { getSetting, setSetting } from "@/lib/settings";
 import { ensureSyncJobs, enqueueJob } from "@/jobs/scheduler";
 import {
@@ -153,11 +160,22 @@ function voyagerStatusNow(): VoyagerStatus {
   };
 }
 
+export type EnrichStatus = {
+  enabled: boolean;
+  dailyCap: number;
+  /** Contacts with a LinkedIn URL still waiting for a location lookup. */
+  queued: number;
+  /** How many of those already have a location — the map's fill level. */
+  located: number;
+  linkedInContacts: number;
+};
+
 export async function readIntegrations(): Promise<{
   google: IntegrationStatus;
   linkedin: IntegrationStatus;
   voyager: VoyagerStatus;
   extensionToken: string;
+  enrich: EnrichStatus;
 }> {
   await requireAuth();
   return {
@@ -166,7 +184,40 @@ export async function readIntegrations(): Promise<{
     voyager: voyagerStatusNow(),
     // Generated on first view; the extension needs it to post (SPEC §9c).
     extensionToken: ensureExtensionToken(),
+    enrich: enrichStatusNow(),
   };
+}
+
+function enrichStatusNow(): EnrichStatus {
+  const counts = linkedInLocationCounts();
+  return {
+    enabled: enrichEnabled(),
+    dailyCap: dailyCap(),
+    queued: enrichCandidates(Date.now()).length,
+    located: counts.located,
+    linkedInContacts: counts.total,
+  };
+}
+
+/** Turning it on is the owner accepting the tradeoff in SPEC §9d, so it is
+ * off until they say otherwise — same posture as the Voyager toggle. */
+export async function setEnrichEnabledAction(input: {
+  enabled: boolean;
+}): Promise<{ ok: true }> {
+  await requireAuth();
+  setSetting("linkedin_enrich.enabled", input.enabled);
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+export async function setEnrichDailyCapAction(input: {
+  cap: number;
+}): Promise<{ ok: true; cap: number }> {
+  await requireAuth();
+  const cap = clampDailyCap(input.cap);
+  setSetting("linkedin_enrich.daily_cap", cap);
+  revalidatePath("/settings");
+  return { ok: true, cap };
 }
 
 /** New token — invalidates any extension still holding the old one. */

@@ -268,7 +268,32 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   email, but nothing left to resurface). Settings gains the toggle and a
   "Send network updates now" button that runs the real sweep.
 
-442 unit tests + 15 Playwright E2E tests passing as of the network-updates email. Open questions from SPEC.md's decision
+- ✅ **LinkedIn profile-location enrichment** (owner request, 2026-08-23,
+  SPEC §9d, migration 0016: `contacts.location_checked_at`). Diagnosis
+  first, again: the map was empty because the connections endpoint carries
+  no geography *at all* — verified live by enumerating every key at every
+  depth of a real response. Not a parser bug, and not fixable on that
+  path; the export ZIP has no location column either. Location exists only
+  on the individual profile, one request per person, and that cost dictates
+  the whole design: a capped daily trickle (100/day, ceiling 300, 4 s
+  apart) driven by the extension while the owner browses, ordered starred →
+  cadence → recently-interacted → newest so the map is useful on day one
+  rather than complete on day twenty-two. ~2200 connections ≈ three weeks.
+  `location_checked_at` is stamped on every attempt including misses, so
+  the queue advances instead of re-offering placeless people; re-checks
+  after 180 days. Results feed `executeLinkedInRows` like every other
+  LinkedIn source, so provenance is inherited — an owner-typed location
+  conflicts rather than being overwritten — and `LinkedInScalarField`
+  gains `location`, deliberately *not* as a job change (moving city is not
+  a reason to reach out). Extraction is structural, like §9b's parser, and
+  an all-placeless round of ≥10 is reported as suspected shape drift
+  rather than a clean run. Off by default; the toggle is the consent.
+  **Known stub: the profile endpoint candidates are unverified** — the
+  extension tries three known forms and remembers whichever answers, but
+  none has been confirmed against live LinkedIn. Everything else is
+  verified end-to-end against a real database.
+
+465 unit tests + 15 Playwright E2E tests passing as of the location enricher. Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---
