@@ -421,6 +421,134 @@ function readProfile() {
   };
 }
 
+// ---------- the open conversation (SPEC §9c messaging) ----------
+//
+// Read from the DOM of the thread the owner is looking at. Nothing is
+// requested; the messages are on screen because the owner opened them.
+// LinkedIn only shows a time on each message and a date heading between
+// days, so timestamps are the heading plus the time, in the tab's own
+// timezone. Structure over exact class names where possible, and zero
+// messages is an error — a layout change must look like one.
+
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+/** "Today" / "Yesterday" / "Monday" / "Sep 1" / "Aug 30, 2025" → local midnight. */
+function parseDateHeading(text, now = new Date()) {
+  const t = text.trim().toLowerCase().replace(/\.$/, "");
+  const day = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (t === "today") return day;
+  if (t === "yesterday") return new Date(day.getTime() - 86400e3);
+  const wd = WEEKDAYS.indexOf(t);
+  if (wd >= 0) {
+    let back = (day.getDay() - wd + 7) % 7;
+    if (back === 0) back = 7;
+    return new Date(day.getTime() - back * 86400e3);
+  }
+  const m = t.match(/^([a-z]{3})[a-z]*\.?\s+(\d{1,2})(?:,?\s+(\d{4}))?$/);
+  if (m && MONTHS.includes(m[1])) {
+    const month = MONTHS.indexOf(m[1]);
+    const d = new Date(m[3] ? Number(m[3]) : now.getFullYear(), month, Number(m[2]));
+    if (!m[3] && d > now) d.setFullYear(d.getFullYear() - 1);
+    return d;
+  }
+  const dmy = t.match(/^(\d{1,2})\s+([a-z]{3})[a-z]*(?:\s+(\d{4}))?$/);
+  if (dmy && MONTHS.includes(dmy[2])) {
+    const d = new Date(dmy[3] ? Number(dmy[3]) : now.getFullYear(), MONTHS.indexOf(dmy[2]), Number(dmy[1]));
+    if (!dmy[3] && d > now) d.setFullYear(d.getFullYear() - 1);
+    return d;
+  }
+  return null;
+}
+
+/** "10:42 AM" / "22:05" → minutes since midnight, or null. */
+function parseClock(text) {
+  const m = (text ?? "").trim().match(/(\d{1,2}):(\d{2})\s*([ap]\.?m\.?)?/i);
+  if (!m) return null;
+  let h = Number(m[1]);
+  const min = Number(m[2]);
+  const ap = m[3]?.toLowerCase().replace(/\./g, "");
+  if (ap === "pm" && h < 12) h += 12;
+  if (ap === "am" && h === 12) h = 0;
+  return h * 60 + min;
+}
+
+function profileIdFromHref(href) {
+  const m = (href ?? "").match(/linkedin\.com\/in\/([^/?#]+)|^\/in\/([^/?#]+)/i);
+  const id = m ? (m[1] ?? m[2]) : null;
+  return id ? decodeURIComponent(id).toLowerCase() : null;
+}
+
+function readConversation() {
+  const thread = location.pathname.match(/\/messaging\/thread\/([^/]+)\/?/);
+  if (!thread) return null;
+  const conversationId = decodeURIComponent(thread[1]);
+
+  // Who the thread is with: the header's profile link, or its title.
+  const header =
+    document.querySelector(".msg-thread .msg-entity-lockup, .msg-thread__link-to-profile, .msg-thread header") ??
+    document.querySelector(".msg-thread");
+  const headerLink = header?.querySelector('a[href*="/in/"]') ?? document.querySelector('.msg-thread a[href*="/in/"]');
+  const counterpartPublicIdentifier = profileIdFromHref(headerLink?.getAttribute("href"));
+  const counterpartName =
+    textOf(".msg-thread .msg-entity-lockup__entity-title") ??
+    textOf(".msg-thread h2") ??
+    headerLink?.textContent?.replace(/\s+/g, " ").trim() ??
+    null;
+  if (!counterpartName) {
+    throw new Error("Couldn't read who this conversation is with — LinkedIn's messaging layout may have changed.");
+  }
+
+  const list = document.querySelector(".msg-s-message-list-content, .msg-s-message-list");
+  if (!list) throw new Error("No message list on this page — open a conversation first.");
+
+  const now = new Date();
+  let day = null;
+  let lastSender = null; // { id, name }
+  let lastMinutes = null;
+  const messages = [];
+  for (const item of list.querySelectorAll("li, .msg-s-message-list__event")) {
+    const heading = item.querySelector("time.msg-s-message-list__time-heading, .msg-s-message-list__time-heading");
+    if (heading && heading.closest("li, .msg-s-message-list__event") === item) {
+      day = parseDateHeading(heading.textContent) ?? day;
+    }
+    for (const ev of item.querySelectorAll(".msg-s-event-listitem")) {
+      const body = ev.querySelector(".msg-s-event-listitem__body, .msg-s-event__content p");
+      if (!body) continue;
+      const meta = ev.querySelector(".msg-s-message-group__meta");
+      if (meta) {
+        const link = meta.querySelector('a[href*="/in/"]');
+        lastSender = {
+          id: profileIdFromHref(link?.getAttribute("href")),
+          name: meta.querySelector(".msg-s-message-group__name")?.textContent?.replace(/\s+/g, " ").trim() ?? null,
+        };
+        lastMinutes = parseClock(meta.querySelector("time")?.textContent) ?? lastMinutes;
+      }
+      if (!day || lastMinutes === null || !lastSender) continue;
+      const fromCounterpart =
+        (counterpartPublicIdentifier && lastSender.id === counterpartPublicIdentifier) ||
+        (!counterpartPublicIdentifier && lastSender.name && lastSender.name === counterpartName);
+      const occurredAt = day.getTime() + lastMinutes * 60e3;
+      const text = body.textContent?.replace(/\s+/g, " ").trim() ?? "";
+      messages.push({
+        direction: fromCounterpart ? "inbound" : "outbound",
+        occurredAt: Math.min(occurredAt, now.getTime()),
+        text: text ? text.slice(0, 400) : null,
+      });
+    }
+  }
+  if (messages.length === 0) {
+    throw new Error("No messages could be read from this thread — LinkedIn's messaging layout may have changed.");
+  }
+  return {
+    conversationId,
+    counterpartName,
+    counterpartPublicIdentifier,
+    counterpartProfileUrl: counterpartPublicIdentifier ? `https://www.linkedin.com/in/${counterpartPublicIdentifier}` : null,
+    messages,
+  };
+}
+
 /** Start a run, keep the `run` record honest to the end, and answer the
  * popup if it is still open to hear. Progress reports go to the record
  * (the popup watches storage), not to the popup directly. */
@@ -455,6 +583,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
   if (msg?.type === "isRunning") {
     sendResponse({ ok: true, active });
+    return false;
+  }
+  if (msg?.type === "readConversation") {
+    try {
+      sendResponse({ ok: true, conversation: readConversation() });
+    } catch (err) {
+      sendResponse({ ok: false, error: String(err?.message ?? err) });
+    }
     return false;
   }
   if (msg?.type === "readProfile") {

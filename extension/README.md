@@ -34,8 +34,13 @@ This is the same mechanism the commercial personal CRMs use.
 - **No evasion beyond being a real browser:** no fingerprint spoofing, no
   proxy rotation, no CAPTCHA or challenge solving. If LinkedIn declines,
   the sync stops and says so.
-- **Reads only your own connection list.** No other member's data, no
-  messages, nothing written back to LinkedIn.
+- **Reads only what's yours, and only what's on screen.** Your own
+  connection list; the profile page you have open; the conversation you
+  have open (owner-amended 2026-09-04 — originally "no messages"; the
+  messaging capture reads the thread you're looking at, stores a
+  first-line snippet per message like the ZIP import does, and makes no
+  request LinkedIn didn't already answer for your own page view).
+  Nothing written back to LinkedIn.
 
 ## Install (one minute)
 
@@ -74,6 +79,16 @@ request to LinkedIn — and sends it through the same import as everything
 else: if they were already in Rolo under that profile URL, it updates
 rather than duplicates, keeps anything you'd typed by hand, and a changed
 headline shows up as a job change on Today.
+
+### In a conversation
+
+Open a thread under Messaging and the popup offers **Log in Rolo**: the
+messages on screen — direction, time, and a first line, cut to the same
+bound the ZIP import uses — land on that person's timeline, keyed so a
+later ZIP import of the same thread adds nothing twice. If they aren't in
+Rolo and the thread header links to their profile, they're added first;
+if it doesn't, the popup says to open their profile and add them.
+Scroll further up the thread before logging to include older messages.
 
 ### What the popup shows
 

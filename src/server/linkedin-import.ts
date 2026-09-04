@@ -131,6 +131,25 @@ function nameMap(linkedInSourcedOnly = false): Map<string, number | null> {
   return map;
 }
 
+/**
+ * Who a captured conversation (SPEC §9c messaging) belongs to: the
+ * profile URL first, else a unique name among LinkedIn-sourced contacts
+ * — the same two rungs the ZIP's messages.csv uses, so a thread logged
+ * from the messaging view and the same thread arriving later in a ZIP
+ * land on the same person.
+ */
+export function matchConversationCounterpart(
+  name: string,
+  normalizedProfileUrl: string | null
+): number | null {
+  if (normalizedProfileUrl) {
+    const hit = linkedinUrlMap().get(normalizedProfileUrl);
+    if (hit !== undefined) return hit;
+  }
+  const unique = nameMap(true).get(name.trim().toLowerCase().replace(/\s+/g, " "));
+  return unique ?? null;
+}
+
 function loadSnapshot(contactId: number): LinkedInSnapshot | null {
   const c = db.select().from(contacts).where(eq(contacts.id, contactId)).get();
   if (!c) return null;

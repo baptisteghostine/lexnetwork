@@ -242,10 +242,64 @@ function showPage(name, role, state, kind, { open = false, add = false } = {}) {
   $("pageMsg").hidden = true;
 }
 
+let pageConversation = null;
+
+async function renderConversation() {
+  const read = await chrome.tabs.sendMessage(liTab.id, { type: "readConversation" }).catch(() => null);
+  if (!read) return;
+  if (!read.ok) {
+    showPage("This conversation", null, read.error ?? "Couldn't read the thread.");
+    return;
+  }
+  const c = read.conversation;
+  if (!c) return;
+  pageConversation = c;
+  const last = c.messages.reduce((m, x) => Math.max(m, x.occurredAt), 0);
+  const outbound = c.messages.filter((m) => m.direction === "outbound").length;
+  showPage(
+    c.counterpartName,
+    "conversation",
+    `${n(c.messages.length)} message${c.messages.length === 1 ? "" : "s"} on screen · ${n(outbound)} from you · last ${ago(last)}`,
+    "out",
+    { add: true }
+  );
+  $("pageAdd").textContent = "Log in Rolo";
+}
+
+$("pageAdd").addEventListener("click", async () => {
+  if (!pageConversation) return;
+  const convo = pageConversation;
+  $("pageAdd").disabled = true;
+  $("pageAdd").textContent = "Logging…";
+  const r = await chrome.runtime.sendMessage({ type: "logConversation", conversation: convo }).catch(() => null);
+  const msg = $("pageMsg");
+  msg.hidden = false;
+  if (!r?.ok) {
+    msg.className = "msg err";
+    msg.textContent = r?.error ?? "Couldn't log it.";
+    $("pageAdd").disabled = false;
+    $("pageAdd").textContent = "Log in Rolo";
+    return;
+  }
+  msg.className = "msg ok";
+  msg.textContent =
+    `${r.inserted} new of ${r.total} on ${convo.counterpartName}'s timeline.` +
+    (r.created ? " Added them to Rolo." : "");
+  $("pageAdd").textContent = "Logged";
+  await loadStatus();
+  renderStats();
+});
+
 async function renderPage() {
   $("page").hidden = true;
   pageProfile = null;
-  if (!liTab || !/^https:\/\/www\.linkedin\.com\/in\//.test(liTab.url ?? "")) return;
+  pageConversation = null;
+  if (!liTab) return;
+  if (/^https:\/\/www\.linkedin\.com\/messaging\/thread\//.test(liTab.url ?? "")) {
+    await renderConversation();
+    return;
+  }
+  if (!/^https:\/\/www\.linkedin\.com\/in\//.test(liTab.url ?? "")) return;
   const read = await chrome.tabs.sendMessage(liTab.id, { type: "readProfile" }).catch(() => null);
   const profile = read?.profile;
   if (!profile) return;
@@ -279,7 +333,7 @@ async function renderPage() {
 }
 
 $("pageAdd").addEventListener("click", async () => {
-  if (!pageProfile) return;
+  if (!pageProfile || pageConversation) return;
   $("pageAdd").disabled = true;
   $("pageAdd").textContent = "Adding…";
   const r = await chrome.runtime.sendMessage({ type: "capture", profile: pageProfile }).catch(() => null);

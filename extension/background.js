@@ -64,6 +64,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     callRolo("/api/linkedin/extension/capture", { body: { profile: msg.profile } }).then(sendResponse);
     return true;
   }
+  if (msg?.type === "logConversation") {
+    callRolo("/api/linkedin/extension/messages", { body: { conversation: msg.conversation } }).then(sendResponse);
+    return true;
+  }
   if (msg?.type === "page") {
     postToRolo({ sessionId: msg.sessionId, page: msg.payload }).then(sendResponse);
     return true;
