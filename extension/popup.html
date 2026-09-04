@@ -179,6 +179,9 @@
       button.btn[hidden] { display: none; }
 
       .muted { color: var(--muted); font-size: 11px; margin: 8px 0 0; }
+      .auto { display: flex; align-items: center; gap: 7px; margin-top: 10px; font-size: 12px; cursor: pointer; }
+      .auto input { accent-color: var(--accent); margin: 0; }
+      .auto .when { color: var(--muted); font-size: 11px; }
       footer {
         display: flex; gap: 10px;
         padding: 8px 12px 10px;
@@ -253,6 +256,10 @@
         <button id="stop" class="btn danger" hidden>Stop</button>
       </div>
       <p id="hint" class="muted"></p>
+      <label class="auto">
+        <input id="autoSync" type="checkbox" />
+        <span>Sync weekly on its own <span id="autoSyncWhen" class="when"></span></span>
+      </label>
     </section>
 
     <footer>

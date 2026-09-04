@@ -359,6 +359,32 @@ $("pageAdd").addEventListener("click", async () => {
   renderStats();
 });
 
+// ---------- scheduled sync toggle ----------
+
+function untilLabel(ts) {
+  if (!ts) return "";
+  const h = Math.round((ts - Date.now()) / 3600e3);
+  if (h < 1) return "· next within the hour";
+  if (h < 48) return `· next in ${h}h`;
+  return `· next ${new Date(ts).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}`;
+}
+
+async function renderAutoSync() {
+  const r = await chrome.runtime.sendMessage({ type: "autoSyncStatus" }).catch(() => null);
+  if (!r?.ok) return;
+  $("autoSync").checked = r.enabled;
+  $("autoSyncWhen").textContent = r.enabled ? untilLabel(r.next) : "";
+  $("autoSync").title = r.enabled
+    ? "Runs the connection sync weekly in a LinkedIn tab — opens one in the background if none is open. Same pacing; stops loud if you're logged out."
+    : "Off — sync when you click.";
+}
+
+$("autoSync").addEventListener("change", async (e) => {
+  const enabled = e.target.checked;
+  const r = await chrome.runtime.sendMessage({ type: "setAutoSync", enabled }).catch(() => null);
+  $("autoSyncWhen").textContent = enabled && r?.ok ? untilLabel(r.next) : "";
+});
+
 // ---------- data ----------
 
 async function loadStatus() {
@@ -424,7 +450,7 @@ async function refresh() {
   renderStats();
   renderRun(run);
   if (run?.status !== "running") renderHint();
-  await renderPage();
+  await Promise.all([renderPage(), renderAutoSync()]);
   // Badge is for when the popup is closed; opening it is having looked.
   if (run?.status !== "running") chrome.action.setBadgeText({ text: "" }).catch(() => {});
 }

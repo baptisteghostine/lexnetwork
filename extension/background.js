@@ -131,3 +131,115 @@ chrome.storage.onChanged.addListener((changes, area) => {
 // A service worker restarts often; repaint from stored state on wake so
 // the badge never lies about a run that is still going.
 chrome.storage.local.get("run").then(({ run }) => paintBadge(run)).catch(() => {});
+
+// ---------- scheduled weekly sync (opt-in) ----------
+//
+// "Remember to click" is the failure mode of a manual sync. With the
+// toggle on, a chrome.alarms alarm fires weekly and runs the connection
+// sync in a LinkedIn tab — an existing one, or a background one it opens
+// at the connections page. Pacing is the content script's and unchanged.
+// If the owner isn't logged in, the content script fails on the missing
+// session cookie and the badge goes red; nothing retries, nothing works
+// around it. Off by default: opening a tab unprompted is a bigger ask
+// than answering a click.
+
+const ALARM = "rolo-weekly-sync";
+const WEEK_MINUTES = 7 * 24 * 60;
+const CONNECTIONS_URL = "https://www.linkedin.com/mynetwork/invite-connect/connections/";
+
+async function applyAutoSync(enabled) {
+  if (!enabled) {
+    await chrome.alarms.clear(ALARM);
+    return null;
+  }
+  const existing = await chrome.alarms.get(ALARM);
+  if (existing) return existing.scheduledTime;
+  // First run a minute out — a toggle flip should visibly do something —
+  // then weekly.
+  await chrome.alarms.create(ALARM, { delayInMinutes: 1, periodInMinutes: WEEK_MINUTES });
+  return (await chrome.alarms.get(ALARM))?.scheduledTime ?? null;
+}
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** A tab whose content script answers, or null. */
+async function contentReady(tabId) {
+  for (let i = 0; i < 20; i++) {
+    const r = await chrome.tabs.sendMessage(tabId, { type: "isRunning" }).catch(() => null);
+    if (r?.ok) return r;
+    await sleep(1000);
+  }
+  return null;
+}
+
+async function runScheduledSync() {
+  const { autoSync, run } = await chrome.storage.local.get(["autoSync", "run"]);
+  if (!autoSync) return;
+  if (run?.status === "running") return; // never stack a second run
+  const { token } = await settings();
+  if (!token) return;
+
+  let [tab] = await chrome.tabs.query({ url: "https://www.linkedin.com/*" });
+  let opened = false;
+  if (!tab) {
+    tab = await chrome.tabs.create({ url: CONNECTIONS_URL, active: false });
+    opened = true;
+  }
+  const ready = await contentReady(tab.id);
+  if (!ready) {
+    await chrome.storage.local.set({
+      run: {
+        kind: "sync",
+        status: "error",
+        error: "Scheduled sync couldn't reach the LinkedIn tab — reload linkedin.com once and it will pick up next week.",
+        updatedAt: Date.now(),
+      },
+    });
+    return;
+  }
+  if (ready.active) return; // the owner started one by hand — leave it
+  // Fire and forget: the run reports through the `run` record.
+  chrome.tabs.sendMessage(tab.id, { type: "startSync" }).catch(() => {});
+  await chrome.storage.local.set({ autoSyncLastAt: Date.now(), autoSyncOpenedTab: opened ? tab.id : null });
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === ALARM) runScheduledSync().catch((err) => console.error("[rolo] scheduled sync:", err));
+});
+
+// A scheduled run that opened its own tab closes it again once done, so
+// the owner doesn't wake up to a stray LinkedIn tab.
+chrome.storage.onChanged.addListener(async (changes, area) => {
+  if (area !== "local" || !changes.run) return;
+  const run = changes.run.newValue;
+  if (!run || run.status === "running") return;
+  const { autoSyncOpenedTab } = await chrome.storage.local.get("autoSyncOpenedTab");
+  if (autoSyncOpenedTab && run.kind === "sync" && run.status !== "error") {
+    await chrome.tabs.remove(autoSyncOpenedTab).catch(() => {});
+    await chrome.storage.local.set({ autoSyncOpenedTab: null });
+  }
+});
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type === "setAutoSync") {
+    chrome.storage.local
+      .set({ autoSync: Boolean(msg.enabled) })
+      .then(() => applyAutoSync(Boolean(msg.enabled)))
+      .then((next) => sendResponse({ ok: true, next }));
+    return true;
+  }
+  if (msg?.type === "autoSyncStatus") {
+    chrome.storage.local.get(["autoSync", "autoSyncLastAt"]).then(async ({ autoSync, autoSyncLastAt }) => {
+      const alarm = autoSync ? await chrome.alarms.get(ALARM) : null;
+      sendResponse({ ok: true, enabled: Boolean(autoSync), next: alarm?.scheduledTime ?? null, last: autoSyncLastAt ?? null });
+    });
+    return true;
+  }
+  return false;
+});
+
+// Alarms survive browser restarts but not an extension reload; re-arm
+// from the stored toggle on every worker start.
+chrome.storage.local.get("autoSync").then(({ autoSync }) => applyAutoSync(Boolean(autoSync))).catch(() => {});

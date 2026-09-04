@@ -90,6 +90,17 @@ Rolo and the thread header links to their profile, they're added first;
 if it doesn't, the popup says to open their profile and add them.
 Scroll further up the thread before logging to include older messages.
 
+### Weekly on its own
+
+Tick **Sync weekly on its own** in the popup and the extension runs the
+connection sync once a week without you: in a LinkedIn tab if one is
+open, otherwise in a background tab it opens at the connections page and
+closes again when the sync lands. First run is a minute after you tick
+it, so you can see it work. Same pacing as a click; if you're logged out
+the run fails on the missing session and the badge shows `!` — it never
+retries on its own. Off by default, because opening a tab unprompted is a
+bigger ask than answering a click.
+
 ### What the popup shows
 
 - **Status dot** — *Paired*, *Token rejected*, *Rolo offline*, or
