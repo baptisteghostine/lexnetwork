@@ -11,7 +11,11 @@ import {
   type VoyagerConnection,
 } from "@/lib/linkedin/voyager";
 import { executeLinkedInRows } from "@/server/linkedin-import";
-import { extensionTokenMatches } from "@/server/sync/extension-pairing";
+import {
+  EXTENSION_CORS as CORS,
+  extensionOptions,
+  extensionUnauthorized,
+} from "@/server/sync/extension-http";
 import { enrichProgress } from "@/server/sync/linkedin-enrich";
 
 // Receiving end of the Rolo browser extension (SPEC §9c).
@@ -47,19 +51,8 @@ function sweep(now: number): void {
   }
 }
 
-const CORS = {
-  "access-control-allow-origin": "*",
-  "access-control-allow-headers": "authorization, content-type",
-  "access-control-allow-methods": "GET, POST, OPTIONS",
-};
-
 export async function OPTIONS() {
-  return new NextResponse(null, { status: 204, headers: CORS });
-}
-
-function bearer(req: NextRequest): string | null {
-  const auth = req.headers.get("authorization");
-  return auth?.startsWith("Bearer ") ? auth.slice(7) : null;
+  return extensionOptions();
 }
 
 /**
@@ -69,12 +62,8 @@ function bearer(req: NextRequest): string | null {
  * token, instead of the owner finding out three pages into a sync.
  */
 export async function GET(req: NextRequest) {
-  if (!extensionTokenMatches(bearer(req))) {
-    return NextResponse.json(
-      { error: "unauthorized" },
-      { status: 401, headers: CORS }
-    );
-  }
+  const denied = extensionUnauthorized(req);
+  if (denied) return denied;
   const last = db
     .select({
       status: syncRuns.status,
@@ -113,12 +102,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!extensionTokenMatches(bearer(req))) {
-    return NextResponse.json(
-      { error: "unauthorized" },
-      { status: 401, headers: CORS }
-    );
-  }
+  const denied = extensionUnauthorized(req);
+  if (denied) return denied;
 
   const body = (await req.json().catch(() => null)) as {
     sessionId?: string;

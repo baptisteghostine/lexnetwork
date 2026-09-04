@@ -375,7 +375,8 @@ export function executeLinkedInRows(opts: {
     | "linkedin_import"
     | "linkedin_api_sync"
     | "linkedin_voyager_sync"
-    | "linkedin_profile_enrich";
+    | "linkedin_profile_enrich"
+    | "linkedin_profile_capture";
   fileName?: string;
   fileSha256?: string | null;
 }): { runId: number; report: LinkedInReport } {

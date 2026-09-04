@@ -63,6 +63,18 @@ The token is needed because the POST arrives cross-origin, where Rolo's
 At 2.5 s per 40 connections, ~3,000 connections takes roughly three
 minutes.
 
+### On a profile page
+
+Open anyone's profile and the popup leads with whether they're in Rolo:
+*In Rolo since Mar 2026 · last spoke 12d ago · due Thu* with **Open in
+Rolo**, or *Not in Rolo* with **Add to Rolo**. Adding reads the name,
+headline and location off the page you're already looking at (LinkedIn's
+own embedded data first, the visible heading as fallback) — no extra
+request to LinkedIn — and sends it through the same import as everything
+else: if they were already in Rolo under that profile URL, it updates
+rather than duplicates, keeps anything you'd typed by hand, and a changed
+headline shows up as a job change on Today.
+
 ### What the popup shows
 
 - **Status dot** — *Paired*, *Token rejected*, *Rolo offline*, or

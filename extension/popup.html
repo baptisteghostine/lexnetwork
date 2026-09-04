@@ -94,6 +94,25 @@
       }
       input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
+      /* this-page card (profile / conversation) */
+      .page {
+        margin: 0 0 8px;
+        padding: 8px 10px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--card);
+      }
+      .page .who { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+      .page .name { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .page .role { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .page .state { margin-top: 3px; font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 5px; }
+      .page .state::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--faint); flex: none; }
+      .page .state.in::before { background: var(--ok); }
+      .page .state.due::before { background: var(--warn); }
+      .page .state.out::before { background: var(--accent); }
+      .page .actions { margin-top: 6px; }
+      .page button.btn { padding: 5px 8px; font-size: 12px; }
+
       /* stats */
       .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
       .stat {
@@ -197,6 +216,16 @@
 
     <section id="main" hidden>
       <div id="ctx" class="ctx"><span class="dot"></span><span id="ctxText">Checking tab…</span><a id="openLI" hidden>Open connections page</a></div>
+
+      <div id="page" class="page" hidden>
+        <div class="who"><span id="pageName" class="name"></span><span id="pageRole" class="role"></span></div>
+        <div id="pageState" class="state"></div>
+        <div class="actions">
+          <button id="pageOpen" class="btn" hidden>Open in Rolo</button>
+          <button id="pageAdd" class="btn primary" hidden>Add to Rolo</button>
+        </div>
+        <div id="pageMsg" class="msg" hidden></div>
+      </div>
 
       <div class="stats">
         <div class="stat">

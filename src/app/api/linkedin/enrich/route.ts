@@ -7,7 +7,11 @@ import {
   enrichEnabled,
   takeEnrichBatch,
 } from "@/server/sync/linkedin-enrich";
-import { extensionTokenMatches } from "@/server/sync/extension-pairing";
+import {
+  EXTENSION_CORS as CORS,
+  extensionOptions,
+  extensionUnauthorized,
+} from "@/server/sync/extension-http";
 
 // Profile-location enrichment, extension side (SPEC §9d).
 //
@@ -21,27 +25,15 @@ import { extensionTokenMatches } from "@/server/sync/extension-pairing";
 // reason: this arrives cross-origin from a chrome-extension:// page, where
 // Rolo's SameSite=Lax session cookie would never be sent.
 
-const CORS = {
-  "access-control-allow-origin": "*",
-  "access-control-allow-headers": "authorization, content-type",
-  "access-control-allow-methods": "POST, OPTIONS",
-};
-
 const MAX_BATCH = 25;
 
 export async function OPTIONS() {
-  return new NextResponse(null, { status: 204, headers: CORS });
+  return extensionOptions();
 }
 
 export async function POST(req: NextRequest) {
-  const auth = req.headers.get("authorization");
-  const token = auth?.startsWith("Bearer ") ? auth.slice(7) : null;
-  if (!extensionTokenMatches(token)) {
-    return NextResponse.json(
-      { error: "unauthorized" },
-      { status: 401, headers: CORS }
-    );
-  }
+  const denied = extensionUnauthorized(req);
+  if (denied) return denied;
 
   if (!enrichEnabled()) {
     return NextResponse.json(

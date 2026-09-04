@@ -211,6 +211,100 @@ function renderHint() {
   }
 }
 
+// ---------- the page the owner is on ----------
+//
+// On a profile page the popup answers the one question that matters
+// before anything else: is this person in Rolo? Reading the page costs
+// no LinkedIn request; the lookup is one GET to Rolo.
+
+let pageProfile = null;
+
+function dueLabel(nextTouchAt, now) {
+  if (!nextTouchAt) return null;
+  const d = Math.round((nextTouchAt - now) / 86400e3);
+  if (d < 0) return `${-d}d overdue`;
+  if (d === 0) return "due today";
+  if (d === 1) return "due tomorrow";
+  if (d < 14) return `due in ${d}d`;
+  return `due ${new Date(nextTouchAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+}
+
+function showPage(name, role, state, kind, { open = false, add = false } = {}) {
+  $("page").hidden = false;
+  $("pageName").textContent = name;
+  $("pageRole").textContent = role ?? "";
+  $("pageState").textContent = state;
+  $("pageState").className = `state ${kind ?? ""}`;
+  $("pageOpen").hidden = !open;
+  $("pageAdd").hidden = !add;
+  $("pageAdd").disabled = false;
+  $("pageAdd").textContent = "Add to Rolo";
+  $("pageMsg").hidden = true;
+}
+
+async function renderPage() {
+  $("page").hidden = true;
+  pageProfile = null;
+  if (!liTab || !/^https:\/\/www\.linkedin\.com\/in\//.test(liTab.url ?? "")) return;
+  const read = await chrome.tabs.sendMessage(liTab.id, { type: "readProfile" }).catch(() => null);
+  const profile = read?.profile;
+  if (!profile) return;
+  pageProfile = profile;
+  const name = [profile.firstName, profile.lastName].filter(Boolean).join(" ") || profile.fullName || profile.publicIdentifier;
+  showPage(name, profile.headline, "Checking Rolo…");
+  if (!status) {
+    showPage(name, profile.headline, "Rolo isn't answering — pair first.");
+    return;
+  }
+  const r = await chrome.runtime.sendMessage({ type: "lookup", id: profile.publicIdentifier }).catch(() => null);
+  if (!r?.ok) {
+    showPage(name, profile.headline, r?.error ?? "Lookup failed.");
+    return;
+  }
+  if (r.found) {
+    const c = r.contact;
+    const now = Date.now();
+    const bits = [
+      `In Rolo since ${new Date(c.createdAt).toLocaleDateString(undefined, { month: "short", year: "numeric" })}`,
+      c.lastInteractionAt ? `last spoke ${ago(c.lastInteractionAt)}` : "no recorded contact",
+      c.cadenceDays ? dueLabel(c.nextTouchAt, now) : null,
+      c.archivedAt ? "archived" : null,
+    ].filter(Boolean);
+    const overdue = c.cadenceDays && c.nextTouchAt && c.nextTouchAt <= now;
+    showPage(c.displayName, [c.title, c.company].filter(Boolean).join(", ") || profile.headline, bits.join(" · "), overdue ? "due" : "in", { open: true });
+    $("pageOpen").onclick = () => chrome.tabs.create({ url: `${settings.roloUrl}/contacts/${c.id}` });
+  } else {
+    showPage(name, profile.headline, "Not in Rolo", "out", { add: true });
+  }
+}
+
+$("pageAdd").addEventListener("click", async () => {
+  if (!pageProfile) return;
+  $("pageAdd").disabled = true;
+  $("pageAdd").textContent = "Adding…";
+  const r = await chrome.runtime.sendMessage({ type: "capture", profile: pageProfile }).catch(() => null);
+  const msg = $("pageMsg");
+  msg.hidden = false;
+  if (!r?.ok) {
+    msg.className = "msg err";
+    msg.textContent = r?.error ?? "Couldn't add.";
+    $("pageAdd").disabled = false;
+    $("pageAdd").textContent = "Add to Rolo";
+    return;
+  }
+  msg.className = "msg ok";
+  msg.textContent = r.created
+    ? "Added to Rolo."
+    : r.updated
+      ? "Already in Rolo — updated from this page."
+      : "Already in Rolo — nothing new.";
+  if (r.jobChanges) msg.textContent += ` Job change detected.`;
+  if (r.conflicts) msg.textContent += ` ${r.conflicts} field${r.conflicts > 1 ? "s" : ""} you'd edited kept as-is.`;
+  await renderPage();
+  await loadStatus();
+  renderStats();
+});
+
 // ---------- data ----------
 
 async function loadStatus() {
@@ -276,6 +370,7 @@ async function refresh() {
   renderStats();
   renderRun(run);
   if (run?.status !== "running") renderHint();
+  await renderPage();
   // Badge is for when the popup is closed; opening it is having looked.
   if (run?.status !== "running") chrome.action.setBadgeText({ text: "" }).catch(() => {});
 }

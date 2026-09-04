@@ -344,6 +344,83 @@ function extractLocationFrom(payload) {
   return null;
 }
 
+// ---------- reading the page the owner is on (SPEC §9c capture) ----------
+//
+// Nothing here makes a request. A profile page already carries what Rolo
+// needs — LinkedIn embeds its own API responses in <code> blocks for the
+// SPA to hydrate from, and the visible heading is a fallback when it
+// navigated client-side and those blocks are stale.
+
+function profileIdFromLocation() {
+  const m = location.pathname.match(/^\/in\/([^/]+)\/?/);
+  return m ? decodeURIComponent(m[1]).toLowerCase() : null;
+}
+
+/** Find the profile record for `id` in an embedded API blob: an object
+ * whose publicIdentifier matches, with at least a name part. */
+function findProfileRecord(value, id, depth = 0) {
+  if (depth > 12 || !value || typeof value !== "object") return null;
+  if (Array.isArray(value)) {
+    for (const v of value) {
+      const hit = findProfileRecord(v, id, depth + 1);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  if (
+    typeof value.publicIdentifier === "string" &&
+    value.publicIdentifier.toLowerCase() === id &&
+    (typeof value.firstName === "string" || typeof value.lastName === "string")
+  ) {
+    return value;
+  }
+  for (const v of Object.values(value)) {
+    const hit = findProfileRecord(v, id, depth + 1);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function textOf(selector) {
+  const el = document.querySelector(selector);
+  const t = el?.textContent?.replace(/\s+/g, " ").trim();
+  return t ? t : null;
+}
+
+function readProfile() {
+  const publicIdentifier = profileIdFromLocation();
+  if (!publicIdentifier) return null;
+
+  let record = null;
+  for (const code of document.querySelectorAll('code[id^="bpr-guid-"], code[id^="datalet-bpr-guid-"]')) {
+    let data;
+    try {
+      data = JSON.parse(code.textContent);
+    } catch {
+      continue;
+    }
+    const hit = findProfileRecord(data, publicIdentifier);
+    if (!hit) continue;
+    record = { ...(record ?? {}), ...hit };
+  }
+
+  // The visible page, for client-side navigations where the blobs
+  // describe whoever the tab was first opened on.
+  const fullName = textOf("main h1");
+  const headline = textOf("main .text-body-medium.break-words");
+  const location = textOf("main .text-body-small.inline.t-black--light.break-words");
+
+  const structuredName = record && (record.firstName || record.lastName);
+  return {
+    publicIdentifier,
+    firstName: structuredName ? (record.firstName ?? null) : null,
+    lastName: structuredName ? (record.lastName ?? null) : null,
+    fullName,
+    headline: record?.headline ?? record?.occupation ?? headline,
+    location: (record ? extractLocationFrom(record) : null) ?? location,
+  };
+}
+
 /** Start a run, keep the `run` record honest to the end, and answer the
  * popup if it is still open to hear. Progress reports go to the record
  * (the popup watches storage), not to the popup directly. */
@@ -378,6 +455,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
   if (msg?.type === "isRunning") {
     sendResponse({ ok: true, active });
+    return false;
+  }
+  if (msg?.type === "readProfile") {
+    try {
+      sendResponse({ ok: true, profile: readProfile() });
+    } catch (err) {
+      sendResponse({ ok: false, error: String(err?.message ?? err) });
+    }
     return false;
   }
   return false;

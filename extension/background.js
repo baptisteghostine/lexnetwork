@@ -54,6 +54,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     callRolo("/api/linkedin/extension", { method: "GET" }).then(sendResponse);
     return true;
   }
+  if (msg?.type === "lookup") {
+    callRolo(`/api/linkedin/extension/lookup?id=${encodeURIComponent(msg.id)}`, { method: "GET" }).then(
+      sendResponse
+    );
+    return true;
+  }
+  if (msg?.type === "capture") {
+    callRolo("/api/linkedin/extension/capture", { body: { profile: msg.profile } }).then(sendResponse);
+    return true;
+  }
   if (msg?.type === "page") {
     postToRolo({ sessionId: msg.sessionId, page: msg.payload }).then(sendResponse);
     return true;
