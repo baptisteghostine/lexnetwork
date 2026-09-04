@@ -11,6 +11,7 @@ import {
 } from "@/db/schema";
 import { upcomingBirthdays, type Feb29Rule, type UpcomingBirthday } from "@/lib/birthdays";
 import { parsePrep, type MeetingPrep } from "@/lib/prep/build";
+import { todaysResurfacePicks, type ResurfacePick } from "@/server/resurface";
 import { DAY_MS } from "@/lib/cadence/engine";
 import { getSetting } from "@/lib/settings";
 import { fallbackTimezone, fromFakeUtc, localParts } from "@/lib/time";
@@ -79,6 +80,8 @@ export type TodayData = {
   changes: OpenChange[];
   birthdays: UpcomingBirthday[];
   agenda: AgendaItem[];
+  /** "Worth reconnecting" (SPEC §3): today's picks from the un-cadenced tail. */
+  resurface: ResurfacePick[];
 };
 
 export function ownerTimezone(): string {
@@ -284,9 +287,14 @@ export function getTodayData(now: number): TodayData {
       };
     });
 
+  // (6) Worth reconnecting — picked once per local day by whichever
+  // reader (page or digest) gets here first.
+  const resurface = todaysResurfacePicks(now, timezone);
+
   return {
     timezone,
     agenda,
+    resurface,
     reminders: reminderRows.map((r) => ({
       id: r.id,
       title: r.title,

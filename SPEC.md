@@ -92,7 +92,8 @@ Conventions used below:
   2. Parameters: horizon = 21 calendar days (setting), per-day cap = max(3, ceil(count / weekdaysInHorizon)) (setting for the floor).
   3. Walk weekdays (Mon–Fri) starting tomorrow; assign contacts in sorted order, per-day cap each day; wrap to the next weekday until all assigned. If count exceeds horizon capacity, the cap formula grows so everything fits inside the horizon.
   4. Each assignment sets `snoozed_until` = that day at the owner's digest hour. Deterministic: same inputs → same distribution.
-- **Daily digest email:** sent at a configurable local hour (default 08:00) containing: due today (with days-overdue), birthdays today/this week, job changes detected since last digest, reminders due today. Sent via configured SMTP (a deliberate dependency: `nodemailer`). If nothing is due, no email (setting: "send even when empty" off by default).
+- **Daily digest email:** sent at a configurable local hour (default 08:00) containing: due today (with days-overdue), birthdays today/this week, job changes detected since last digest, reminders due today, and the day's "worth reconnecting" picks (below; never counted as "due" and never enough on their own to send an otherwise-empty digest). Sent via configured SMTP (a deliberate dependency: `nodemailer`). If nothing is due, no email (setting: "send even when empty" off by default).
+- **Worth reconnecting** (owner request 2026-09-04, from Dex's "resurface reminders"). The cadence engine only surfaces people on a cadence; everyone else is invisible to it. Each local day, a few people (Settings → Notifications, default 3, 1–10) are picked from the un-cadenced tail and shown on Today under "Worth reconnecting" and in the digest. Eligible: not archived, `cadence_days` NULL **and** `cadence_reviewed_at` NULL (a deliberate "don't keep in touch" is respected), ≥2 counting interactions, ≥120 days since the last, and outside a 90-day cooldown from their last showing or "not now". Score = depth of history (log), +3 starred, +2 open job change, +recency favouring the 4–18-month band. Deterministic; picked once per day by whichever reader (page or digest) gets there first and stamped `resurfaced_at`. **Reached out** logs a counting manual interaction (the pick retires, the clock resets); **Not now** stamps `resurface_dismissed_at`. A counting interaction after the showing retires the pick on its own. Off switch in Settings.
 
 ### Edge cases
 - Cadence set on a contact with zero interactions: due `cadence_assigned_at + cadence_days`, not immediately.
@@ -107,6 +108,7 @@ Conventions used below:
 - [ ] Unit: snooze-all with 40 due (5 starred) over 21-day horizon: no weekday gets more than the cap, starred land earliest, weekend days get zero, function is deterministic.
 - [ ] Inbound-only email does not change `next_touch_at`; outbound email does.
 - [ ] Digest arrives within 5 minutes of the configured hour and contains exactly the due/birthday/change/reminder items shown on the Today page at that moment.
+- [ ] Unit: resurface eligibility wants no cadence decision, ≥2 interactions, ≥120 days of silence, and honours the cooldown; the score prefers depth, stars, open changes and the drifted band; picks are capped and deterministic. The digest renders the picks without making an empty day non-empty.
 
 ---
 

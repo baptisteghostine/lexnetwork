@@ -41,6 +41,16 @@ export function buildTodayDigest(now: number): DigestEmail {
       daysUntil: b.daysUntil,
       turns: b.turns,
     })),
+    resurface: data.resurface.map((r) => ({
+      displayName: r.displayName,
+      title: r.title,
+      company: r.company,
+      monthsSince:
+        r.lastInteractionAt === null
+          ? null
+          : Math.floor((now - r.lastInteractionAt) / (30 * DAY_MS)),
+      interactionCount: r.interactionCount,
+    })),
   });
 }
 

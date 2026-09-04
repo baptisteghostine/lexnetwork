@@ -19,6 +19,14 @@ export type DigestInput = {
     newValue: string | null;
   }[];
   birthdays: { displayName: string; daysUntil: number; turns: number | null }[];
+  /** "Worth reconnecting" (SPEC §3) — optional so older callers/tests stand. */
+  resurface?: {
+    displayName: string;
+    title: string | null;
+    company: string | null;
+    monthsSince: number | null;
+    interactionCount: number;
+  }[];
 };
 
 export type DigestEmail = {
@@ -192,15 +200,47 @@ export function buildDigest(input: DigestInput): DigestEmail {
     );
   }
 
+  // Suggestions, not obligations: they never make the digest non-empty
+  // and never enter the subject-line counts.
+  const resurface = input.resurface ?? [];
+  if (resurface.length) {
+    parts.push(
+      section(
+        "Worth reconnecting",
+        resurface
+          .map((c) =>
+            row(
+              `${esc(c.displayName)}${
+                c.title || c.company
+                  ? ` <span style="color:${MUTED}">· ${esc([c.title, c.company].filter(Boolean).join(", "))}</span>`
+                  : ""
+              }`,
+              `${c.monthsSince !== null ? `${c.monthsSince}mo ago` : "—"} · ${c.interactionCount} interaction${c.interactionCount === 1 ? "" : "s"}`
+            )
+          )
+          .join("")
+      )
+    );
+    textParts.push(
+      "WORTH RECONNECTING\n" +
+        resurface
+          .map(
+            (c) =>
+              `- ${c.displayName}${c.monthsSince !== null ? ` — last spoke ${c.monthsSince}mo ago` : ""}, ${c.interactionCount} interaction${c.interactionCount === 1 ? "" : "s"}`
+          )
+          .join("\n")
+    );
+  }
+
   const html = `<div style="font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111827">
 <p style="margin:0;font-size:16px;font-weight:600;color:${INDIGO}">Rolo</p>
 <p style="margin:4px 0 0;font-size:13px;color:${MUTED}">${esc(input.dateLabel)}</p>
-${empty ? `<p style="margin:20px 0;font-size:14px">All clear — nobody is due today.</p>` : parts.join("")}
+${empty ? `<p style="margin:20px 0;font-size:14px">All clear — nobody is due today.</p>${parts.join("")}` : parts.join("")}
 <p style="margin:24px 0 0;font-size:12px"><a href="${esc(input.appUrl)}/today" style="color:${INDIGO}">Open Today →</a></p>
 </div>`;
 
   const text = empty
-    ? `Rolo — ${input.dateLabel}\n\nAll clear — nobody is due today.`
+    ? `Rolo — ${input.dateLabel}\n\nAll clear — nobody is due today.${textParts.length ? `\n\n${textParts.join("\n\n")}` : ""}\n\n${input.appUrl}/today`
     : `Rolo — ${input.dateLabel}\n\n${textParts.join("\n\n")}\n\n${input.appUrl}/today`;
 
   return { empty, subject, html, text };

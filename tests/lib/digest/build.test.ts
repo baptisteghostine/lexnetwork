@@ -77,3 +77,23 @@ describe("buildDigest", () => {
     expect(email.subject).toContain("all clear");
   });
 });
+
+describe("worth reconnecting (SPEC §3)", () => {
+  it("renders the picks without making an empty digest non-empty", () => {
+    const email = buildDigest({
+      ...FIXTURE,
+      reminders: [],
+      dueContacts: [],
+      changes: [],
+      birthdays: [],
+      resurface: [
+        { displayName: "Marta Kowalski", title: "CTO", company: "Northwind", monthsSince: 9, interactionCount: 12 },
+      ],
+    });
+    expect(email.empty).toBe(true);
+    expect(email.subject).toContain("all clear");
+    expect(email.html).toContain("Marta Kowalski");
+    expect(email.html).toContain("9mo ago");
+    expect(email.text).toContain("WORTH RECONNECTING");
+  });
+});

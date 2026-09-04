@@ -6,6 +6,7 @@ import { TodayAgenda } from "@/components/today-agenda";
 import { TodayChanges } from "@/components/today-changes";
 import { TodayQueue, type DueItem } from "@/components/today-queue";
 import { TodayReminders } from "@/components/today-reminders";
+import { TodayResurface } from "@/components/today-resurface";
 import { TodaySuggestions } from "@/components/today-suggestions";
 import { requireAuth } from "@/lib/auth";
 import { now as currentTime } from "@/lib/time";
@@ -43,6 +44,8 @@ export default async function TodayPage() {
       `${data.birthdays.length} birthday${data.birthdays.length > 1 ? "s" : ""}`,
     data.agenda.length > 0 &&
       `${data.agenda.length} meeting${data.agenda.length > 1 ? "s" : ""}`,
+    data.resurface.length > 0 &&
+      `${data.resurface.length} to reconnect`,
     suggestions.total > 0 &&
       `${suggestions.total} to add`,
   ].filter(Boolean);
@@ -134,6 +137,14 @@ export default async function TodayPage() {
               Today&apos;s agenda
             </h2>
             <TodayAgenda items={data.agenda} timezone={data.timezone} now={now} />
+          </section>
+        )}
+        {data.resurface.length > 0 && (
+          <section className="space-y-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Worth reconnecting
+            </h2>
+            <TodayResurface items={data.resurface} now={now} aiEnabled={aiEnabled()} />
           </section>
         )}
         {suggestions.rows.length > 0 && (
