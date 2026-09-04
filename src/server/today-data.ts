@@ -10,6 +10,7 @@ import {
   reminders,
 } from "@/db/schema";
 import { upcomingBirthdays, type Feb29Rule, type UpcomingBirthday } from "@/lib/birthdays";
+import { parsePrep, type MeetingPrep } from "@/lib/prep/build";
 import { DAY_MS } from "@/lib/cadence/engine";
 import { getSetting } from "@/lib/settings";
 import { fallbackTimezone, fromFakeUtc, localParts } from "@/lib/time";
@@ -67,6 +68,8 @@ export type AgendaItem = {
   allDay: boolean;
   htmlLink: string | null;
   attendees: AgendaAttendee[];
+  /** The pre-meeting brief (SPEC §9e), once the job has built one. */
+  prep: MeetingPrep | null;
 };
 
 export type TodayData = {
@@ -277,6 +280,7 @@ export function getTodayData(now: number): TodayData {
         allDay: e.allDay,
         htmlLink: e.htmlLink,
         attendees,
+        prep: parsePrep(e.prepJson),
       };
     });
 

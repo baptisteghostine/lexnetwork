@@ -13,7 +13,9 @@ export type AiFeature =
   // Ask-your-network (owner request 2026-08-20): stage 1 compiles the
   // question to a retrieval filter, stage 2 ranks the retrieved set.
   | "ask_plan"
-  | "ask_answer";
+  | "ask_answer"
+  // Pre-meeting brief talking points (SPEC §9e, owner request 2026-09-04).
+  | "meeting_prep";
 
 // Structural subset of @anthropic-ai/sdk's client + response — enough to
 // call and to fake in tests.

@@ -262,6 +262,59 @@ export function NotificationSettings({ initial }: { initial: AppSettings }) {
               defaultChecked={initial.networkUpdatesEmail}
             />
           </Row>
+          <Row
+            label="Pre-meeting brief"
+            description="Before a calendar meeting with someone in Rolo: last touch, open reminders, job changes, your notes, and AI talking points when AI is on. Shows on Today under the agenda."
+          >
+            <Toggle
+              name="meetingPrepEnabled"
+              defaultChecked={initial.meetingPrepEnabled}
+            />
+          </Row>
+          <Row
+            label="Brief lead time (minutes)"
+            description="How far ahead of the meeting the brief is built and sent. 15–1440."
+          >
+            <Input
+              name="meetingPrepLeadMinutes"
+              type="number"
+              min={15}
+              max={1440}
+              defaultValue={initial.meetingPrepLeadMinutes}
+              className="w-24"
+            />
+          </Row>
+          <Row
+            label="Email the brief"
+            description="Off = Today only, no email. Needs SMTP either way to send."
+          >
+            <Toggle
+              name="meetingPrepEmail"
+              defaultChecked={initial.meetingPrepEmail}
+            />
+          </Row>
+          <Row
+            label="Worth reconnecting"
+            description="A few people a day with no cadence but real history you've drifted from — on Today and in the digest. Rotates; each person comes round at most every few months."
+          >
+            <Toggle
+              name="resurfaceEnabled"
+              defaultChecked={initial.resurfaceEnabled}
+            />
+          </Row>
+          <Row
+            label="Picks per day"
+            description="1–10."
+          >
+            <Input
+              name="resurfacePerDay"
+              type="number"
+              min={1}
+              max={10}
+              defaultValue={initial.resurfacePerDay}
+              className="w-20"
+            />
+          </Row>
           <div className="space-y-3 px-4 py-3">
             <div>
               <p className="text-[13px] font-medium">SMTP</p>

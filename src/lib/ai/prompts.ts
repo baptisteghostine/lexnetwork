@@ -78,6 +78,69 @@ export function parseOpeners(text: string): string[] | null {
   return parsed.success ? parsed.data.openers.slice(0, 3) : null;
 }
 
+// ---------- pre-meeting talking points (SPEC §9e) ----------
+
+export type MeetingPrepInput = {
+  meetingSummary: string | null;
+  displayName: string;
+  title: string | null;
+  company: string | null;
+  /** Newest first: "You emailed — Intro to Diego · 14d ago". */
+  history: string[];
+  changes: { field: string; oldValue: string | null; newValue: string | null }[];
+  notes: string[];
+};
+
+export const MEETING_PREP_SYSTEM = [
+  "You prepare the owner of a personal CRM for a meeting they are about to have with someone they know.",
+  "Write 3 short talking points, each one sentence, that the owner could raise or should remember. Specific over generic: name the thing (a past thread, a job change, something from the owner's notes).",
+  "Ground every point in the provided context. Never invent facts, names, or events not present in it. If the context is thin, say less rather than pad.",
+  'Respond with JSON only: {"points": ["...", "...", "..."]}',
+].join("\n");
+
+export function buildMeetingPrepPrompt(input: MeetingPrepInput): string {
+  return [
+    input.meetingSummary ? `Meeting: ${input.meetingSummary}` : "Meeting: (no title)",
+    `Person: ${input.displayName}`,
+    input.title || input.company
+      ? `Role: ${[input.title, input.company].filter(Boolean).join(" at ")}`
+      : null,
+    input.changes.length > 0
+      ? `Recent changes: ${input.changes
+          .map((c) => `${c.field} ${c.oldValue ?? "unknown"} → ${c.newValue ?? "unknown"}`)
+          .join("; ")}`
+      : null,
+    input.history.length > 0
+      ? `Recent history (newest first):\n${input.history.map((h) => `- ${h}`).join("\n")}`
+      : "No recorded history with them.",
+    input.notes.length > 0
+      ? `Owner's notes about them (newest first):\n${input.notes.map((n) => `- ${n}`).join("\n")}`
+      : "Owner has no notes about them.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function meetingPrepFormat(): Record<string, unknown> {
+  return {
+    type: "json_schema",
+    schema: {
+      type: "object",
+      properties: { points: { type: "array", items: { type: "string" } } },
+      required: ["points"],
+      additionalProperties: false,
+    },
+  };
+}
+
+const pointsSchema = z.object({ points: z.array(z.string().min(1)).min(1).max(5) });
+
+export function parseTalkingPoints(text: string): string[] | null {
+  const raw = extractJson(text);
+  const parsed = pointsSchema.safeParse(raw);
+  return parsed.success ? parsed.data.points.slice(0, 3) : null;
+}
+
 // ---------- note summarization ----------
 
 export const SUMMARIZE_SYSTEM = [

@@ -387,6 +387,23 @@ Re-running any import with the same file: 100% unchanged, zero writes. An identi
 - [ ] Manual: awaiting first live run — the profile endpoint candidates are unverified against LinkedIn.
 
 
+## 9e. Pre-meeting brief
+
+*Added 2026-09-04 at the owner's request, from the Dex "pre-meeting emails" pattern. Everything it shows already existed; this assembles it at the one moment it matters.*
+
+- A `meeting_prep` job (every 15 min while Google is connected, Settings → Notifications → "Pre-meeting brief", on by default) looks at `calendar_events` inside a lead window (default 120 min, 15–1440) that have at least one attendee matched to a contact, aren't declined or cancelled, and haven't been briefed. A meeting that started up to 15 min ago still qualifies — a late brief beats none.
+- The brief, per contact (≤5): role, last touch ("last spoke 14d ago"), the last 3 interactions, open reminders on them, open job changes rendered with the §5 diff grammar, the owner's last 2 notes (trimmed), and — when AI is configured — 3 talking points (`ai_calls.feature = 'meeting_prep'`, first 3 contacts only, one call each). AI output is labelled as AI-drafted and never sent anywhere; a model failure drops the points, never the brief.
+- Stored in `calendar_events.prep_json` **before** sending, then emailed (Settings → "Email the brief", on by default; needs SMTP) and stamped `prepped_at` — the exactly-once ledger, same posture as `contact_changes.notified_at`. A failed send retries from the stored brief without another AI round. With email off or SMTP unset, the stamp is immediate and the brief is Today-only.
+- Today renders the brief inline under the agenda item (SPEC §12), with a copy button per talking point.
+
+### Acceptance criteria
+- [ ] Unit: `selectEventsToPrep` takes meetings inside the lead window soonest first, allows one that just started, and skips prepped / declined / cancelled / stranger-only ones.
+- [ ] Unit: the email names the person and the time in the subject, carries every section (touch, interactions, reminder, change, notes, points), and escapes owner-written markup.
+- [ ] Unit: `parseTalkingPoints` caps at 3 and rejects junk; the prompt carries every grounding fact and says so when there is none.
+- [ ] A brief is sent at most once per event: a second sweep with nothing new sends nothing.
+
+---
+
 ## 10. Deduplication & Merge
 
 ### Detection (scheduled job + on-demand)

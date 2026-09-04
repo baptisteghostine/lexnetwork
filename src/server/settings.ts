@@ -8,6 +8,8 @@ import { buildTodayDigest } from "@/jobs/digest";
 import { runNetworkUpdates, type NetworkUpdatesResult } from "@/jobs/network-updates";
 import { requireAuth } from "@/lib/auth";
 import { sendEmail } from "@/lib/digest/send";
+import { clampLeadMinutes } from "@/lib/prep/build";
+import { clampResurfacePerDay } from "@/lib/resurface/score";
 import { getSetting, setSetting } from "@/lib/settings";
 import { fallbackTimezone } from "@/lib/time";
 
@@ -21,6 +23,11 @@ export type AppSettings = {
   digestHour: number;
   digestSendWhenEmpty: boolean;
   networkUpdatesEmail: boolean;
+  meetingPrepEnabled: boolean;
+  meetingPrepLeadMinutes: number;
+  meetingPrepEmail: boolean;
+  resurfaceEnabled: boolean;
+  resurfacePerDay: number;
   birthdaysFeb29: "feb28" | "mar1";
   birthdaysImportantOnly: boolean;
   appUrl: string;
@@ -55,6 +62,11 @@ export async function readAppSettings(): Promise<AppSettings> {
     digestSendWhenEmpty:
       getSetting<boolean>("digest.send_when_empty") ?? false,
     networkUpdatesEmail: getSetting<boolean>("network_updates.email") ?? true,
+    meetingPrepEnabled: getSetting<boolean>("meeting_prep.enabled") ?? true,
+    meetingPrepLeadMinutes: clampLeadMinutes(getSetting<number>("meeting_prep.lead_minutes")),
+    meetingPrepEmail: getSetting<boolean>("meeting_prep.email") ?? true,
+    resurfaceEnabled: getSetting<boolean>("resurface.enabled") ?? true,
+    resurfacePerDay: clampResurfacePerDay(getSetting<number>("resurface.per_day")),
     birthdaysFeb29: getSetting<"feb28" | "mar1">("birthdays.feb29") ?? "feb28",
     birthdaysImportantOnly:
       getSetting<boolean>("birthdays.important_only") ?? true,
@@ -154,6 +166,11 @@ const notificationsInput = z.object({
   digestHour: z.coerce.number().int().min(0).max(23),
   digestSendWhenEmpty: z.coerce.boolean(),
   networkUpdatesEmail: z.coerce.boolean(),
+  meetingPrepEnabled: z.coerce.boolean(),
+  meetingPrepLeadMinutes: z.coerce.number().int().min(15).max(1440),
+  meetingPrepEmail: z.coerce.boolean(),
+  resurfaceEnabled: z.coerce.boolean(),
+  resurfacePerDay: z.coerce.number().int().min(1).max(10),
   smtpHost: z.string().trim().max(300),
   smtpPort: z.coerce.number().int().min(1).max(65535),
   smtpSecure: z.coerce.boolean(),
@@ -172,6 +189,11 @@ export async function updateNotificationsAction(
     digestHour: formData.get("digestHour"),
     digestSendWhenEmpty: formData.get("digestSendWhenEmpty") === "on",
     networkUpdatesEmail: formData.get("networkUpdatesEmail") === "on",
+    meetingPrepEnabled: formData.get("meetingPrepEnabled") === "on",
+    meetingPrepLeadMinutes: formData.get("meetingPrepLeadMinutes") || 120,
+    meetingPrepEmail: formData.get("meetingPrepEmail") === "on",
+    resurfaceEnabled: formData.get("resurfaceEnabled") === "on",
+    resurfacePerDay: formData.get("resurfacePerDay") || 3,
     smtpHost: formData.get("smtpHost") ?? "",
     smtpPort: formData.get("smtpPort") || 587,
     smtpSecure: formData.get("smtpSecure") === "on",
@@ -185,6 +207,11 @@ export async function updateNotificationsAction(
   setSetting("digest.hour", s.digestHour);
   setSetting("digest.send_when_empty", s.digestSendWhenEmpty);
   setSetting("network_updates.email", s.networkUpdatesEmail);
+  setSetting("meeting_prep.enabled", s.meetingPrepEnabled);
+  setSetting("meeting_prep.lead_minutes", s.meetingPrepLeadMinutes);
+  setSetting("meeting_prep.email", s.meetingPrepEmail);
+  setSetting("resurface.enabled", s.resurfaceEnabled);
+  setSetting("resurface.per_day", s.resurfacePerDay);
   setSetting("smtp", {
     host: s.smtpHost,
     port: s.smtpPort,

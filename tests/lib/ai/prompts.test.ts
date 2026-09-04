@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildAutoTagSystem,
+  buildMeetingPrepPrompt,
   parseOpeners,
   parseTagSuggestions,
+  parseTalkingPoints,
   type AutoTagContact,
 } from "@/lib/ai/prompts";
 
@@ -90,5 +92,40 @@ describe("parseOpeners", () => {
   it("returns null on unusable output", () => {
     expect(parseOpeners("nope")).toBeNull();
     expect(parseOpeners(JSON.stringify({ openers: [] }))).toBeNull();
+  });
+});
+
+describe("meeting prep (SPEC §9e)", () => {
+  it("parses up to three points and rejects junk", () => {
+    expect(parseTalkingPoints('{"points":["a","b","c","d"]}')).toEqual(["a", "b", "c"]);
+    expect(parseTalkingPoints('{"points":[]}')).toBeNull();
+    expect(parseTalkingPoints("not json")).toBeNull();
+    expect(parseTalkingPoints('{"openers":["x"]}')).toBeNull();
+  });
+
+  it("puts every grounding fact in the prompt, and says when there is none", () => {
+    const prompt = buildMeetingPrepPrompt({
+      meetingSummary: "Q3 catch-up",
+      displayName: "Ana Silva",
+      title: "Partner",
+      company: "Meridian",
+      history: ["You emailed — Intro to Diego · 14d ago"],
+      changes: [{ field: "company", oldValue: "Stripe", newValue: "Meridian" }],
+      notes: ["Wants biotech intros"],
+    });
+    for (const s of ["Q3 catch-up", "Ana Silva", "Partner at Meridian", "Stripe → Meridian", "Intro to Diego", "Wants biotech intros"]) {
+      expect(prompt).toContain(s);
+    }
+    const thin = buildMeetingPrepPrompt({
+      meetingSummary: null,
+      displayName: "X",
+      title: null,
+      company: null,
+      history: [],
+      changes: [],
+      notes: [],
+    });
+    expect(thin).toContain("No recorded history");
+    expect(thin).toContain("no notes");
   });
 });

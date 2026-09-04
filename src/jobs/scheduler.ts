@@ -12,6 +12,7 @@ import {
   reclaimDecision,
 } from "@/jobs/core";
 import { ownerTimezone, runDigest } from "@/jobs/digest";
+import { meetingPrepEnabled, runMeetingPrep } from "@/jobs/meeting-prep";
 import {
   networkUpdatesEnabled,
   runNetworkUpdates,
@@ -67,6 +68,9 @@ const HANDLERS: Record<string, Handler> = {
   network_updates: async () => {
     await runNetworkUpdates(Date.now());
   },
+  meeting_prep: async () => {
+    await runMeetingPrep(Date.now());
+  },
   geocode: async () => {
     await runGeocode(Date.now());
   },
@@ -91,6 +95,7 @@ const SYNC_JOBS: {
     | "linkedin_voyager_sync"
     | "dedupe_scan"
     | "network_updates"
+    | "meeting_prep"
     | "geocode"
     | "backup";
   connected: () => boolean;
@@ -117,6 +122,14 @@ const SYNC_JOBS: {
   {
     kind: "network_updates",
     connected: () => networkUpdatesEnabled() && getSmtpSettings() !== null,
+    intervalMs: 15 * 60 * 1000,
+  },
+  // Pre-meeting brief (SPEC §9e): needs the calendar, so it lives and
+  // dies with the Google connection. 15 min is well inside the default
+  // 2 h lead; the sweep is one indexed SELECT when nothing is coming up.
+  {
+    kind: "meeting_prep",
+    connected: () => providerActive("google") && meetingPrepEnabled(),
     intervalMs: 15 * 60 * 1000,
   },
   // City placement (SPEC §7a, decision #4): each run works one paced

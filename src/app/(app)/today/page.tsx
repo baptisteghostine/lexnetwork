@@ -128,7 +128,7 @@ export default async function TodayPage() {
             <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Today&apos;s agenda
             </h2>
-            <TodayAgenda items={data.agenda} timezone={data.timezone} />
+            <TodayAgenda items={data.agenda} timezone={data.timezone} now={now} />
           </section>
         )}
       </div>
