@@ -101,6 +101,29 @@ export function extractAddresses(headerValue: string | null): string[] {
   return out;
 }
 
+/**
+ * Addresses with their display names, from the same header grammar —
+ * `"Silva, Ana" <ana@x.y>` → {email, name: "Silva, Ana"}. Feeds the
+ * "People you met" queue (SPEC §9f); the sync never stores the header.
+ */
+export function extractAddressNames(
+  headerValue: string | null
+): { email: string; name: string | null }[] {
+  if (!headerValue) return [];
+  const out: { email: string; name: string | null }[] = [];
+  for (const part of splitAddressList(headerValue)) {
+    const angled = part.match(/^(.*?)<([^<>\s]+@[^<>\s]+)>\s*$/);
+    if (angled) {
+      const name = angled[1].trim().replace(/^"+|"+$/g, "").trim();
+      out.push({ email: angled[2].toLowerCase(), name: name || null });
+      continue;
+    }
+    const bare = part.match(/([^\s"',;<>]+@[^\s"',;<>]+)/)?.[1];
+    if (bare) out.push({ email: bare.toLowerCase().replace(/[.,;]+$/, ""), name: null });
+  }
+  return out;
+}
+
 /** Split on commas that sit outside double quotes. */
 function splitAddressList(headerValue: string | undefined | null): string[] {
   if (!headerValue) return [];

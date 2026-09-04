@@ -22,11 +22,13 @@ import {
   storedEventCountsAsMeeting,
   type CalendarEventParsed,
 } from "@/lib/sync/gcal";
+import type { SightingInput } from "@/lib/suggestions/rank";
 import {
   accessTokenFor,
   getAccount,
   markAccountError,
 } from "@/server/sync/accounts";
+import { recordSightings } from "@/server/sync/suggestions";
 
 // Calendar sync engine (SPEC §9): bounded window first, then syncToken
 // increments; 410 invalidates the token and re-runs the window. Past
@@ -102,13 +104,30 @@ function upsertEvent(
   e: CalendarEventParsed,
   matched: { email: string; name: string | null; contactId: number | null }[],
   now: number,
-  touched: Set<number>
+  touched: Set<number>,
+  sightings: SightingInput[]
 ): void {
   if (e.status === "cancelled") {
     db.delete(calendarEvents).where(eq(calendarEvents.eventKey, e.eventKey)).run();
     // A meeting already promoted to an interaction never happened after all.
     deleteMeetingInteractions([e.eventKey], touched);
     return;
+  }
+  // Attendees Rolo doesn't know feed the "People you met" queue (SPEC
+  // §9f) — a meeting the owner accepted, not one they declined.
+  if (e.myResponse !== "declined") {
+    for (const a of matched) {
+      if (a.contactId !== null) continue;
+      sightings.push({
+        email: a.email,
+        name: a.name,
+        kind: "meeting",
+        key: e.eventKey,
+        occurredAt: e.startsAt,
+        title: e.summary,
+        direction: null,
+      });
+    }
   }
   db.insert(calendarEvents)
     .values({
@@ -295,6 +314,7 @@ export async function runCalendarSync(): Promise<CalendarSyncStats | null> {
     fullWindow: !account.calendarSyncToken,
   };
   const touched = new Set<number>();
+  const sightings: SightingInput[] = [];
 
   const runId = db
     .insert(syncRuns)
@@ -326,7 +346,7 @@ export async function runCalendarSync(): Promise<CalendarSyncStats | null> {
         for (const e of page.events) {
           stats.eventsSeen++;
           if (!incremental) seenKeys.add(e.eventKey);
-          upsertEvent(account.id, e, matchAttendees(e), now, touched);
+          upsertEvent(account.id, e, matchAttendees(e), now, touched, sightings);
         }
         pageToken = page.nextPageToken ?? undefined;
         if (page.nextSyncToken) nextSyncToken = page.nextSyncToken;
@@ -358,6 +378,7 @@ export async function runCalendarSync(): Promise<CalendarSyncStats | null> {
 
     for (const id of touched) recomputeContact(id);
     stats.contactsTouched = touched.size;
+    recordSightings(sightings, "calendar", Date.now());
 
     if (nextSyncToken) {
       db.update(integrationAccounts)
@@ -386,4 +407,45 @@ export async function runCalendarSync(): Promise<CalendarSyncStats | null> {
     }
     throw err;
   }
+}
+
+/**
+ * An address just became a contact's (SPEC §9f approval, or a manual
+ * edit): re-match it across the stored events and promote the meetings
+ * it was on. Same reconcile pass the sync runs, so the rows it writes are
+ * indistinguishable from ones the sync would have written.
+ */
+export function relinkAttendeeEmail(
+  emailNormalized: string,
+  contactId: number,
+  now: number
+): number {
+  const rows = db
+    .select({ id: calendarEvents.id, attendees: calendarEvents.attendees })
+    .from(calendarEvents)
+    .all();
+  let changed = 0;
+  for (const r of rows) {
+    const list = parseStoredAttendees(r.attendees);
+    let hit = false;
+    for (const a of list) {
+      if (a.contactId === null && normalizeEmail(a.email) === emailNormalized) {
+        a.contactId = contactId;
+        hit = true;
+      }
+    }
+    if (!hit) continue;
+    db.update(calendarEvents)
+      .set({ attendees: JSON.stringify(list), updatedAt: now })
+      .where(eq(calendarEvents.id, r.id))
+      .run();
+    changed++;
+  }
+  if (changed > 0) {
+    const touched = new Set<number>();
+    const stats: CalendarSyncStats = { eventsSeen: 0, meetingsAdded: 0, contactsTouched: 0, fullWindow: false };
+    reconcileMeetingInteractions(now, stats, touched);
+    for (const id of touched) recomputeContact(id);
+  }
+  return changed;
 }

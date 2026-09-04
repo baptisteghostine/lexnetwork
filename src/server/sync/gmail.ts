@@ -13,11 +13,14 @@ import {
   buildMessageListUrl,
   buildMessageMetadataUrl,
   buildProfileUrl,
+  extractAddressNames,
   parseHistoryPage,
   parseMessageMeta,
   resolveDirection,
   type GmailMessageMeta,
 } from "@/lib/sync/gmail";
+import type { SightingInput } from "@/lib/suggestions/rank";
+import { recordSightings } from "@/server/sync/suggestions";
 import {
   accessTokenFor,
   getAccount,
@@ -117,17 +120,33 @@ function processMessages(
   myAddresses: string[],
   stats: GmailSyncStats,
   unmatched: Map<string, number>,
-  touched: Set<number>
+  touched: Set<number>,
+  sightings: SightingInput[]
 ): void {
   for (const meta of metas) {
     stats.messagesSeen++;
     const { direction, counterparts } = resolveDirection(meta, myAddresses);
     if (counterparts.length === 0) continue;
     const matches = contactIdsByEmail(counterparts);
+    // Display names for the "People you met" queue (SPEC §9f) — read
+    // from the same headers, never stored beyond the name itself.
+    const names = new Map<string, string | null>();
+    for (const a of extractAddressNames([meta.from, ...meta.to, ...meta.cc].filter(Boolean).join(", "))) {
+      if (!names.get(a.email)) names.set(a.email, a.name);
+    }
     for (const address of counterparts) {
       const contactId = matches.get(address);
       if (contactId === undefined) {
         unmatched.set(address, (unmatched.get(address) ?? 0) + 1);
+        sightings.push({
+          email: address,
+          name: names.get(address) ?? null,
+          kind: "email",
+          key: meta.id,
+          occurredAt: meta.internalDate,
+          title: meta.subject,
+          direction,
+        });
         continue;
       }
       const inserted = db
@@ -172,6 +191,7 @@ export async function runGmailSync(): Promise<GmailSyncStats | null> {
   };
   const unmatched = new Map<string, number>();
   const touched = new Set<number>();
+  const sightings: SightingInput[] = [];
 
   const runId = db
     .insert(syncRuns)
@@ -186,12 +206,13 @@ export async function runGmailSync(): Promise<GmailSyncStats | null> {
 
   try {
     if (!account.gmailBackfillDone) {
-      await backfillStep(account.id, token, myAddresses, stats, unmatched, touched);
+      await backfillStep(account.id, token, myAddresses, stats, unmatched, touched, sightings);
     } else {
-      await incrementalStep(account.id, token, myAddresses, stats, unmatched, touched);
+      await incrementalStep(account.id, token, myAddresses, stats, unmatched, touched, sightings);
     }
 
     for (const id of touched) recomputeContact(id);
+    recordSightings(sightings, "gmail", Date.now());
     stats.contactsTouched = touched.size;
     stats.unmatchedTop = [...unmatched.entries()]
       .sort((a, b) => b[1] - a[1])
@@ -228,7 +249,8 @@ async function backfillStep(
   myAddresses: string[],
   stats: GmailSyncStats,
   unmatched: Map<string, number>,
-  touched: Set<number>
+  touched: Set<number>,
+  sightings: SightingInput[]
 ): Promise<void> {
   let state = getSetting<BackfillState>(BACKFILL_STATE_KEY);
   if (!state) {
@@ -258,7 +280,7 @@ async function backfillStep(
       .filter((id): id is string => !!id);
     const metas = await fetchMetas(ids, token);
     const inWindow = metas.filter((m) => m.internalDate >= state!.cutoffMs);
-    processMessages(inWindow, myAddresses, stats, unmatched, touched);
+    processMessages(inWindow, myAddresses, stats, unmatched, touched, sightings);
     // The list is newest-first: a page that dipped below the cutoff, or a
     // missing next page, ends the backfill.
     if (inWindow.length < metas.length || !listing.nextPageToken) {
@@ -314,7 +336,8 @@ async function incrementalStep(
   myAddresses: string[],
   stats: GmailSyncStats,
   unmatched: Map<string, number>,
-  touched: Set<number>
+  touched: Set<number>,
+  sightings: SightingInput[]
 ): Promise<void> {
   const account = getAccount("google")!;
   const startHistoryId = account.gmailHistoryId;
@@ -373,7 +396,7 @@ async function incrementalStep(
   }
 
   const metas = await fetchMetas([...messageIds], token);
-  processMessages(metas, myAddresses, stats, unmatched, touched);
+  processMessages(metas, myAddresses, stats, unmatched, touched, sightings);
   if (latestHistoryId) {
     db.update(integrationAccounts)
       .set({ gmailHistoryId: latestHistoryId, updatedAt: Date.now() })

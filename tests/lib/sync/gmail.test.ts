@@ -4,6 +4,7 @@ import {
   buildHistoryListUrl,
   buildMessageListUrl,
   buildMessageMetadataUrl,
+  extractAddressNames,
   extractAddresses,
   parseHistoryPage,
   parseMessageMeta,
@@ -158,5 +159,18 @@ describe("parseHistoryPage", () => {
     const page = parseHistoryPage({ historyId: "1000" });
     expect(page.messageIds).toEqual([]);
     expect(page.nextPageToken).toBeNull();
+  });
+});
+
+describe("extractAddressNames (SPEC §9f)", () => {
+  it("pairs each address with its display name, quoted or not", () => {
+    expect(
+      extractAddressNames('"Silva, Ana" <Ana.Silva@Meridian.vc>, Diego Fernandez <diego@x.y>, bare@x.y')
+    ).toEqual([
+      { email: "ana.silva@meridian.vc", name: "Silva, Ana" },
+      { email: "diego@x.y", name: "Diego Fernandez" },
+      { email: "bare@x.y", name: null },
+    ]);
+    expect(extractAddressNames(null)).toEqual([]);
   });
 });

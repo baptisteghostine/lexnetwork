@@ -404,6 +404,23 @@ Re-running any import with the same file: 100% unchanged, zero writes. An identi
 
 ---
 
+## 9f. People you met
+
+*Added 2026-09-04 at the owner's request, from Dex's "Add new contacts from: Calendar". SPEC §9's "never auto-creates contacts" is kept on purpose: this is a queue with a one-click approve, not an auto-create.*
+
+- The Gmail and Calendar syncs hand every counterpart/attendee they couldn't match to `contact_suggestions` (SCHEMA.md), with the display name from the header or the invite, per-kind counts (you wrote to them / they wrote to you / you met), and a bounded `recent_json` of sightings. Declined meetings don't count. The obvious machinery of email never enters (`isLikelyPerson`: noreply/notification locals, calendar resources, LinkedIn/Slack/GitHub mailers…).
+- A suggestion **qualifies** once there is a meeting, or a message *from* the owner, or three from them; ranked meeting > outbound > inbound, recent first. Today shows the top 5 under "People you met" with the count in the header; `/people-you-met` is the whole queue.
+- **Add to Rolo** creates the contact (name split from the header, else from an `ana.silva@` local, else the address as display name; email with the sync's source as provenance) and backfills: every remembered email sighting becomes an `interactions` row with the same `source`/`source_key` the live sync writes (so the next tick no-ops), and every stored calendar event carrying the address is re-matched and its past meetings promoted through the sync's own reconcile pass. **Not a contact** dismisses permanently.
+- A suggestion whose address later lands on a contact by any other route (typed, imported) is closed the next time the queue is read.
+
+### Acceptance criteria
+- [ ] Unit: `isLikelyPerson` passes real people at any domain and rejects noreply/notification/resource/mailer addresses; `splitName` handles "First Last", "Last, First", quotes, and email-shaped locals.
+- [ ] Unit: `qualifies` needs a meeting, an outbound message, or three inbound; ranking puts meetings over outbound over inbound with recency as tiebreak; `mergeRecent` dedupes on key, newest first, bounded.
+- [ ] Unit: `extractAddressNames` pairs each address with its display name.
+- [ ] Approving a suggestion with 3 remembered emails and 1 stored past meeting yields a contact with 4 timeline rows, and the next Gmail/Calendar tick adds none of them again.
+
+---
+
 ## 10. Deduplication & Merge
 
 ### Detection (scheduled job + on-demand)
@@ -464,7 +481,7 @@ All features: model from the provider's env var; every call logged to `ai_calls`
 ## 12. Today / Triage UI
 
 ### Behavior
-- Home = one prioritized queue: (1) reminders due, (2) keep-in-touch due (starred first, then overdue-ness), (3) job changes, (4) birthdays this week, (5) today's calendar agenda. Section order fixed; counts in header.
+- Home = one prioritized queue: (1) reminders due, (2) keep-in-touch due (starred first, then overdue-ness), (3) job changes, (4) birthdays this week, (5) today's calendar agenda — with the pre-meeting brief inline (§9e), (6) worth reconnecting (§3, owner request 2026-09-04), (7) people you met (§9f). Section order fixed; counts in header.
 - Every item dispatchable via one keystroke while focused: `l` log interaction (with optional note), `s` snooze (then 1/3/7/m picks duration), `n` note, `o` open in Gmail (compose to primary email) / `L` open LinkedIn, `d` dismiss, `Enter` open contact.
   - v1 deviation (Phase 4): `d` is implemented as snooze-to-tomorrow — a due keep-in-touch item has no separate "dismissed" state yet, and the queue hint labels it "dismiss to tomorrow". Revisit when reminders land (Phase 5).
 - Command palette (Cmd+K): jump to contact (fuzzy), create note/reminder, run a saved view, trigger a sync, jump to any screen.

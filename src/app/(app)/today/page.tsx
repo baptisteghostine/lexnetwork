@@ -6,9 +6,11 @@ import { TodayAgenda } from "@/components/today-agenda";
 import { TodayChanges } from "@/components/today-changes";
 import { TodayQueue, type DueItem } from "@/components/today-queue";
 import { TodayReminders } from "@/components/today-reminders";
+import { TodaySuggestions } from "@/components/today-suggestions";
 import { requireAuth } from "@/lib/auth";
 import { now as currentTime } from "@/lib/time";
 import { aiEnabled } from "@/server/ai-client";
+import { openSuggestions } from "@/server/sync/suggestions";
 import { getTodayData } from "@/server/today-data";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +20,7 @@ export default async function TodayPage() {
   await requireAuth();
   const now = currentTime();
   const data = getTodayData(now);
+  const suggestions = openSuggestions(now, 5);
 
   const items: DueItem[] = data.dueContacts.map((c) => ({
     contactId: c.contactId,
@@ -40,6 +43,8 @@ export default async function TodayPage() {
       `${data.birthdays.length} birthday${data.birthdays.length > 1 ? "s" : ""}`,
     data.agenda.length > 0 &&
       `${data.agenda.length} meeting${data.agenda.length > 1 ? "s" : ""}`,
+    suggestions.total > 0 &&
+      `${suggestions.total} to add`,
   ].filter(Boolean);
 
   return (
@@ -129,6 +134,14 @@ export default async function TodayPage() {
               Today&apos;s agenda
             </h2>
             <TodayAgenda items={data.agenda} timezone={data.timezone} now={now} />
+          </section>
+        )}
+        {suggestions.rows.length > 0 && (
+          <section className="space-y-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              People you met
+            </h2>
+            <TodaySuggestions items={suggestions.rows} now={now} total={suggestions.total} />
           </section>
         )}
       </div>
