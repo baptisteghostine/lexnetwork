@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 
+import { desc, eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
+import { db } from "@/db/client";
+import { syncRuns } from "@/db/schema";
 import {
   parseConnectionsResponse,
   voyagerToConnection,
@@ -9,6 +12,7 @@ import {
 } from "@/lib/linkedin/voyager";
 import { executeLinkedInRows } from "@/server/linkedin-import";
 import { extensionTokenMatches } from "@/server/sync/extension-pairing";
+import { enrichProgress } from "@/server/sync/linkedin-enrich";
 
 // Receiving end of the Rolo browser extension (SPEC §9c).
 //
@@ -46,17 +50,70 @@ function sweep(now: number): void {
 const CORS = {
   "access-control-allow-origin": "*",
   "access-control-allow-headers": "authorization, content-type",
-  "access-control-allow-methods": "POST, OPTIONS",
+  "access-control-allow-methods": "GET, POST, OPTIONS",
 };
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS });
 }
 
-export async function POST(req: NextRequest) {
+function bearer(req: NextRequest): string | null {
   const auth = req.headers.get("authorization");
-  const token = auth?.startsWith("Bearer ") ? auth.slice(7) : null;
-  if (!extensionTokenMatches(token)) {
+  return auth?.startsWith("Bearer ") ? auth.slice(7) : null;
+}
+
+/**
+ * What the popup shows before anyone clicks anything: is the token good,
+ * when did the last sync land and what did it change, and how far along
+ * the location trickle is. A 401 here is how the popup learns a rotated
+ * token, instead of the owner finding out three pages into a sync.
+ */
+export async function GET(req: NextRequest) {
+  if (!extensionTokenMatches(bearer(req))) {
+    return NextResponse.json(
+      { error: "unauthorized" },
+      { status: 401, headers: CORS }
+    );
+  }
+  const last = db
+    .select({
+      status: syncRuns.status,
+      statsJson: syncRuns.statsJson,
+      error: syncRuns.error,
+      startedAt: syncRuns.startedAt,
+      finishedAt: syncRuns.finishedAt,
+    })
+    .from(syncRuns)
+    .where(eq(syncRuns.kind, "linkedin_voyager_sync"))
+    .orderBy(desc(syncRuns.startedAt))
+    .limit(1)
+    .get();
+  let stats: unknown = null;
+  try {
+    stats = last?.statsJson ? JSON.parse(last.statsJson) : null;
+  } catch {
+    stats = null; // a corrupt stats blob shouldn't take the popup down
+  }
+  return NextResponse.json(
+    {
+      ok: true,
+      lastSync: last
+        ? {
+            status: last.status,
+            startedAt: last.startedAt,
+            finishedAt: last.finishedAt,
+            error: last.error,
+            stats,
+          }
+        : null,
+      enrich: enrichProgress(Date.now()),
+    },
+    { headers: CORS }
+  );
+}
+
+export async function POST(req: NextRequest) {
+  if (!extensionTokenMatches(bearer(req))) {
     return NextResponse.json(
       { error: "unauthorized" },
       { status: 401, headers: CORS }

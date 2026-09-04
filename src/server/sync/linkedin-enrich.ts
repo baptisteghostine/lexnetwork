@@ -242,3 +242,32 @@ export function contactIdsFor(identifiers: string[]): Map<string, number> {
   }
   return map;
 }
+
+export type EnrichProgress = {
+  enabled: boolean;
+  dailyCap: number;
+  /** Lookups still allowed in the rolling 24-hour window. */
+  remainingToday: number;
+  /** Contacts waiting for a lookup (never checked, or stale). */
+  queued: number;
+  located: number;
+  linkedInContacts: number;
+};
+
+/**
+ * One line of truth for the extension popup: whether the trickle is on,
+ * how much of today's budget is left, and how full the map is. Read-only,
+ * so opening the popup never spends budget or stamps anyone checked.
+ */
+export function enrichProgress(now: number): EnrichProgress {
+  const cap = dailyCap();
+  const counts = linkedInLocationCounts();
+  return {
+    enabled: enrichEnabled(),
+    dailyCap: cap,
+    remainingToday: Math.max(0, cap - checkedSince(startOfDayWindow(now))),
+    queued: enrichCandidates(now).length,
+    located: counts.located,
+    linkedInContacts: counts.total,
+  };
+}
