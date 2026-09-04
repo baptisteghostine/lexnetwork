@@ -180,7 +180,8 @@
 
       .muted { color: var(--muted); font-size: 11px; margin: 8px 0 0; }
       .auto { display: flex; align-items: center; gap: 7px; margin-top: 10px; font-size: 12px; cursor: pointer; }
-      .auto input { accent-color: var(--accent); margin: 0; }
+      .auto input { width: auto; padding: 0; border: 0; accent-color: var(--accent); margin: 0; flex: none; }
+      .auto > span { flex: 1; }
       .auto .when { color: var(--muted); font-size: 11px; }
       footer {
         display: flex; gap: 10px;
