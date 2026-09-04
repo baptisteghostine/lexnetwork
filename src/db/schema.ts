@@ -58,6 +58,12 @@ export const contacts = sqliteTable(
     lastInteractionAt: integer("last_interaction_at"),
     // Derived: recomputed by the cadence engine, never hand-written.
     nextTouchAt: integer("next_touch_at"),
+    // "Worth reconnecting" (SPEC §3, owner request 2026-09-04): when this
+    // contact was last offered as a resurface pick, and when the owner
+    // waved one away. Both gate the cooldown so picks rotate through the
+    // un-cadenced long tail instead of repeating.
+    resurfacedAt: integer("resurfaced_at"),
+    resurfaceDismissedAt: integer("resurface_dismissed_at"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
@@ -400,6 +406,10 @@ export const calendarEvents = sqliteTable(
     // JSON [{email, name, contactId|null}] — matched at sync time.
     attendees: text("attendees"),
     htmlLink: text("html_link"),
+    // Pre-meeting brief (SPEC §9e): the brief as built, and the
+    // exactly-once ledger for having told the owner about it.
+    prepJson: text("prep_json"),
+    preppedAt: integer("prepped_at"),
     updatedAt: integer("updated_at").notNull(),
   },
   (t) => [
@@ -408,12 +418,53 @@ export const calendarEvents = sqliteTable(
   ]
 );
 
+// "People you met" (SPEC §9f): calendar attendees and email counterparts
+// who aren't contacts yet. Suggestion only — SPEC §9's "never auto-create"
+// stands; approving one is the owner's click. recent_json carries enough
+// metadata (message ids, subjects, event keys, dates) to backfill the
+// interactions on approval without another API call.
+export const contactSuggestions = sqliteTable(
+  "contact_suggestions",
+  {
+    id: integer("id").primaryKey(),
+    emailNormalized: text("email_normalized").notNull(),
+    email: text("email").notNull(),
+    name: text("name"),
+    // 'calendar' | 'gmail' — where first seen; both sources keep bumping it.
+    source: text("source").notNull(),
+    // Sightings by kind, so ranking can weigh "I wrote to them" over
+    // "they wrote to me" and a meeting over both.
+    outboundCount: integer("outbound_count").notNull().default(0),
+    inboundCount: integer("inbound_count").notNull().default(0),
+    meetingCount: integer("meeting_count").notNull().default(0),
+    firstSeenAt: integer("first_seen_at").notNull(),
+    lastSeenAt: integer("last_seen_at").notNull(),
+    lastTitle: text("last_title"),
+    // JSON [{kind, key, occurredAt, title, direction}] — newest first,
+    // bounded (SUGGESTION_RECENT_MAX).
+    recentJson: text("recent_json"),
+    dismissedAt: integer("dismissed_at"),
+    // Set on approval, or when a contact later gained this email.
+    contactId: integer("contact_id").references(() => contacts.id, {
+      onDelete: "set null",
+    }),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("uq_suggestions_email").on(t.emailNormalized),
+    index("idx_suggestions_open")
+      .on(t.lastSeenAt)
+      .where(sql`dismissed_at IS NULL AND contact_id IS NULL`),
+  ]
+);
+
 export const jobs = sqliteTable(
   "jobs",
   {
     id: integer("id").primaryKey(),
     // 'gmail_sync' | 'calendar_sync' | 'digest' | 'backup' | 'dedupe_scan' |
-    // 'reminder_fire' | 'geocode' | 'ai_batch_tag'
+    // 'reminder_fire' | 'geocode' | 'ai_batch_tag' | 'meeting_prep'
     kind: text("kind").notNull(),
     payloadJson: text("payload_json"),
     // Prevents double-enqueue of e.g. today's digest.
@@ -688,7 +739,8 @@ export const aiCalls = sqliteTable(
   "ai_calls",
   {
     id: integer("id").primaryKey(),
-    // 'nl_search' | 'auto_tag' | 'openers' | 'summarize'
+    // 'nl_search' | 'auto_tag' | 'openers' | 'summarize' | 'ask_plan' |
+    // 'ask_answer' | 'meeting_prep'
     feature: text("feature").notNull(),
     model: text("model").notNull(),
     prompt: text("prompt").notNull(),

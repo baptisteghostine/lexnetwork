@@ -39,6 +39,8 @@ Tables the brief listed are all here, plus **four additions** (each flagged inli
 | snoozed_until | INTEGER | cleared by counting interactions |
 | last_interaction_at | INTEGER | **derived** — max counting interaction; recomputed by cadence engine |
 | next_touch_at | INTEGER | **derived** — see SPEC §3; the single most-queried column |
+| resurfaced_at | INTEGER | nullable; when this contact was last offered as a "Worth reconnecting" pick (SPEC §3). Gates the cooldown so picks rotate. Added in migration 0018 |
+| resurface_dismissed_at | INTEGER | nullable; the owner waved the pick away ("not now"). Same cooldown. Added in migration 0018 |
 | created_at / updated_at | INTEGER NOT NULL | |
 
 Why birthday as three INTs, not a date string: year-less birthdays are the common case; separate columns make the "birthdays in next 7 days incl. year wrap" query a sane indexed expression instead of substr() gymnastics.
@@ -178,7 +180,7 @@ Everything externally-sourced or manually logged (notes live in `notes`):
 
 ## calendar_events  *(added table — Today agenda cache)*
 
-`id, event_key TEXT NOT NULL UNIQUE (Google event id; recurring instances are unique under singleEvents=true), account_id FK → integration_accounts ON DELETE CASCADE, summary TEXT, starts_at INTEGER NOT NULL, ends_at INTEGER, all_day INTEGER DEFAULT 0, status TEXT NOT NULL ('confirmed','tentative' — cancelled events are deleted rows), my_response TEXT ('accepted','declined','tentative','needsAction'), attendees TEXT (JSON [{email, name, contact_id|null}] — matched at sync time), html_link TEXT, updated_at`.
+`id, event_key TEXT NOT NULL UNIQUE (Google event id; recurring instances are unique under singleEvents=true), account_id FK → integration_accounts ON DELETE CASCADE, summary TEXT, starts_at INTEGER NOT NULL, ends_at INTEGER, all_day INTEGER DEFAULT 0, status TEXT NOT NULL ('confirmed','tentative' — cancelled events are deleted rows), my_response TEXT ('accepted','declined','tentative','needsAction'), attendees TEXT (JSON [{email, name, contact_id|null}] — matched at sync time), html_link TEXT, prep_json TEXT (the pre-meeting brief as built, SPEC §9e; migration 0018), prepped_at INTEGER (exactly-once ledger for the brief having reached the owner — stamped after the email sends, or immediately when email is off; migration 0018), updated_at`.
 - `idx_calendar_events_start ON calendar_events(starts_at)` — the agenda query.
 - Why a table: interactions hold only *past* meetings; the agenda needs today's and upcoming events without a live API call at page render. Bounded by the sync window (past 1y/future 60d), so it self-prunes as the window slides.
 
@@ -186,7 +188,7 @@ Everything externally-sourced or manually logged (notes live in `notes`):
 
 Covers **both** API syncs and file imports (one lifecycle: started → stats → finished/failed):
 
-`id, kind TEXT NOT NULL ('gmail','calendar','google_contacts','csv_import','vcard_import','linkedin_import','linkedin_api_sync','linkedin_voyager_sync','linkedin_profile_enrich','dedupe_scan','export','backup'), integration_account_id FK ON DELETE SET NULL, file_name TEXT, file_sha256 TEXT, mapping_json TEXT (CSV column mapping used), cursor_before TEXT, cursor_after TEXT, status TEXT ('running','success','failed','partial'), stats_json TEXT ({new, updated, unchanged, conflicts, errors,…}), report_json TEXT (row-level diff report; large, loaded lazily), error TEXT, started_at, finished_at`.
+`id, kind TEXT NOT NULL ('gmail','calendar','google_contacts','csv_import','vcard_import','linkedin_import','linkedin_api_sync','linkedin_voyager_sync','linkedin_profile_enrich','linkedin_profile_capture','dedupe_scan','export','backup'), integration_account_id FK ON DELETE SET NULL, file_name TEXT, file_sha256 TEXT, mapping_json TEXT (CSV column mapping used), cursor_before TEXT, cursor_after TEXT, status TEXT ('running','success','failed','partial'), stats_json TEXT ({new, updated, unchanged, conflicts, errors,…}), report_json TEXT (row-level diff report; large, loaded lazily), error TEXT, started_at, finished_at`.
 - `idx_sync_runs_kind ON sync_runs(kind, started_at DESC)`, `idx_sync_runs_sha ON sync_runs(file_sha256)` (the "already imported this exact file" check).
 
 ## contact_changes
@@ -201,6 +203,13 @@ Covers **both** API syncs and file imports (one lifecycle: started → stats →
 - Everything needed for undo is in the log itself; no soft-deleted ghost contact rows.
 - `field_decisions_json` holds `{decisions, winnerBefore, winnerAfter}` — the winner's full pre-merge row (undo restores it byte-identical) and post-merge row (undo compares profile columns against it and refuses when they've since been edited).
 
+## contact_suggestions  *(added table — "People you met" queue, migration 0018)*
+
+`id, email_normalized TEXT NOT NULL UNIQUE, email TEXT NOT NULL, name TEXT, source TEXT NOT NULL ('calendar','gmail' — where first seen), outbound_count / inbound_count / meeting_count INTEGER NOT NULL DEFAULT 0, first_seen_at, last_seen_at INTEGER NOT NULL, last_title TEXT, recent_json TEXT (JSON [{kind, key, occurredAt, title, direction}], newest first, bounded), dismissed_at INTEGER, contact_id FK SET NULL (set on approval, or when a contact later gained this email), created_at, updated_at`.
+- Written by the Gmail and Calendar syncs for every counterpart/attendee that matches no contact (SPEC §9f). Reading is ranked in code (`lib/suggestions/rank.ts`): a person you wrote to outranks one who wrote to you; a meeting outranks both; obvious machines (noreply, notifications, calendar resources) never enter.
+- `recent_json` is why approval needs no API call: the backfill inserts those sightings as interactions (idempotent on `source_key`), then the next sync carries on.
+- `idx_suggestions_open ON contact_suggestions(last_seen_at DESC) WHERE dismissed_at IS NULL AND contact_id IS NULL` — the queue.
+
 ## duplicate_candidates  *(added table — dedupe queue)*
 
 `id, contact_a_id FK CASCADE, contact_b_id FK CASCADE (canonical a<b), score REAL NOT NULL, reasons_json TEXT NOT NULL (['email_match','jw:0.93','same_company']), status TEXT NOT NULL ('open','dismissed','merged'), created_at, resolved_at`.
@@ -208,13 +217,13 @@ Covers **both** API syncs and file imports (one lifecycle: started → stats →
 
 ## jobs
 
-`id, kind TEXT NOT NULL ('gmail_sync','calendar_sync','linkedin_sync','linkedin_voyager_sync','digest','network_updates','backup','dedupe_scan','reminder_fire','geocode','ai_batch_tag'), payload_json TEXT, dedupe_key TEXT (UNIQUE where NOT NULL — prevents double-enqueue of e.g. today's digest), run_at INTEGER NOT NULL, started_at INTEGER, finished_at INTEGER, status TEXT NOT NULL ('pending','running','success','failed','dead'), attempts INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 5, last_error TEXT, created_at`.
+`id, kind TEXT NOT NULL ('gmail_sync','calendar_sync','linkedin_sync','linkedin_voyager_sync','digest','network_updates','meeting_prep','backup','dedupe_scan','reminder_fire','geocode','ai_batch_tag'), payload_json TEXT, dedupe_key TEXT (UNIQUE where NOT NULL — prevents double-enqueue of e.g. today's digest), run_at INTEGER NOT NULL, started_at INTEGER, finished_at INTEGER, status TEXT NOT NULL ('pending','running','success','failed','dead'), attempts INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 5, last_error TEXT, created_at`.
 - `idx_jobs_pending ON jobs(run_at) WHERE status = 'pending'` — the scheduler's poll (every ~15 s). Backoff: `run_at += 2^attempts * 30s`. Stale 'running' rows older than a lease window are reclaimed at startup (crash recovery). Recurring jobs re-enqueue their next run on completion — schedule lives in code, durability in this table.
 - Implementation note (Phase 5): reminder firing does NOT create per-fire job rows — the scheduler tick sweeps due reminders inline, with `reminders.fired_at` as the exactly-once ledger (idempotent across crashes, no reminder↔job sync to keep straight). The `reminder_fire` kind stays reserved for future one-off scheduled fires if ever needed.
 
 ## ai_calls
 
-`id, feature TEXT NOT NULL ('nl_search','auto_tag','openers','summarize','ask_plan','ask_answer'), model TEXT NOT NULL, prompt TEXT NOT NULL, response TEXT, input_tokens INTEGER, output_tokens INTEGER, latency_ms INTEGER, status TEXT ('success','error'), error TEXT, created_at`.
+`id, feature TEXT NOT NULL ('nl_search','auto_tag','openers','summarize','ask_plan','ask_answer','meeting_prep'), model TEXT NOT NULL, prompt TEXT NOT NULL, response TEXT, input_tokens INTEGER, output_tokens INTEGER, latency_ms INTEGER, status TEXT ('success','error'), error TEXT, created_at`.
 - `idx_ai_calls_feature ON ai_calls(feature, created_at DESC)`. Prompt/response stored verbatim for audit; a settings toggle can truncate stored prompts later if the table gets fat.
 
 ## ai_suggestions  *(added table — approval queue)*
