@@ -53,13 +53,40 @@ The token is needed because the POST arrives cross-origin, where Rolo's
 ## Use
 
 1. Open **https://www.linkedin.com/mynetwork/invite-connect/connections/**
-   in a tab, logged in
+   in a tab, logged in (the popup has an *Open connections page* link if
+   you aren't there)
 2. Click the extension icon → **Sync connections**
-3. Leave the tab open. Progress shows in the popup; closing the popup
-   doesn't stop the sync
+3. Leave the tab open. Progress shows in the popup and on the toolbar
+   badge; closing the popup doesn't stop the sync, and reopening it picks
+   the progress back up
 
 At 2.5 s per 40 connections, ~3,000 connections takes roughly three
 minutes.
+
+### What the popup shows
+
+- **Status dot** — *Paired*, *Token rejected*, *Rolo offline*, or
+  *Not paired*, checked every time it opens. A rotated token shows up here,
+  not three pages into a sync.
+- **Connections** — how many LinkedIn contacts Rolo holds, and the last
+  sync: when, and what it changed (`+12 new, 40 updated`).
+- **Locations** — how full the map is (`412 / 2,180`), how many are queued,
+  and how much of today's budget is left. Says *off in Rolo settings*
+  until you turn the trickle on.
+- **Stop** — replaces the action buttons while a run is going. Stopping a
+  connection sync still imports the pages already fetched (imports only
+  ever add or update, so a partial list is just a shorter one). Stopping
+  the location trickle hands back the profiles already read so they're
+  stamped, not re-offered tomorrow.
+- **Badge** — page count while running, `✓` when it lands, `!` when it
+  didn't, `■` when you stopped it. Cleared when you open the popup.
+- The gear opens the pairing form again (address + token, *Save & test*).
+  The footer opens Rolo, or its Integrations page, in a new tab.
+
+The popup keeps no state of its own. Pairing is in `chrome.storage.local`;
+run progress is one `run` record the page script writes as it goes; and
+everything about Rolo comes from one `GET /api/linkedin/extension` on
+open. Dark mode follows the system.
 
 Results land through Rolo's normal LinkedIn import: same identity ladder
 (profile URL first), same provenance rules, same job-change detection and

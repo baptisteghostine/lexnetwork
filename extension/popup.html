@@ -2,64 +2,236 @@
 <html>
   <head>
     <meta charset="utf-8" />
+    <title>Rolo LinkedIn Sync</title>
     <style>
-      body {
-        width: 320px;
-        margin: 0;
-        padding: 12px;
-        font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
-        color: #18181b;
+      :root {
+        --bg: #ffffff;
+        --fg: #18181b;
+        --muted: #71717a;
+        --faint: #a1a1aa;
+        --line: #e4e4e7;
+        --card: #fafafa;
+        --accent: #4f46e5;
+        --accent-fg: #ffffff;
+        --ok: #059669;
+        --warn: #d97706;
+        --err: #dc2626;
+        --track: #e4e4e7;
       }
-      h1 { font-size: 13px; margin: 0 0 8px; }
-      label { display: block; font-size: 11px; color: #71717a; margin-top: 8px; }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #131316;
+          --fg: #e4e4e7;
+          --muted: #a1a1aa;
+          --faint: #71717a;
+          --line: #27272a;
+          --card: #1a1a1f;
+          --accent: #6366f1;
+          --accent-fg: #ffffff;
+          --ok: #34d399;
+          --warn: #fbbf24;
+          --err: #f87171;
+          --track: #27272a;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        width: 340px;
+        margin: 0;
+        padding: 0;
+        font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+        color: var(--fg);
+        background: var(--bg);
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px 8px;
+        border-bottom: 1px solid var(--line);
+      }
+      .brand { font-weight: 600; letter-spacing: -0.01em; }
+      .brand small { font-weight: 400; color: var(--muted); margin-left: 4px; }
+      .pill {
+        margin-left: auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 11px;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+      .pill::before {
+        content: "";
+        width: 7px; height: 7px; border-radius: 50%;
+        background: var(--faint);
+      }
+      .pill.ok::before { background: var(--ok); }
+      .pill.warn::before { background: var(--warn); }
+      .pill.err::before { background: var(--err); }
+      .pill.busy::before { background: var(--accent); animation: pulse 1.2s infinite; }
+      @keyframes pulse { 50% { opacity: 0.3; } }
+      .icon {
+        appearance: none; border: 0; background: transparent; color: var(--muted);
+        width: 24px; height: 24px; border-radius: 5px; cursor: pointer; padding: 0;
+        display: inline-flex; align-items: center; justify-content: center;
+      }
+      .icon:hover { background: var(--card); color: var(--fg); }
+      section { padding: 10px 12px; }
+      section[hidden] { display: none; }
+
+      /* setup */
+      label { display: block; font-size: 11px; color: var(--muted); margin: 8px 0 3px; }
+      label:first-child { margin-top: 0; }
       input {
         width: 100%;
-        box-sizing: border-box;
-        padding: 5px 6px;
-        font-size: 12px;
-        border: 1px solid #d4d4d8;
+        padding: 6px 7px;
+        font: inherit; font-size: 12px;
+        color: var(--fg);
+        background: var(--bg);
+        border: 1px solid var(--line);
         border-radius: 5px;
       }
-      button {
-        width: 100%;
+      input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+      /* stats */
+      .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+      .stat {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 7px 9px;
+        min-width: 0;
+      }
+      .stat .k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+      .stat .v { font-size: 16px; font-weight: 600; margin-top: 1px; font-variant-numeric: tabular-nums; }
+      .stat .s { font-size: 11px; line-height: 1.3; color: var(--muted); margin-top: 2px; }
+      .stat .s.warn { color: var(--warn); }
+
+      /* tab context line */
+      .ctx {
+        display: flex; align-items: center; gap: 6px;
+        font-size: 11px; color: var(--muted);
+        margin: 0 0 8px;
+      }
+      .ctx .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); flex: none; }
+      .ctx.ok .dot { background: var(--ok); }
+      .ctx a { color: var(--accent); text-decoration: none; margin-left: auto; cursor: pointer; }
+      .ctx a:hover { text-decoration: underline; }
+
+      /* progress */
+      #progress { margin-top: 10px; }
+      .bar { height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; }
+      .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.3s; }
+      .bar.indeterminate i { width: 30%; animation: slide 1.2s infinite linear; }
+      @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+      .ptext { margin-top: 5px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+      /* result */
+      #result {
         margin-top: 10px;
-        padding: 7px;
-        font-size: 13px;
-        font-weight: 500;
-        color: #fff;
-        background: #4f46e5;
-        border: 0;
-        border-radius: 5px;
-        cursor: pointer;
+        padding: 7px 9px;
+        border-radius: 6px;
+        font-size: 12px;
+        white-space: pre-wrap;
+        border: 1px solid var(--line);
+        background: var(--card);
       }
-      button:disabled { background: #a1a1aa; cursor: default; }
-      button.secondary { background: #fff; color: #3f3f46; border: 1px solid #d4d4d8; }
-      button.secondary:disabled { color: #a1a1aa; background: #fafafa; }
-      #status { margin-top: 10px; font-size: 12px; white-space: pre-wrap; }
-      .muted { color: #71717a; font-size: 11px; margin-top: 8px; }
-      .err { color: #dc2626; }
-      .ok { color: #059669; }
+      #result.ok { border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+      #result.err { border-color: color-mix(in srgb, var(--err) 50%, transparent); color: var(--err); }
+      #result.warn { border-color: color-mix(in srgb, var(--warn) 50%, transparent); }
+      #result .when { display: block; color: var(--muted); font-size: 11px; margin-bottom: 2px; }
+
+      /* actions */
+      .actions { display: flex; gap: 6px; margin-top: 10px; }
+      button.btn {
+        flex: 1;
+        padding: 7px 8px;
+        font: inherit; font-size: 12.5px; font-weight: 500;
+        border-radius: 5px; cursor: pointer;
+        border: 1px solid var(--line);
+        background: var(--bg); color: var(--fg);
+      }
+      button.btn:hover { background: var(--card); }
+      button.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+      button.btn.primary:hover { filter: brightness(1.08); }
+      button.btn.danger { color: var(--err); border-color: color-mix(in srgb, var(--err) 50%, transparent); }
+      button.btn:disabled { opacity: 0.5; cursor: default; filter: none; }
+      button.btn[hidden] { display: none; }
+
+      .muted { color: var(--muted); font-size: 11px; margin: 8px 0 0; }
+      footer {
+        display: flex; gap: 10px;
+        padding: 8px 12px 10px;
+        border-top: 1px solid var(--line);
+        font-size: 11px; color: var(--muted);
+      }
+      footer a { color: var(--muted); text-decoration: none; cursor: pointer; }
+      footer a:hover { color: var(--fg); }
+      footer .spacer { flex: 1; }
+      .msg { font-size: 12px; margin-top: 8px; }
+      .msg.ok { color: var(--ok); }
+      .msg.err { color: var(--err); }
     </style>
   </head>
   <body>
-    <h1>Rolo LinkedIn Sync</h1>
-    <label for="roloUrl">Rolo address</label>
-    <input id="roloUrl" placeholder="http://localhost:3000" />
-    <label for="token">Pairing token (Settings → Integrations)</label>
-    <input id="token" type="password" placeholder="paste token" />
-    <button id="save">Save</button>
-    <button id="sync">Sync connections</button>
-    <button id="enrich" class="secondary">Fill in locations</button>
-    <div id="status"></div>
-    <p class="muted">
-      Runs in this browser using your logged-in session. Open a linkedin.com
-      tab first. Paces slowly — a few thousand connections takes a while.
-    </p>
-    <p class="muted">
-      Locations aren't in the connections list, so they're read one profile
-      at a time, a capped number per day, most important people first. Leave
-      it running while you browse; closing the tab just pauses it.
-    </p>
+    <header>
+      <span class="brand">Rolo<small>LinkedIn sync</small></span>
+      <span id="pill" class="pill">Checking…</span>
+      <button id="gear" class="icon" title="Connection settings" aria-label="Connection settings">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </button>
+    </header>
+
+    <section id="setup" hidden>
+      <label for="roloUrl">Rolo address</label>
+      <input id="roloUrl" placeholder="http://localhost:3000" autocomplete="off" spellcheck="false" />
+      <label for="token">Pairing token <span style="color:var(--faint)">— Rolo → Settings → Integrations → Browser extension</span></label>
+      <input id="token" type="password" placeholder="paste token" autocomplete="off" />
+      <div class="actions">
+        <button id="save" class="btn primary">Save &amp; test</button>
+        <button id="cancelSetup" class="btn" hidden>Cancel</button>
+      </div>
+      <div id="setupMsg" class="msg"></div>
+    </section>
+
+    <section id="main" hidden>
+      <div id="ctx" class="ctx"><span class="dot"></span><span id="ctxText">Checking tab…</span><a id="openLI" hidden>Open connections page</a></div>
+
+      <div class="stats">
+        <div class="stat">
+          <div class="k">Connections</div>
+          <div class="v" id="sConn">—</div>
+          <div class="s" id="sLast">never synced</div>
+        </div>
+        <div class="stat">
+          <div class="k">Locations</div>
+          <div class="v" id="sLoc">—</div>
+          <div class="s" id="sBudget"></div>
+        </div>
+      </div>
+
+      <div id="progress" hidden>
+        <div class="bar"><i></i></div>
+        <div class="ptext"></div>
+      </div>
+
+      <div id="result" hidden></div>
+
+      <div class="actions">
+        <button id="sync" class="btn primary">Sync connections</button>
+        <button id="enrich" class="btn">Fill in locations</button>
+        <button id="stop" class="btn danger" hidden>Stop</button>
+      </div>
+      <p id="hint" class="muted"></p>
+    </section>
+
+    <footer>
+      <a id="openRolo">Open Rolo</a>
+      <a id="openSettings">Integrations</a>
+      <span class="spacer"></span>
+      <span id="version"></span>
+    </footer>
+    <script src="popup.js"></script>
   </body>
-  <script src="popup.js"></script>
 </html>

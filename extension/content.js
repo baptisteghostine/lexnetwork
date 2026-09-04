@@ -15,7 +15,46 @@ const PAGE_SIZE = 40; // LinkedIn's own page size
 const PAGE_DELAY_MS = 2500; // deliberately slow — see SPEC §9b pacing
 const MAX_PAGES = 250; // safety net against a paging bug
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// ---------- run state ----------
+//
+// One record in chrome.storage.local, `run`, is the whole UI contract: the
+// popup renders from it (so reopening mid-sync shows live progress, not a
+// blank), and the service worker paints the badge from it. Written here
+// because this is where the truth is.
+
+let active = null; // "sync" | "enrich" while a run is going, else null
+let stopRequested = false;
+
+async function setRun(patch) {
+  const { run } = await chrome.storage.local.get("run");
+  await chrome.storage.local.set({
+    run: { ...(run ?? {}), ...patch, updatedAt: Date.now() },
+  });
+}
+
+async function beginRun(kind) {
+  if (active) throw new Error(`A ${active} run is already going in this tab.`);
+  active = kind;
+  stopRequested = false;
+  await setRun({ kind, status: "running", startedAt: Date.now(), progress: {}, result: null, error: null });
+}
+
+async function endRun(patch) {
+  active = null;
+  await setRun(patch);
+}
+
+class Stopped extends Error {}
+
+/** Sleep that wakes early on Stop, so the button feels immediate instead
+ * of waiting out a 4 s profile delay. */
+async function sleep(ms) {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    if (stopRequested) throw new Stopped();
+    await new Promise((r) => setTimeout(r, Math.min(250, until - Date.now())));
+  }
+}
 
 /** JSESSIONID doubles as the CSRF token; it is not HttpOnly, by design. */
 function csrfToken() {
@@ -53,6 +92,10 @@ async function runSync(report) {
   let stopReason = `hit the ${MAX_PAGES}-page cap`;
 
   for (let page = 0; page < MAX_PAGES; page++) {
+    if (stopRequested) {
+      stopReason = "stopped by you";
+      break;
+    }
     const res = await fetch(pageUrl(page * PAGE_SIZE), {
       method: "GET",
       credentials: "include", // same-origin: the browser attaches everything
@@ -83,6 +126,7 @@ async function runSync(report) {
     if (typeof ack.total === "number") total = ack.total;
 
     report({ page: page + 1, seen, total });
+    await setRun({ progress: { page: page + 1, seen, total } });
 
     const elements = Array.isArray(payload?.elements) ? payload.elements.length : 0;
     if (elements === 0 && (ack.parsed ?? 0) === 0) {
@@ -104,16 +148,29 @@ async function runSync(report) {
       break;
     }
 
-    await sleep(PAGE_DELAY_MS);
+    try {
+      await sleep(PAGE_DELAY_MS);
+    } catch (err) {
+      if (!(err instanceof Stopped)) throw err;
+      stopReason = "stopped by you";
+      break;
+    }
   }
 
+  // Stopping early still imports what was fetched: imports only ever add
+  // or update, so a partial list is a smaller list, never a wrong one.
+  // (An empty first page still goes to Rolo, which fails it loudly as a
+  // shape change — that message is the useful one.)
+  if (seen === 0 && stopReason === "stopped by you") {
+    throw new Error("Stopped before the first page landed — nothing imported.");
+  }
   const done = await chrome.runtime.sendMessage({
     type: "done",
     sessionId,
     stopReason,
   });
   if (!done?.ok) throw new Error(done?.error ?? "Rolo rejected the import.");
-  return { ...done.result, stopReason };
+  return { ...done.result, stopReason, stopped: stopReason === "stopped by you" };
 }
 
 // ---------- profile-location enrichment (SPEC §9d) ----------
@@ -178,45 +235,73 @@ async function runEnrich(report) {
   let attempted = 0;
   let warning = null;
 
+  // Everything the extension has learned but not yet handed back. Flushed
+  // after each batch, and on Stop — a checked profile must be stamped
+  // even when the run ends early, or the queue re-offers it tomorrow.
+  let pending = [];
+  const flush = async () => {
+    if (pending.length === 0) return;
+    const ack = await chrome.runtime.sendMessage({ type: "enrichResult", results: pending });
+    pending = [];
+    if (!ack?.ok) throw new Error(ack?.error ?? "Rolo rejected the results.");
+    located += ack.summary?.located ?? 0;
+    if (ack.warning) warning = ack.warning;
+  };
+
   for (;;) {
+    if (stopRequested) {
+      await flush();
+      return { attempted, located, stopReason: "stopped by you", stopped: true, warning };
+    }
     const batch = await chrome.runtime.sendMessage({
       type: "enrichNext",
       batchSize: ENRICH_BATCH,
     });
     if (!batch?.ok) throw new Error(batch?.error ?? "Rolo wouldn't hand out work.");
     const profiles = batch.profiles ?? [];
+    const queued = batch.queued ?? 0;
+    const remainingToday = batch.remainingToday ?? 0;
     // Empty means either the queue is drained or today's budget is spent.
     // Both are a clean stop, not a failure.
     if (profiles.length === 0) {
       return {
         attempted,
         located,
-        queued: batch.queued ?? 0,
+        queued,
         stopReason:
-          (batch.queued ?? 0) > 0
+          queued > 0
             ? "today's budget is spent — it picks up again tomorrow"
             : "every contact has been checked",
         warning,
       };
     }
+    // How far this run can go: what's queued, bounded by today's budget
+    // (which already excludes this batch, hence adding it back).
+    const ceiling = attempted + Math.min(queued, remainingToday + profiles.length);
 
-    const results = [];
     for (const p of profiles) {
+      if (stopRequested) break;
       const payload = await fetchProfile(p.publicIdentifier, csrf);
-      results.push({
+      pending.push({
         publicIdentifier: p.publicIdentifier,
         location: payload?.__unreachable ? null : extractLocationFrom(payload),
       });
       attempted += 1;
-      report({ attempted, located, queued: batch.queued ?? 0 });
-      await sleep(PROFILE_DELAY_MS);
+      const progress = { attempted, located, queued, ceiling };
+      report(progress);
+      await setRun({ progress });
+      try {
+        await sleep(PROFILE_DELAY_MS);
+      } catch (err) {
+        if (!(err instanceof Stopped)) throw err;
+        break;
+      }
     }
 
-    const ack = await chrome.runtime.sendMessage({ type: "enrichResult", results });
-    if (!ack?.ok) throw new Error(ack?.error ?? "Rolo rejected the results.");
-    located += ack.summary?.located ?? 0;
-    if (ack.warning) warning = ack.warning;
-    report({ attempted, located, queued: batch.queued ?? 0 });
+    await flush();
+    const progress = { attempted, located, queued, ceiling };
+    report(progress);
+    await setRun({ progress });
   }
 }
 
@@ -259,26 +344,41 @@ function extractLocationFrom(payload) {
   return null;
 }
 
+/** Start a run, keep the `run` record honest to the end, and answer the
+ * popup if it is still open to hear. Progress reports go to the record
+ * (the popup watches storage), not to the popup directly. */
+function launch(kind, fn, sendResponse) {
+  const noop = () => {};
+  beginRun(kind)
+    .then(() => fn(noop))
+    .then(async (result) => {
+      await endRun({ status: result?.stopped ? "stopped" : "done", result });
+      sendResponse({ ok: true, result });
+    })
+    .catch(async (err) => {
+      const error = String(err?.message ?? err);
+      await endRun({ status: "error", error });
+      sendResponse({ ok: false, error });
+    });
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === "startSync") {
-    runSync((progress) =>
-      chrome.runtime.sendMessage({ type: "progress", progress })
-    )
-      .then((result) => sendResponse({ ok: true, result }))
-      .catch((err) =>
-        sendResponse({ ok: false, error: String(err.message ?? err) })
-      );
+    launch("sync", runSync, sendResponse);
     return true; // async response
   }
   if (msg?.type === "startEnrich") {
-    runEnrich((progress) =>
-      chrome.runtime.sendMessage({ type: "enrichProgress", progress })
-    )
-      .then((result) => sendResponse({ ok: true, result }))
-      .catch((err) =>
-        sendResponse({ ok: false, error: String(err.message ?? err) })
-      );
+    launch("enrich", runEnrich, sendResponse);
     return true;
+  }
+  if (msg?.type === "stop") {
+    stopRequested = true;
+    sendResponse({ ok: true, active });
+    return false;
+  }
+  if (msg?.type === "isRunning") {
+    sendResponse({ ok: true, active });
+    return false;
   }
   return false;
 });
