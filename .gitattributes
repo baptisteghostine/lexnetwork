@@ -1,0 +1,5 @@
+# Fixtures are parser inputs: byte-exact on every platform, never
+# line-ending-converted. A Windows checkout with core.autocrlf=true would
+# otherwise turn the LF inside a quoted CSV cell into CRLF and fail the
+# parser tests against a file the parser never sees in production.
+tests/fixtures/** -text
