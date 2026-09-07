@@ -116,8 +116,12 @@ describe("snoozeUntil", () => {
 });
 
 describe("planSnoozeAll (SPEC §3 AC: 40 due, 5 starred, 21-day horizon)", () => {
-  // A fixed Monday noon local time keeps weekday math stable.
-  const NOW = new Date(2026, 7, 10, 12, 0, 0).getTime(); // Mon Aug 10 2026
+  // A fixed Monday noon keeps weekday math stable. The engine defaults to
+  // UTC when no timezone is passed, so the fixture and the assertions
+  // below read the clock in UTC too — a machine in Zurich must see the
+  // same plan as one in Reykjavik (the owner-timezone describe below
+  // covers the non-UTC path explicitly).
+  const NOW = Date.UTC(2026, 7, 10, 12, 0, 0); // Mon Aug 10 2026
 
   const due: DueContact[] = Array.from({ length: 40 }, (_, i) => ({
     id: i + 1,
@@ -137,9 +141,9 @@ describe("planSnoozeAll (SPEC §3 AC: 40 due, 5 starred, 21-day horizon)", () =>
     const perDay = new Map<string, number>();
     for (const p of plan) {
       const d = new Date(p.snoozedUntil);
-      expect([0, 6]).not.toContain(d.getDay());
-      expect(d.getHours()).toBe(8);
-      const key = d.toDateString();
+      expect([0, 6]).not.toContain(d.getUTCDay());
+      expect(d.getUTCHours()).toBe(8);
+      const key = d.toISOString().slice(0, 10);
       perDay.set(key, (perDay.get(key) ?? 0) + 1);
     }
     // 15 weekdays in 21 days → cap = max(3, ceil(40/15)) = 3
