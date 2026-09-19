@@ -12,7 +12,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const creds = googleClientCreds();
   if (!creds) {
     return NextResponse.redirect(
-      new URL("/settings?connect_error=google-creds", origin)
+      new URL("/settings?tab=integrations&connect_error=google-creds", origin)
     );
   }
   const redirectUri = new URL("/api/google/callback", origin).toString();

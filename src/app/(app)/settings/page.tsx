@@ -3,6 +3,7 @@ import Link from "next/link";
 import { CustomFieldsManager } from "@/components/custom-fields-manager";
 import { DataPanel } from "@/components/data-panel";
 import { IntegrationsPanel } from "@/components/integrations-panel";
+import { connectNotice } from "@/lib/sync/connect-errors";
 import {
   GeneralSettings,
   KeepInTouchSettings,
@@ -136,6 +137,7 @@ export default async function SettingsPage({
           )}
           {tab === "integrations" && integrations && (
             <IntegrationsPanel
+              notice={connectNotice(params)}
               google={integrations.google}
               linkedin={integrations.linkedin}
               extensionToken={integrations.extensionToken}

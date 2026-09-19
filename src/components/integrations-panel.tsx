@@ -18,6 +18,7 @@ import {
   type IntegrationStatus,
   type SyncRunSummary,
 } from "@/server/integrations";
+import type { ConnectNotice } from "@/lib/sync/connect-errors";
 
 // Settings → Integrations: connect/disconnect Google + LinkedIn, view
 // sync health (cursors, last runs, errors), trigger a sync now.
@@ -552,6 +553,7 @@ function MapboxCard({ configured }: { configured: boolean }) {
 }
 
 export function IntegrationsPanel({
+  notice = null,
   google,
   linkedin,
   extensionToken,
@@ -559,6 +561,8 @@ export function IntegrationsPanel({
   geocode,
   mapboxConfigured,
 }: {
+  /** Outcome of an OAuth round trip that just redirected back here. */
+  notice?: ConnectNotice | null;
   google: IntegrationStatus;
   linkedin: IntegrationStatus;
   extensionToken: string;
@@ -568,6 +572,18 @@ export function IntegrationsPanel({
 }) {
   return (
     <div className="space-y-3">
+      {notice && (
+        <p
+          role={notice.kind === "error" ? "alert" : "status"}
+          className={
+            notice.kind === "error"
+              ? "rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] leading-relaxed text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300"
+              : "rounded-md border border-success/40 bg-success/10 px-3 py-2 text-[12px] text-foreground"
+          }
+        >
+          {notice.text}
+        </p>
+      )}
       <GoogleCard data={google} />
       <LinkedInCard data={linkedin} />
       <ExtensionPairing token={extensionToken} enrich={enrich} />

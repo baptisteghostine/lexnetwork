@@ -14,7 +14,7 @@ import { publicOrigin } from "@/server/sync/request-origin";
 function fail(req: NextRequest, code: string): NextResponse {
   return NextResponse.redirect(
     new URL(
-      `/settings?connect_error=${encodeURIComponent(code)}`,
+      `/settings?tab=integrations&connect_error=${encodeURIComponent(code)}`,
       publicOrigin(req)
     )
   );
@@ -58,7 +58,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     });
     ensureSyncJobs(Date.now());
     return NextResponse.redirect(
-      new URL("/settings?connected=linkedin", origin)
+      new URL("/settings?tab=integrations&connected=linkedin", origin)
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : "exchange-failed";
