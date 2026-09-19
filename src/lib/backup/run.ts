@@ -71,11 +71,12 @@ export function runBackup(
       )
       .run(now).lastInsertRowid
   );
+  let target: string | null = null;
   try {
     const backupsDir = path.join(dataDir, "backups");
     fs.mkdirSync(backupsDir, { recursive: true });
     const fileName = backupFileName(now);
-    const target = path.join(backupsDir, fileName);
+    target = path.join(backupsDir, fileName);
     // A crashed previous run may have left a partial file with this name
     // (same second) — VACUUM INTO refuses to overwrite.
     fs.rmSync(target, { force: true });
@@ -98,6 +99,11 @@ export function runBackup(
     );
     return { fileName, sizeBytes, pruned };
   } catch (err) {
+    // VACUUM INTO creates the file before it copies pages, so a failure
+    // mid-copy (a corrupt source, a full disk) leaves a 0-byte or partial
+    // file that looks like a backup and isn't. Remove it: a stray file
+    // that can't be restored from is worse than no file.
+    if (target !== null) fs.rmSync(target, { force: true });
     db.prepare(
       "UPDATE sync_runs SET status = 'failed', error = ?, finished_at = ? WHERE id = ?"
     ).run(err instanceof Error ? err.message : String(err), Date.now(), runId);

@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import Database from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   backupFileName,
@@ -115,5 +115,21 @@ describe("runBackup", () => {
     fs.rmSync(path.join(dataDir, "backups"));
     runBackup(db, dataDir, NOW + DAY);
     expect(readBackupStatus(db).failing).toBe(false);
+  });
+
+  it("a run that fails after VACUUM created the file removes the partial file", () => {
+    // VACUUM INTO writes the target before the run can fail on anything
+    // after it; simulate that later failure so the file already exists.
+    const spy = vi.spyOn(fs, "statSync").mockImplementation(() => {
+      throw new Error("disk went away");
+    });
+    try {
+      expect(() => runBackup(db, dataDir, NOW)).toThrow("disk went away");
+    } finally {
+      spy.mockRestore();
+    }
+    expect(fs.existsSync(path.join(dataDir, "backups", backupFileName(NOW)))).toBe(false);
+    expect(readBackupStatus(db).failing).toBe(true);
+    expect(readBackupStatus(db).lastFailure?.error).toBe("disk went away");
   });
 });
