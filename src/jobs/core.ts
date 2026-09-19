@@ -21,6 +21,24 @@ export function backoffDelayMs(attempts: number): number {
   return 2 ** attempts * 30_000;
 }
 
+/**
+ * When a recurring sync should next run, given the newest row of its kind
+ * that reached a terminal state. A kind with no finished row (fresh
+ * connection, or history pruned) runs now; otherwise one interval after
+ * that row finished — whether it succeeded or died. Counting successes
+ * only, as this once did, sent a sync that had never succeeded straight
+ * back the moment its five attempts were spent: the retry storm behind a
+ * run log full of one job and ~400 empty backup files.
+ */
+export function nextSyncRunAt(
+  last: { finishedAt: number | null } | null,
+  intervalMs: number,
+  now: number
+): number {
+  if (!last || last.finishedAt === null) return now;
+  return last.finishedAt + intervalMs;
+}
+
 export type JobOutcome =
   | { status: "success"; finishedAt: number }
   | { status: "pending"; runAt: number; lastError: string }

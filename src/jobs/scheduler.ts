@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNotNull, isNull, lt, lte, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, lte, ne, or } from "drizzle-orm";
 
 import { DATA_DIR, db, rawDb } from "@/db/client";
 import { jobs } from "@/db/schema";
@@ -7,6 +7,7 @@ import { getSmtpSettings } from "@/lib/digest/send";
 import {
   applyOutcome,
   LEASE_MS,
+  nextSyncRunAt,
   POLL_INTERVAL_MS,
   PRUNE_AFTER_MS,
   reclaimDecision,
@@ -146,15 +147,16 @@ export function ensureSyncJobs(now: number): void {
     }
     if (pending) continue;
     // First run for a fresh connection fires immediately; steady-state
-    // re-enqueues land one interval out.
+    // re-enqueues land one interval out from the last terminal row, dead
+    // included (see nextSyncRunAt for why dead rows must count).
     const last = db
       .select({ finishedAt: jobs.finishedAt })
       .from(jobs)
-      .where(and(eq(jobs.kind, spec.kind), eq(jobs.status, "success")))
+      .where(and(eq(jobs.kind, spec.kind), inArray(jobs.status, ["success", "dead"])))
       .orderBy(desc(jobs.finishedAt))
       .limit(1)
       .get();
-    const runAt = last?.finishedAt ? last.finishedAt + spec.intervalMs : now;
+    const runAt = nextSyncRunAt(last ?? null, spec.intervalMs, now);
     enqueueJob({ kind: spec.kind, runAt, dedupeKey: `${spec.kind}:${runAt}` });
   }
 }

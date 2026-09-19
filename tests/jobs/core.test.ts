@@ -4,6 +4,7 @@ import {
   applyOutcome,
   backoffDelayMs,
   LEASE_MS,
+  nextSyncRunAt,
   reclaimDecision,
 } from "@/jobs/core";
 
@@ -75,5 +76,29 @@ describe("reclaimDecision", () => {
         1000 + LEASE_MS + 1
       )
     ).toBe("dead");
+  });
+});
+
+describe("nextSyncRunAt", () => {
+  const now = 5_000_000;
+  const interval = 15 * 60_000;
+
+  it("a kind with no finished row runs now (fresh connection)", () => {
+    expect(nextSyncRunAt(null, interval, now)).toBe(now);
+    expect(nextSyncRunAt({ finishedAt: null }, interval, now)).toBe(now);
+  });
+
+  it("spaces the next run one interval after the last success", () => {
+    expect(nextSyncRunAt({ finishedAt: now - 60_000 }, interval, now)).toBe(
+      now - 60_000 + interval
+    );
+  });
+
+  it("a dead job is spaced the same way, not retried at once", () => {
+    // The row that just died is the newest terminal row; the caller
+    // selects success and dead alike, so the same arithmetic applies.
+    const died = now - 1;
+    expect(nextSyncRunAt({ finishedAt: died }, interval, now)).toBe(died + interval);
+    expect(nextSyncRunAt({ finishedAt: died }, interval, now)).toBeGreaterThan(now);
   });
 });
