@@ -1,0 +1,15 @@
+# Windows / Docker Desktop: keep the database on a named Docker volume
+# instead of the ./data bind mount. SQLite in WAL mode relies on file
+# locking that Docker Desktop's Windows file sharing does not honour, and
+# the owner's database was corrupted that way once (DEPLOY.md, "Windows").
+#
+# Copy this file to docker-compose.override.yml (Compose merges it
+# automatically; the override is gitignored), migrate the data once as
+# DEPLOY.md describes, then use `docker compose` exactly as before.
+services:
+  rolo:
+    volumes:
+      - rolo-data:/app/data
+
+volumes:
+  rolo-data:

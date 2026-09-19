@@ -98,14 +98,18 @@ open, otherwise in a background tab it opens at the connections page and
 closes again when the sync lands. First run is a minute after you tick
 it, so you can see it work. Same pacing as a click; if you're logged out
 the run fails on the missing session and the badge shows `!` — it never
-retries on its own. Off by default, because opening a tab unprompted is a
+retries on its own. A LinkedIn tab that doesn't answer (Chrome put it to
+sleep, or it was loaded before the extension was last reloaded) is
+reloaded once before the run gives up. Off by default, because opening a tab unprompted is a
 bigger ask than answering a click.
 
 ### What the popup shows
 
-- **Status dot** — *Paired*, *Token rejected*, *Rolo offline*, or
-  *Not paired*, checked every time it opens. A rotated token shows up here,
-  not three pages into a sync.
+- **Status dot** — *Paired*, *Token rejected*, *Rolo offline*, *Rolo out
+  of date* (the server predates this popup — update it), or *Not paired*,
+  checked every time it opens. A rotated token shows up here, not three
+  pages into a sync, and whatever Rolo actually replied is printed under
+  the buttons.
 - **Connections** — how many LinkedIn contacts Rolo holds, and the last
   sync: when, and what it changed (`+12 new, 40 updated`).
 - **Locations** — how full the map is (`412 / 2,180`), how many are queued,

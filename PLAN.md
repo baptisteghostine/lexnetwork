@@ -379,7 +379,64 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   (no-op commits flip nothing — false-conflict guard), Frequency picker
   in the row, social-link icons, last-touch age column.
 
-478 unit tests + 15 Playwright E2E tests passing as of the responsive pass. Open questions from SPEC.md's decision
+- ✅ **September round: meeting prep, People you met, resurfacing, extension
+  v0.3** (owner requests, 2026-09-04, migration 0018). (1) Pre-meeting
+  brief (SPEC §9e): a `meeting_prep` sweep builds a brief per upcoming
+  calendar event with a contact attendee — role, last email, open
+  changes — emailed ahead of time when SMTP is set, shown on Today's
+  agenda otherwise; `calendar_events.prep_json`/`prepped_at` as the
+  exactly-once ledger. (2) People you met (SPEC §9f): correspondents and
+  attendees the Gmail/Calendar syncs keep seeing who aren't contacts
+  accumulate in `contact_suggestions`; Today shows the top few, /people-
+  you-met the queue; one click adds them with the history already seen,
+  one click dismisses. (3) Worth reconnecting (SPEC §3): a daily handful
+  from the un-cadenced tail with real history and a long silence, scored
+  in `lib/resurface`, stamped on `contacts.resurfaced_at` so picks rotate.
+  (4) Extension popup v0.2 + v0.3: status endpoint (`GET
+  /api/linkedin/extension`), live progress and Stop, badge; profile
+  capture from the page you're on (`/lookup`, `/capture`); logging the
+  conversation you have open (`/messages`, reversing the README's
+  "no messages" term on the owner's instruction); opt-in weekly sync via
+  `chrome.alarms`. Missed by this log at the time; recorded 2026-09-19.
+
+- ✅ **Cleanup pass after the first outage** (2026-09-19). The owner's
+  instance had been silent for eleven days: the SQLite file on a Windows
+  Docker Desktop bind mount came back `SQLITE_CORRUPT` on Sept 8 (Today
+  crashing, every backup 0 bytes), the local `package-lock.json` had
+  drifted so the image could not rebuild, and the server predated the
+  extension's status endpoint. Recovered without restoring the Sept 7
+  backup: `scripts/rebuild-sqlite.mjs` copies every table into a fresh
+  file and rebuilds the FTS indexes (41/42 tables clean; the one that
+  wouldn't read, `contact_suggestions`, is derived and refills from
+  sync). Then the fixes the outage exposed, each its own commit:
+  - **§9b retired.** The cookie-session Voyager sync never passed
+    Cloudflare and had spent eleven days failing five times an hour; the
+    card, job, pager and cookie parser are gone, the structural parser
+    stays for §9c. Extension runs record as `linkedin_extension_sync`.
+  - **Scheduler:** the next run of a recurring job is spaced from its
+    newest terminal row, dead included — counting successes only meant a
+    job that had never succeeded came straight back after its fifth
+    failure (the storm behind ~400 empty backup files).
+  - **Backup:** a failed `VACUUM INTO` no longer leaves its partial file.
+  - **Job changes (SPEC §5):** one extension sync had mailed "475 people
+    changed jobs" — headlines compared against ZIP positions. Headline
+    rule (a headline-derived title never changes a stored one) and
+    baseline rule (a run moving >20% of matched people, ≥25, records its
+    differences dismissed + notified and says so in the report). Plus
+    "Dismiss all" on Today.
+  - **Health banner:** dead integrations (Google's 7-day Testing-status
+    token expiry named in the message), failing sync and email jobs, and
+    the backup all surface on every page (`lib/health.ts`, unit-tested).
+  - **Extension v0.3.1:** the popup shows Rolo's actual reply, names a
+    404/405 as "Rolo out of date" with the update command, and the weekly
+    run reloads an unresponsive LinkedIn tab before giving up.
+  - DEPLOY.md gains the corrupt-database drill and a Windows section
+    (named volume instead of a bind mount — the likely cause).
+  Still open from the same review: connect the LBS-forwarding Gmail
+  (owner-side; weekly reconnect expected), an ICS feed for the LBS
+  calendar (proposed), the three stale `claude/*` branches on GitHub.
+
+495 unit tests + 15 Playwright E2E tests passing as of the cleanup pass (30 cookie-sync tests retired, 15 added). Open questions from SPEC.md's decision
 list are all resolved with the owner; see that section before revisiting them.
 
 ---

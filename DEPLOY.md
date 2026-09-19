@@ -44,10 +44,37 @@ mainstream proxy sends).
 | Variable | Purpose |
 |---|---|
 | `ROLO_ALLOWED_ORIGINS` | Comma-separated `host[:port]` allowed for Server Actions behind a proxy. `*.example.com` wildcards work. |
-| `SESSION_SECRET` | Optional fixed secret for session cookies and the token box. Unset → a generated secret persists in `data/secret.key`. Rotating it logs you out and invalidates stored OAuth/Voyager tokens ("reconnect" in Settings). |
+| `SESSION_SECRET` | Optional fixed secret for session cookies and the token box. Unset → a generated secret persists in `data/secret.key`. Rotating it logs you out and invalidates stored OAuth tokens ("reconnect" in Settings). |
 | `GROQ_API_KEY`, `GROQ_MODEL` | Optional; both set → AI features appear via Groq's free tier (key from console.groq.com; model e.g. `openai/gpt-oss-120b`). |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | Optional; the Anthropic alternative. When both providers are configured, `AI_PROVIDER=groq\|anthropic` picks (default groq). |
 | `ROLO_PORT` | Host port for docker compose (default 3000). |
+
+## Windows (Docker Desktop)
+
+Rolo runs fine on a Windows laptop under Docker Desktop, with one change:
+keep `data/` on a **named Docker volume**, not the default `./data` bind
+mount. SQLite in WAL mode depends on file locking that Docker Desktop's
+Windows file sharing does not honour, and a bind-mounted database was
+corrupted that way once (2026-09-08; see "Corrupt database" below).
+
+One-time setup, in PowerShell from the checkout:
+
+```powershell
+docker compose stop
+Copy-Item docker-compose.windows.yml docker-compose.override.yml   # gitignored; merged automatically
+# copy the existing data into the new volume (skip on a fresh install)
+docker compose run --rm --no-deps -v ${PWD}\data:/from --entrypoint sh rolo -c "cp -a /from/. /app/data/"
+docker compose up -d --build
+```
+
+After that `docker compose` commands work as before. The data now lives in
+the `lexnetwork_rolo-data` volume rather than the folder, so to get at
+backups or the database file use the container:
+
+```powershell
+docker compose cp rolo:/app/data/backups .\backups-copy      # pull the nightly backups out
+docker compose cp .\rolo-YYYYMMDD-HHMMSS.db rolo:/app/data/rolo.db   # restore one (container stopped first)
+```
 
 ## Backups & restore
 
@@ -90,9 +117,16 @@ mv data/rolo-rebuilt.db data/rolo.db
 docker compose up -d
 ```
 
+On the Windows named-volume setup the same drill runs through the
+container: `docker compose cp scripts/rebuild-sqlite.mjs rolo:/app/data/rebuild.mjs`
+to put the script in place, `docker compose cp rolo:/app/data ./data-corrupt`
+for the safety copy, and `docker compose run --rm --no-deps --entrypoint sh rolo`
+for the `rm`/`mv` steps.
+
 If the rebuild reports a failing table, fall back to the newest good
 backup above. Seen once on Windows, where SQLite's WAL locking on a
-Docker Desktop bind mount is the usual culprit; a named volume avoids it.
+Docker Desktop bind mount is the usual culprit; the named-volume setup
+under "Windows (Docker Desktop)" above avoids it.
 
 There is also the one-click **full export** (Settings → Data): a ZIP with
 a flattened `contacts.csv`, per-table JSON, and all attachments.

@@ -47,3 +47,6 @@ next-env.d.ts
 /e2e/.data/
 /test-results/
 /playwright-report/
+
+# local compose override (see docker-compose.windows.yml)
+/docker-compose.override.yml
