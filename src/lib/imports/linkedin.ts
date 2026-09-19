@@ -16,6 +16,13 @@ export type LinkedInConnection = {
   email: string | null;
   company: string | null;
   position: string | null;
+  /**
+   * True when `position` was cut from a LinkedIn *headline* ("VP Sales at
+   * Foo | ex-Bar") rather than read from a Position column or a job entry.
+   * A headline is a tagline, not a job title: it may fill an empty title
+   * but never counts as a title change against one (SPEC §5, 2026-09-19).
+   */
+  titleFromHeadline?: boolean;
   connectedOn: string | null;
   /**
    * Freeform, as LinkedIn writes it ("Zurich, Zurich, Switzerland") and in

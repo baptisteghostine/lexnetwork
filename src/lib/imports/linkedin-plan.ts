@@ -47,6 +47,26 @@ export function normalizeForChange(
   return s.replace(/[.,'’]/g, "").replace(/\s+/g, " ").trim();
 }
 
+/**
+ * Baseline rule (SPEC §5, 2026-09-19). When one run "moves" more than a
+ * fifth of the people it matched — and at least this many, so a small
+ * import can't trip it — the source is describing people differently from
+ * the last one (a headline where the ZIP had a Position column, say), not
+ * reporting that they all changed jobs. Such a run keeps its writes, but
+ * its change rows are recorded as a baseline: dismissed and notified on
+ * insert, listed in the import report, never a Today card or an email.
+ * Prompted by an extension sync that mailed 475 "moves" in one go.
+ */
+export const BASELINE_MIN_CONTACTS = 25;
+export const BASELINE_SHARE = 0.2;
+
+export function isBaselineRun(movedContacts: number, matchedContacts: number): boolean {
+  return (
+    movedContacts >= BASELINE_MIN_CONTACTS &&
+    movedContacts > matchedContacts * BASELINE_SHARE
+  );
+}
+
 function incomingScalars(
   row: LinkedInConnection
 ): Record<LinkedInScalarField, string | null> {
@@ -95,6 +115,13 @@ export function planConnection(
     if (stored === null || stored === "") {
       // Filling an empty field is new info, not a job change.
       plan.writes.push({ field, value: inc });
+      continue;
+    }
+    if (field === "title" && row.titleFromHeadline) {
+      // Headline rule (SPEC §5): "Visa Inc. | AUB" against a stored
+      // "Analyst" is a different kind of text, not a move. Only a Position
+      // column or a real job entry may change a stored title; a headline
+      // isn't even allowed to overwrite one silently.
       continue;
     }
     if (normalizeForChange(field, stored) === normalizeForChange(field, inc)) {

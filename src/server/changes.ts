@@ -1,6 +1,6 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { db } from "@/db/client";
@@ -37,6 +37,21 @@ export async function dismissChangeAction(id: number): Promise<void> {
     .where(eq(contactChanges.id, id))
     .run();
   revalidateChangeViews(row.contactId);
+}
+
+/** "Dismiss all" on Today's Network updates — one click instead of one
+ * per card after a run that read everyone differently. Same semantics as
+ * a single dismiss: rows stay on each contact's timeline. Returns how many
+ * were dismissed. */
+export async function dismissAllChangesAction(): Promise<number> {
+  await requireAuth();
+  const result = db
+    .update(contactChanges)
+    .set({ dismissedAt: Date.now() })
+    .where(and(isNull(contactChanges.dismissedAt), isNull(contactChanges.actedAt)))
+    .run();
+  revalidatePath("/today");
+  return result.changes;
 }
 
 /** "Log interaction" on a change card: records the outreach (counts for

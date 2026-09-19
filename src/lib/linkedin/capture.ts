@@ -81,6 +81,7 @@ export function capturedProfileToConnection(p: CapturedProfile): LinkedInConnect
     email: null,
     company,
     position: title,
+    titleFromHeadline: true,
     location: p.location,
     connectedOn: null,
   };

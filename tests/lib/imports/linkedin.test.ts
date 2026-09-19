@@ -14,6 +14,7 @@ import {
   stripConnectionsPreamble,
 } from "@/lib/imports/linkedin";
 import {
+  isBaselineRun,
   normalizeForChange,
   planConnection,
   type LinkedInSnapshot,
@@ -250,5 +251,70 @@ describe("normalizeLinkedInUrl — one key per person across sources", () => {
     expect(
       normalizeLinkedInUrl("https://www.linkedin.com/in/jos%C3%A9-garc%C3%ADa")
     ).toBe(normalizeLinkedInUrl("https://www.linkedin.com/in/josé-garcía"));
+  });
+});
+
+describe("headline rule (SPEC §5, 2026-09-19)", () => {
+  const headlineRow = (position: string | null, company: string | null) => ({
+    firstName: "Ana",
+    lastName: "Silva",
+    profileUrl: "linkedin.com/in/ana",
+    profileUrlRaw: "https://linkedin.com/in/ana",
+    email: null,
+    company,
+    position,
+    titleFromHeadline: true,
+    connectedOn: null,
+    location: null,
+  });
+  const stored = (title: string | null, company: string | null): LinkedInSnapshot => ({
+    contactId: 1,
+    values: { first_name: "Ana", last_name: "Silva", company, title, location: null },
+    provenance: { company: "linkedin", title: "linkedin" },
+  });
+
+  it("a headline against a stored position is not a change, a write, or a conflict", () => {
+    const plan = planConnection(
+      headlineRow("Visa Inc. | AUB", null),
+      stored("Analyst", "Visa")
+    );
+    expect(plan.status).toBe("unchanged");
+    expect(plan.changes).toEqual([]);
+    expect(plan.writes).toEqual([]);
+    expect(plan.conflicts).toEqual([]);
+  });
+
+  it("a headline still fills an empty title", () => {
+    const plan = planConnection(headlineRow("Student at Bayes", null), stored(null, null));
+    expect(plan.writes).toContainEqual({ field: "title", value: "Student at Bayes" });
+    expect(plan.changes).toEqual([]);
+  });
+
+  it("company cut from a headline still counts as a move", () => {
+    const plan = planConnection(
+      headlineRow("Engineer", "Fette Compacting"),
+      stored("Engineer", "KU Leuven")
+    );
+    expect(plan.changes).toEqual([
+      { field: "company", old: "KU Leuven", new: "Fette Compacting" },
+    ]);
+  });
+
+  it("a Position-column title (no headline flag) still moves a stored title", () => {
+    const plan = planConnection(
+      { ...headlineRow("Head of Product", "Visa"), titleFromHeadline: false },
+      stored("Analyst", "Visa")
+    );
+    expect(plan.changes).toEqual([{ field: "title", old: "Analyst", new: "Head of Product" }]);
+  });
+});
+
+describe("baseline rule (SPEC §5, 2026-09-19)", () => {
+  it("needs both the floor and the share", () => {
+    expect(isBaselineRun(24, 30)).toBe(false); // below the floor, however lopsided
+    expect(isBaselineRun(25, 100)).toBe(true); // a quarter of the matched people
+    expect(isBaselineRun(25, 200)).toBe(false); // an eighth — plausible real moves
+    expect(isBaselineRun(475, 2141)).toBe(true); // the run that prompted this
+    expect(isBaselineRun(30, 2200)).toBe(false); // a normal monthly ZIP
   });
 });

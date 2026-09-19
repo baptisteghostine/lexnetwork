@@ -9,7 +9,11 @@ import { ContactAvatar } from "@/components/contact-avatar";
 import { OpenersDialog } from "@/components/openers-dialog";
 import { Button } from "@/components/ui/button";
 import { changeAge } from "@/lib/digest/network-updates";
-import { actOnChangeAction, dismissChangeAction } from "@/server/changes";
+import {
+  actOnChangeAction,
+  dismissAllChangesAction,
+  dismissChangeAction,
+} from "@/server/changes";
 import type { OpenChange } from "@/server/today-data";
 
 // "Reason to reach out" cards (SPEC §5): job/title changes detected by
@@ -39,7 +43,20 @@ export function TodayChanges({
     });
 
   return (
-    <ol className="space-y-1">
+    <div className="space-y-1">
+      {items.length > 1 && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            disabled={pending}
+            className="text-[11px] text-muted-foreground hover:text-foreground"
+            onClick={() => run(() => dismissAllChangesAction())}
+          >
+            Dismiss all
+          </button>
+        </div>
+      )}
+      <ol className="space-y-1">
       {items.map((c) => (
         <li
           key={c.id}
@@ -104,6 +121,7 @@ export function TodayChanges({
           </button>
         </li>
       ))}
-    </ol>
+      </ol>
+    </div>
   );
 }

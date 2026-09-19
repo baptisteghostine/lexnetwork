@@ -25,6 +25,7 @@ import {
   type LinkedInMessage,
 } from "@/lib/imports/linkedin";
 import {
+  isBaselineRun,
   normalizeForChange,
   planConnection,
   type LinkedInScalarField,
@@ -75,6 +76,9 @@ export type LinkedInReport = {
   messagesLinked: number;
   messageContacts: number;
   unmatched: UnmatchedConversation[];
+  /** Set when the baseline rule fired (SPEC §5): how many matched people
+   * read differently, out of how many matched. Absent on older reports. */
+  baseline?: { contacts: number; matched: number } | null;
 };
 
 export type LinkedInImportResult =
@@ -590,6 +594,21 @@ export function executeLinkedInRows(opts: {
     } catch {
       report.stats.errors++;
     }
+  }
+  // Baseline rule (SPEC §5): decided once the whole run is known, on
+  // contacts rather than rows (a company move usually brings a title row).
+  // Counts use the per-contact tallies, before stats.conflicts becomes an
+  // entry count below.
+  const movedContacts = new Set(report.jobChanges.map((c) => c.contactId)).size;
+  const matchedContacts =
+    report.stats.updated + report.stats.unchanged + report.stats.conflicts;
+  if (isBaselineRun(movedContacts, matchedContacts)) {
+    const now = Date.now();
+    db.update(contactChanges)
+      .set({ dismissedAt: now, notifiedAt: now })
+      .where(eq(contactChanges.syncRunId, runId))
+      .run();
+    report.baseline = { contacts: movedContacts, matched: matchedContacts };
   }
   report.stats.conflicts = report.conflicts.length;
 

@@ -45,10 +45,23 @@ export function LinkedInReportView({
         ))}
       </div>
 
+      {report.baseline && (
+        <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-[12px] leading-relaxed">
+          {report.baseline.contacts} of the {report.baseline.matched} people this
+          run matched read differently from last time — more than a fifth. That
+          means this source describes people differently (a headline where the
+          last one had a job title), not that they all moved. Profiles were
+          updated, but the differences were recorded as a baseline: no Today
+          cards, no email.
+        </p>
+      )}
+
       {report.jobChanges.length > 0 && (
         <section className="space-y-1.5">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-primary">
-            Job changes — reasons to reach out
+            {report.baseline
+              ? "Differences recorded as baseline"
+              : "Job changes — reasons to reach out"}
           </h2>
           <ul className="space-y-1">
             {report.jobChanges.map((c, i) => (

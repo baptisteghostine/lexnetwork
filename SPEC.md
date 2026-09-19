@@ -162,6 +162,9 @@ Conventions used below:
 - A real change writes a `contact_changes` row (field, old, new, source, detected_at) and updates the field only if provenance rules allow (user-edited fields → conflict instead).
 - Changes surface on the Today page as "reason to reach out" cards under **Network updates**, rendered as a diff — old value struck through in muted text, new value in the success colour, age ("2d ago") on the right — with actions: draft opener (AI), log interaction, dismiss.
 - Title-only changes at the same company are shown but ranked below company changes.
+- **Headline rule (2026-09-19).** A title cut from a LinkedIn *headline* (extension sync, profile capture — `titleFromHeadline` on the row) fills an empty title but never counts as a title change against a stored one, and never overwrites one: a headline is a tagline, not a position. Company cut from "… at X" still compares. Only a Position column or a job entry may move a stored title.
+- **Baseline rule (2026-09-19).** A run that "moves" more than a fifth of the people it matched (and at least 25 — `isBaselineRun`) is describing people differently, not reporting moves. Its writes stand, but its `contact_changes` rows are inserted dismissed + notified, and the import report says so in place of the job-changes heading. Prompted by an extension sync that mailed 475 "moves" against ZIP-imported positions in one go.
+- **Dismiss all** on Today's Network updates: one click clears every open card (rows stay on timelines), for the day a run slips through anyway.
 - **Network-updates email** (on by default, Settings → Network updates; needs SMTP). A scheduler sweep (`network_updates`, every 15 min, no-ops when there is nothing new) emails the open changes the owner hasn't been told about yet, then stamps `contact_changes.notified_at`. Edge-triggered and exactly-once, so it stays silent for weeks and then arrives right after an import found a move — as opposed to the daily digest, which mirrors Today at send time and repeats a change every morning until it's dismissed or acted on. Subject names the first person ("Ana Silva changed jobs", "Ana Silva and 2 others in your network changed jobs"); the body uses the same diff grammar as the Today card. Settings has a "Send network updates now" button, which runs the real sweep (and therefore stamps).
 
 ### Edge cases
@@ -175,6 +178,8 @@ Conventions used below:
 - [ ] Dismissing a change card removes it from Today permanently; the row remains on the contact's timeline.
 - [ ] A change is emailed at most once: a second sweep with no new imports sends nothing.
 - [ ] Two imports moving the same person twice produce one line in the email (the newest), and both rows get stamped.
+- [ ] A headline-derived title against a stored position is neither a change, a write, nor a conflict; against an empty title it fills (unit).
+- [ ] `isBaselineRun`: 24 of 30 is not a baseline (below the floor), 25 of 100 is, 25 of 200 is not (unit).
 
 ---
 
