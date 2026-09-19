@@ -44,6 +44,28 @@ export function buildHistoryListUrl(opts: {
   return `${GMAIL_BASE}/history?${params.toString()}`;
 }
 
+/**
+ * Google's per-user, per-minute quota reply — 403 with rateLimitExceeded /
+ * userRateLimitExceeded / "Quota exceeded", or a 429. Transient by
+ * definition: the same request succeeds a minute later, so it is a pause,
+ * never an authorization failure and never a dead run.
+ */
+export function isGmailRateLimit(status: number, body: string): boolean {
+  if (status === 429) return true;
+  return (
+    status === 403 &&
+    /rateLimitExceeded|userRateLimitExceeded|Quota exceeded/i.test(body)
+  );
+}
+
+/** Waits before retrying a rate-limited batch, in order; then the run
+ * stops as "partial" and resumes on its next tick. Kept well inside the
+ * scheduler's 5-minute lease so a paused run is never mistaken for a
+ * crashed one. */
+export const RATE_LIMIT_RETRY_MS = [20_000, 40_000] as const;
+/** Total waiting one run may spend before handing over to the next. */
+export const RATE_LIMIT_RUN_BUDGET_MS = 120_000;
+
 // ---------- parsing ----------
 
 export type GmailMessageMeta = {

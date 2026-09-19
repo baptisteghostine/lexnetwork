@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildHistoryListUrl,
+  isGmailRateLimit,
+  RATE_LIMIT_RETRY_MS,
+  RATE_LIMIT_RUN_BUDGET_MS,
   buildMessageListUrl,
   buildMessageMetadataUrl,
   extractAddressNames,
@@ -172,5 +175,25 @@ describe("extractAddressNames (SPEC §9f)", () => {
       { email: "bare@x.y", name: null },
     ]);
     expect(extractAddressNames(null)).toEqual([]);
+  });
+});
+
+describe("isGmailRateLimit (SPEC §9 quota edge case)", () => {
+  it("recognises Google's per-minute quota replies", () => {
+    const body =
+      '{"error":{"code":403,"message":"Quota exceeded for quota metric \'Total Query Cost\' and limit \'Units per minute per user\'","errors":[{"reason":"rateLimitExceeded"}]}}';
+    expect(isGmailRateLimit(403, body)).toBe(true);
+    expect(isGmailRateLimit(429, "")).toBe(true);
+  });
+
+  it("does not mistake a real 403 or a 401 for a quota pause", () => {
+    expect(isGmailRateLimit(403, '{"error":{"message":"Insufficient Permission"}}')).toBe(false);
+    expect(isGmailRateLimit(401, "Quota exceeded")).toBe(false);
+  });
+
+  it("keeps the retry schedule inside the scheduler lease", () => {
+    const total = RATE_LIMIT_RETRY_MS.reduce((a: number, b: number) => a + b, 0);
+    expect(total).toBeLessThanOrEqual(RATE_LIMIT_RUN_BUDGET_MS);
+    expect(RATE_LIMIT_RUN_BUDGET_MS).toBeLessThan(5 * 60_000);
   });
 });

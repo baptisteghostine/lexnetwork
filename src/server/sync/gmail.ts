@@ -13,6 +13,9 @@ import {
   buildMessageListUrl,
   buildMessageMetadataUrl,
   buildProfileUrl,
+  isGmailRateLimit,
+  RATE_LIMIT_RETRY_MS,
+  RATE_LIMIT_RUN_BUDGET_MS,
   extractAddressNames,
   parseHistoryPage,
   parseMessageMeta,
@@ -35,7 +38,9 @@ import {
 // builders in lib/sync/gmail — nothing here can request a body.
 
 const BACKFILL_PAGES_PER_RUN = 2; // 2 × 500 ids per tick, until caught up
-const METADATA_CONCURRENCY = 8;
+// 4, not 8: halves the burst against Google's per-user quota (units per
+// minute), which the first backfill of a busy mailbox tripped at 8.
+const METADATA_CONCURRENCY = 4;
 const BACKFILL_STATE_KEY = "sync.gmail.backfill";
 // historyId-expiry recovery: how many list pages the bounded re-list may
 // walk (20 × 500 ids), and how much slack before the last known sync point
@@ -55,6 +60,9 @@ export type GmailSyncStats = {
   interactionsAdded: number;
   contactsTouched: number;
   backfillDone: boolean;
+  /** Set when Google's per-minute quota cut the run short: the cursor is
+   * saved, and the scheduler should come back sooner than the interval. */
+  resumeSoon?: boolean;
   /** Top unmatched counterpart addresses (suggestion fodder, SPEC §9). */
   unmatchedTop: { email: string; count: number }[];
 };
@@ -68,35 +76,73 @@ class GmailApiError extends Error {
   }
 }
 
+/** The quota reply (isGmailRateLimit): retried with a pause, then the run
+ * ends "partial" with its state saved and resumes on the next tick. */
+class GmailRateLimited extends GmailApiError {}
+
+/** How much waiting this run has left; shared by every batch in it. */
+type RateBudget = { remainingMs: number };
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 async function gmailJson(url: string, token: string): Promise<unknown> {
   const res = await outboundFetch(url, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) throw new GmailApiError(res.status, await res.text());
+  if (!res.ok) {
+    const body = await res.text();
+    throw isGmailRateLimit(res.status, body)
+      ? new GmailRateLimited(res.status, body)
+      : new GmailApiError(res.status, body);
+  }
   return res.json();
+}
+
+async function fetchChunk(
+  chunk: string[],
+  token: string
+): Promise<(GmailMessageMeta | null)[]> {
+  return Promise.all(
+    chunk.map(async (id) => {
+      try {
+        return parseMessageMeta(
+          await gmailJson(buildMessageMetadataUrl(id), token)
+        );
+      } catch (err) {
+        // A single message 404 (deleted between list and get) must not
+        // fail the run.
+        if (err instanceof GmailApiError && err.status === 404) return null;
+        throw err;
+      }
+    })
+  );
 }
 
 async function fetchMetas(
   ids: string[],
-  token: string
+  token: string,
+  budget: RateBudget
 ): Promise<GmailMessageMeta[]> {
   const out: GmailMessageMeta[] = [];
   for (let i = 0; i < ids.length; i += METADATA_CONCURRENCY) {
     const chunk = ids.slice(i, i + METADATA_CONCURRENCY);
-    const metas = await Promise.all(
-      chunk.map(async (id) => {
-        try {
-          return parseMessageMeta(
-            await gmailJson(buildMessageMetadataUrl(id), token)
-          );
-        } catch (err) {
-          // A single message 404 (deleted between list and get) must not
-          // fail the run.
-          if (err instanceof GmailApiError && err.status === 404) return null;
-          throw err;
-        }
-      })
-    );
+    let metas: (GmailMessageMeta | null)[] | null = null;
+    for (let attempt = 0; metas === null; attempt++) {
+      try {
+        metas = await fetchChunk(chunk, token);
+      } catch (err) {
+        // Quota hit: pause and retry the same chunk while this run has
+        // waiting budget left; past that, let the run end "partial" —
+        // the caller saved its cursor, the next tick picks it up.
+        if (!(err instanceof GmailRateLimited)) throw err;
+        const wait = RATE_LIMIT_RETRY_MS[attempt];
+        if (wait === undefined || wait > budget.remainingMs) throw err;
+        budget.remainingMs -= wait;
+        await sleep(wait);
+      }
+    }
     for (const m of metas) if (m) out.push(m);
   }
   return out;
@@ -204,11 +250,23 @@ export async function runGmailSync(): Promise<GmailSyncStats | null> {
     .returning({ id: syncRuns.id })
     .get().id;
 
+  const budget: RateBudget = { remainingMs: RATE_LIMIT_RUN_BUDGET_MS };
+  let paused: string | null = null;
   try {
-    if (!account.gmailBackfillDone) {
-      await backfillStep(account.id, token, myAddresses, stats, unmatched, touched, sightings);
-    } else {
-      await incrementalStep(account.id, token, myAddresses, stats, unmatched, touched, sightings);
+    try {
+      if (!account.gmailBackfillDone) {
+        await backfillStep(account.id, token, myAddresses, stats, unmatched, touched, sightings, budget);
+      } else {
+        await incrementalStep(account.id, token, myAddresses, stats, unmatched, touched, sightings, budget);
+      }
+    } catch (err) {
+      // Out of waiting budget on Google's per-minute quota. Everything
+      // processed so far is committed and the backfill cursor sits on the
+      // page that didn't finish, so this is a pause, not a failure: keep
+      // what we have, report "partial", and ask to be run again shortly.
+      if (!(err instanceof GmailRateLimited)) throw err;
+      paused = `Google's per-minute Gmail quota was hit after ${stats.messagesSeen} messages; the sync resumes in a couple of minutes from where it stopped.`;
+      stats.resumeSoon = true;
     }
 
     for (const id of touched) recomputeContact(id);
@@ -222,7 +280,8 @@ export async function runGmailSync(): Promise<GmailSyncStats | null> {
     const after = getAccount("google");
     db.update(syncRuns)
       .set({
-        status: "success",
+        status: paused ? "partial" : "success",
+        error: paused,
         statsJson: JSON.stringify(stats),
         cursorAfter: after?.gmailHistoryId ?? null,
         finishedAt: Date.now(),
@@ -250,7 +309,8 @@ async function backfillStep(
   stats: GmailSyncStats,
   unmatched: Map<string, number>,
   touched: Set<number>,
-  sightings: SightingInput[]
+  sightings: SightingInput[],
+  budget: RateBudget
 ): Promise<void> {
   let state = getSetting<BackfillState>(BACKFILL_STATE_KEY);
   if (!state) {
@@ -278,7 +338,7 @@ async function backfillStep(
     const ids = (listing.messages ?? [])
       .map((m) => m.id)
       .filter((id): id is string => !!id);
-    const metas = await fetchMetas(ids, token);
+    const metas = await fetchMetas(ids, token, budget);
     const inWindow = metas.filter((m) => m.internalDate >= state!.cutoffMs);
     processMessages(inWindow, myAddresses, stats, unmatched, touched, sightings);
     // The list is newest-first: a page that dipped below the cutoff, or a
@@ -337,7 +397,8 @@ async function incrementalStep(
   stats: GmailSyncStats,
   unmatched: Map<string, number>,
   touched: Set<number>,
-  sightings: SightingInput[]
+  sightings: SightingInput[],
+  budget: RateBudget
 ): Promise<void> {
   const account = getAccount("google")!;
   const startHistoryId = account.gmailHistoryId;
@@ -375,7 +436,7 @@ async function incrementalStep(
         const ids = (listing.messages ?? [])
           .map((m) => m.id)
           .filter((id): id is string => !!id);
-        const metas = await fetchMetas(ids, token);
+        const metas = await fetchMetas(ids, token, budget);
         for (const m of metas) {
           if (m.internalDate >= sinceMs) messageIds.add(m.id);
         }
@@ -395,7 +456,7 @@ async function incrementalStep(
     }
   }
 
-  const metas = await fetchMetas([...messageIds], token);
+  const metas = await fetchMetas([...messageIds], token, budget);
   processMessages(metas, myAddresses, stats, unmatched, touched, sightings);
   if (latestHistoryId) {
     db.update(integrationAccounts)

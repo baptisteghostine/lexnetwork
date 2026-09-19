@@ -47,7 +47,14 @@ const HANDLERS: Record<string, Handler> = {
     await runAiBatchTag(payloadJson);
   },
   gmail_sync: async () => {
-    await runGmailSync();
+    const stats = await runGmailSync();
+    if (stats?.resumeSoon) {
+      // Paused on Google's per-minute quota: the cursor is saved, so pick
+      // it up in two minutes rather than waiting a whole interval. The
+      // dedupe key keeps a double-enqueue from stacking runs.
+      const runAt = Date.now() + 2 * 60_000;
+      enqueueJob({ kind: "gmail_sync", runAt, dedupeKey: `gmail_sync:${runAt}` });
+    }
   },
   calendar_sync: async () => {
     await runCalendarSync();

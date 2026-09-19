@@ -294,6 +294,7 @@ Re-running any import with the same file: 100% unchanged, zero writes. An identi
 
 ### Edge cases
 - `historyId` expired (Google returns 404): fall back to a bounded re-list since last-known timestamp; idempotent upserts on gmail message id prevent duplicates.
+- Google's per-user per-minute quota (403 `rateLimitExceeded` / "Quota exceeded", or 429; hit live 2026-09-19 on the first backfill of a busy mailbox): a pause, never a failure. The batch is retried after 20 s then 40 s within a 2-minute per-run budget; past that the run ends `partial` with everything so far committed and the backfill cursor on the unfinished page, and the scheduler re-queues it two minutes out instead of one interval. Metadata fetches run 4 wide, not 8. A 401 is still the only status that marks the account.
 - `syncToken` invalidated (410): full re-sync of the window; upsert on event id + occurrence.
 - Owner has multiple own addresses/aliases: configurable "my addresses" list determines direction.
 - Recurring calendar events: each occurrence is one interaction (bounded by window).
