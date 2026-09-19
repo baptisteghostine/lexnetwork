@@ -138,7 +138,6 @@ export default async function SettingsPage({
             <IntegrationsPanel
               google={integrations.google}
               linkedin={integrations.linkedin}
-              voyager={integrations.voyager}
               extensionToken={integrations.extensionToken}
               enrich={integrations.enrich}
               geocode={integrations.geocode}

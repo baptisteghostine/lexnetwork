@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { desc, eq } from "drizzle-orm";
+import { and, desc, inArray, like } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 
 import { db } from "@/db/client";
@@ -73,7 +73,14 @@ export async function GET(req: NextRequest) {
       finishedAt: syncRuns.finishedAt,
     })
     .from(syncRuns)
-    .where(eq(syncRuns.kind, "linkedin_voyager_sync"))
+    // The extension's own kind, plus rows the retired cookie sync's kind
+    // recorded for extension runs before they were told apart (2026-09-19).
+    .where(
+      and(
+        inArray(syncRuns.kind, ["linkedin_extension_sync", "linkedin_voyager_sync"]),
+        like(syncRuns.fileName, "extension-sync-%")
+      )
+    )
     .orderBy(desc(syncRuns.startedAt))
     .limit(1)
     .get();
@@ -157,7 +164,7 @@ export async function POST(req: NextRequest) {
 
   sessions.delete(sessionId);
   const connections = [...session.connections.values()];
-  // Fail loud, exactly like the cookie sync: an empty result means the
+  // Fail loud: an empty result means the
   // response shape drifted or the session died — never "you have no
   // connections", which would look like a successful no-op.
   if (connections.length === 0) {
@@ -176,7 +183,7 @@ export async function POST(req: NextRequest) {
     // way conversations enter the timeline.
     messages: [],
     ownerName: null,
-    runKind: "linkedin_voyager_sync",
+    runKind: "linkedin_extension_sync",
     fileName: `extension-sync-${new Date(session.startedAt).toISOString().slice(0, 10)}`,
     fileSha256: createHash("sha256")
       .update([...session.connections.keys()].sort().join("\n"))

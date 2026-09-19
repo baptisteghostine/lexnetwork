@@ -104,11 +104,11 @@ Multi-user auth, roles/permissions, teams, deal pipelines/stages/revenue, email 
 
 1. The official data-export ZIP the owner uploads. Sanctioned, zero account risk, the recommended route, and the only source of message history. Making that monthly import effortless is a first-class product problem, not a fallback.
 2. The Member Data Portability API (DMA self-serve product) connected by the owner in Settings (SPEC §9a). Official and consented, but EEA/CH-only — confirmed unreachable for this deployment's UK owner.
-3. An opt-in weekly sync that reads the owner's own connection list through LinkedIn's internal Voyager API using a session cookie the owner pastes in (SPEC §9b, `src/lib/sync/linkedin-voyager.ts`). Off by default.
+3. ~~An opt-in weekly sync that reads the owner's own connection list through LinkedIn's internal Voyager API using a session cookie the owner pastes in (SPEC §9b).~~ **Retired 2026-09-19** (owner request): it could never pass Cloudflare's TLS check from a Node process, so it only ever produced failed runs. The browser extension (SPEC §9c, `extension/`) is the live automatic path; the terms below now bind it.
 
 Path 3 was added on the owner's explicit instruction — requested once before Phase 5, discarded in a branch consolidation, then explicitly re-requested after §9a proved region-locked — overriding this file's previous "official channels only" invariant, and with the tradeoff stated: automated access breaches LinkedIn's User Agreement, and the enforcement risk — account restriction — falls on the owner's account.
 
-**Constraints on path 3 — these are the terms it was built under, not preferences:**
+**Constraints on the automatic LinkedIn path (originally path 3, carried over to the extension) — these are the terms it was built under, not preferences:**
 
 - **Browser presentation (owner-amended 2026-08-20).** Originally: "no impersonating a specific browser build; the client identifies itself honestly." That honest User-Agent was declined by Voyager (which only answers its own web client), so the feature never worked. The owner reversed this specific clause — with the account-restriction risk restated and explicitly accepted — so the sync now presents as the LinkedIn web app (fixed Chrome UA + `x-li-*` headers). The rest of the no-evasion terms **still stand and must not be relaxed**: no fingerprint *randomisation* (one stable signature only), no proxy rotation, no CAPTCHA/challenge solving. On refusal the sync still fails loud and stops — it does not escalate to get around a block.
 - **Polite pacing.** Serial requests, a real delay between pages, a hard page cap. Burst traffic is both rude and the thing that actually gets accounts flagged.

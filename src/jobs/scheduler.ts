@@ -27,11 +27,6 @@ import { runGmailSync } from "@/server/sync/gmail";
 import { runLinkedInSync } from "@/server/sync/linkedin";
 import { runAiBatchTag } from "@/server/ai-batch";
 import { runDedupeScan } from "@/server/dedupe-scan";
-import {
-  getVoyagerSession,
-  isVoyagerEnabled,
-  runVoyagerSync,
-} from "@/server/sync/voyager";
 
 // The in-process scheduler (CLAUDE.md: jobs table, no external broker).
 // Durability lives in the `jobs` table and in domain ledgers like
@@ -58,9 +53,6 @@ const HANDLERS: Record<string, Handler> = {
   },
   linkedin_sync: async () => {
     await runLinkedInSync();
-  },
-  linkedin_voyager_sync: async () => {
-    await runVoyagerSync();
   },
   dedupe_scan: async () => {
     runDedupeScan();
@@ -92,7 +84,6 @@ const SYNC_JOBS: {
     | "gmail_sync"
     | "calendar_sync"
     | "linkedin_sync"
-    | "linkedin_voyager_sync"
     | "dedupe_scan"
     | "network_updates"
     | "meeting_prep"
@@ -104,14 +95,6 @@ const SYNC_JOBS: {
   { kind: "gmail_sync", connected: () => providerActive("google"), intervalMs: 15 * 60 * 1000 },
   { kind: "calendar_sync", connected: () => providerActive("google"), intervalMs: 30 * 60 * 1000 },
   { kind: "linkedin_sync", connected: () => providerActive("linkedin"), intervalMs: 7 * 24 * 3600 * 1000 },
-  {
-    kind: "linkedin_voyager_sync",
-    // The weekly job exists only while the owner has both saved a session
-    // and left the opt-in toggle on (SPEC §9b). "Sync now" bypasses this
-    // gate deliberately — a manual run needs only the session.
-    connected: () => isVoyagerEnabled() && getVoyagerSession() !== null,
-    intervalMs: 7 * 24 * 3600 * 1000,
-  },
   // Dedupe is always on (SPEC §10): the queue only fills as sources add
   // overlapping contacts, and an empty scan is cheap.
   { kind: "dedupe_scan", connected: () => true, intervalMs: 24 * 3600 * 1000 },
