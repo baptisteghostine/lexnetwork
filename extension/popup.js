@@ -9,6 +9,7 @@ const $ = (id) => document.getElementById(id);
 
 let settings = { ...DEFAULTS };
 let status = null; // last GET /api/linkedin/extension, or null
+let statusError = null; // why it's null, in Rolo's words, when it is
 let liTab = null; // the active tab if it is linkedin.com
 let runTabId = null; // the tab a run is alive in — not necessarily the active one
 let stopping = false;
@@ -185,8 +186,11 @@ function renderHint() {
   const enrichBtn = $("enrich");
   if (!status) {
     // Whatever the pill says — rejected token, Rolo offline — a sync would
-    // only fail on its first page. Say so here instead.
-    $("hint").textContent = "Rolo isn't answering with this address and token — fix it via the gear, then try again.";
+    // only fail on its first page. Say why here, in Rolo's own words when
+    // it gave any, instead of a pill that just says "Error".
+    $("hint").textContent = statusError
+      ? `${statusError} (Address and token are under the gear.)`
+      : "Rolo isn't answering with this address and token — fix it via the gear, then try again.";
     $("sync").disabled = true;
     enrichBtn.disabled = true;
     return;
@@ -390,6 +394,7 @@ $("autoSync").addEventListener("change", async (e) => {
 async function loadStatus() {
   setPill("Checking…");
   status = null;
+  statusError = null;
   const r = await chrome.runtime.sendMessage({ type: "status" }).catch(() => null);
   if (r?.ok) {
     status = r;
@@ -400,9 +405,12 @@ async function loadStatus() {
     setPill("Rolo offline", "err");
   } else if (r?.unpaired) {
     setPill("Not paired", "warn");
+  } else if (r?.mismatch) {
+    setPill("Rolo out of date", "err");
   } else {
     setPill(r?.error ? "Error" : "Unknown", "err");
   }
+  if (!r?.ok) statusError = r?.error ?? null;
   return r;
 }
 

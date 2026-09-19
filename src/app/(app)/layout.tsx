@@ -10,12 +10,12 @@ import { ShortcutOverlay } from "@/components/shortcut-overlay";
 import { SidebarNav } from "@/components/sidebar-nav";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
-import { db, rawDb } from "@/db/client";
+import { db } from "@/db/client";
 import { contacts, duplicateCandidates, reminders, views } from "@/db/schema";
-import { readBackupStatus } from "@/lib/backup/run";
 import { requireAuth } from "@/lib/auth";
 import { now as currentTime } from "@/lib/time";
 import { logoutAction } from "@/server/auth";
+import { readHealthIssues } from "@/server/health";
 
 export const dynamic = "force-dynamic";
 
@@ -66,9 +66,10 @@ export default async function AppLayout({
     .all();
   const initialDark =
     (await cookies()).get("rolo-theme")?.value === "dark";
-  // SPEC §13: a failed nightly backup shows a banner — data safety is not
-  // allowed to fail silently.
-  const backupFailure = readBackupStatus(rawDb).failing;
+  // SPEC §13: a failed backup, a dead integration, or a failing sync or
+  // email job shows a banner — neither data safety nor capture is allowed
+  // to fail silently (widened 2026-09-19; see lib/health.ts).
+  const healthIssues = readHealthIssues();
 
   // One nav, two frames: the fixed desktop sidebar, and the same content
   // inside the phone drawer (SPEC §12 responsive note).
@@ -110,14 +111,17 @@ export default async function AppLayout({
       </aside>
       <main className="min-w-0 flex-1">
         <MobileShell>{navContent}</MobileShell>
-        {backupFailure ? (
-          <div className="border-b border-red-200 bg-red-50 px-5 py-1.5 text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-            The last backup failed.{" "}
-            <Link href="/settings" className="underline">
-              See details in Settings → Data.
+        {healthIssues.map((issue) => (
+          <div
+            key={issue.id}
+            className="border-b border-red-200 bg-red-50 px-5 py-1.5 text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300"
+          >
+            {issue.message}{" "}
+            <Link href={issue.href} className="underline">
+              Open settings.
             </Link>
           </div>
-        ) : null}
+        ))}
         {children}
       </main>
       <CommandPalette />

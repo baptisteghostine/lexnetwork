@@ -33,14 +33,21 @@ async function callRolo(path, { method = "POST", body } = {}) {
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    // 404/405 on an extension route means the server predates this popup:
+    // the route (or its GET) doesn't exist there yet. Name it, because the
+    // fix is on the Rolo side and "HTTP 405" sends people to the wrong place.
+    const mismatch = res.status === 404 || res.status === 405;
     return {
       ok: false,
       status: res.status,
       unauthorized: res.status === 401,
+      mismatch,
       error:
         res.status === 401
           ? "Rolo rejected the pairing token — copy it again from Settings."
-          : (data.error ?? `Rolo returned HTTP ${res.status}.`),
+          : mismatch
+            ? `Rolo answered HTTP ${res.status}: the server is older than this extension. Update Rolo (git pull, then docker compose up -d --build) and try again.`
+            : (data.error ?? `Rolo returned HTTP ${res.status}.`),
     };
   }
   return { ok: true, ...data };
@@ -187,13 +194,21 @@ async function runScheduledSync() {
     tab = await chrome.tabs.create({ url: CONNECTIONS_URL, active: false });
     opened = true;
   }
-  const ready = await contentReady(tab.id);
+  let ready = await contentReady(tab.id);
+  if (!ready && !opened) {
+    // An existing tab whose content script doesn't answer is one Chrome
+    // discarded to save memory, or one loaded before the extension was
+    // last reloaded (the old script is orphaned). A reload fixes both;
+    // it's the owner's own tab, but reloading linkedin.com is harmless.
+    await chrome.tabs.reload(tab.id).catch(() => {});
+    ready = await contentReady(tab.id);
+  }
   if (!ready) {
     await chrome.storage.local.set({
       run: {
         kind: "sync",
         status: "error",
-        error: "Scheduled sync couldn't reach the LinkedIn tab — reload linkedin.com once and it will pick up next week.",
+        error: "Scheduled sync couldn't reach the LinkedIn tab, even after reloading it — open linkedin.com once, logged in, and the next weekly run will use it.",
         updatedAt: Date.now(),
       },
     });

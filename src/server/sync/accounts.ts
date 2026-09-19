@@ -178,9 +178,16 @@ export async function accessTokenFor(
     return fresh.accessToken;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    // invalid_grant = the owner revoked access in their Google account.
+    // invalid_grant = the owner revoked access in their Google account —
+    // or, far more often, the refresh token simply expired: Google issues
+    // 7-day tokens to any OAuth app still in "Testing" publishing status,
+    // and Gmail scopes cannot leave Testing without a verification built
+    // for companies. Say so, or the owner reconnects weekly not knowing why.
     if (msg.includes("invalid_grant")) {
-      markAccountRevoked(account.id, "Google access revoked — reconnect.");
+      markAccountRevoked(
+        account.id,
+        "Google access expired or was revoked (an OAuth app in Google's \"Testing\" status expires every 7 days) — reconnect."
+      );
     } else {
       markAccountError(account.id, `Token refresh failed: ${msg}`);
     }
