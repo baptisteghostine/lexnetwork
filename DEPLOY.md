@@ -71,6 +71,29 @@ docker compose up -d
 Attachments are files under `data/attachments/` and are not inside the
 database — back that directory up alongside `data/backups/`.
 
+**Corrupt database** (`SqliteError: database disk image is malformed` in
+the logs, Today crashing while other pages work, every new backup 0 bytes).
+Before restoring an old backup, try rebuilding the live file: when the
+tables still read, `scripts/rebuild-sqlite.mjs` copies every row into a
+fresh database, rebuilds the search indexes, and only reports "clean" when
+row counts and `integrity_check` agree. It runs inside the production
+image, so nothing needs installing:
+
+```bash
+docker compose stop
+cp -r data data-corrupt-$(date +%F)          # keep the damaged original
+cp scripts/rebuild-sqlite.mjs data/rebuild.mjs
+docker compose run --rm --no-deps --entrypoint node rolo /app/data/rebuild.mjs
+# only if the last line is "RESULT: clean rebuild":
+rm -f data/rolo.db data/rolo.db-wal data/rolo.db-shm data/rebuild.mjs
+mv data/rolo-rebuilt.db data/rolo.db
+docker compose up -d
+```
+
+If the rebuild reports a failing table, fall back to the newest good
+backup above. Seen once on Windows, where SQLite's WAL locking on a
+Docker Desktop bind mount is the usual culprit; a named volume avoids it.
+
 There is also the one-click **full export** (Settings → Data): a ZIP with
 a flattened `contacts.csv`, per-table JSON, and all attachments.
 
