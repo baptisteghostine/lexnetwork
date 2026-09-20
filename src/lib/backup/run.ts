@@ -81,7 +81,11 @@ export function runBackup(
     // (same second) — VACUUM INTO refuses to overwrite.
     fs.rmSync(target, { force: true });
     db.prepare("VACUUM INTO ?").run(target);
-    const sizeBytes = fs.statSync(target).size;
+    // From here the file is a complete backup: a later failure (pruning,
+    // the status row) must not take it with it.
+    const written = target;
+    target = null;
+    const sizeBytes = fs.statSync(written).size;
 
     const pruned = selectPrunable(fs.readdirSync(backupsDir), now).filter(
       (name) => name !== fileName
@@ -101,8 +105,8 @@ export function runBackup(
   } catch (err) {
     // VACUUM INTO creates the file before it copies pages, so a failure
     // mid-copy (a corrupt source, a full disk) leaves a 0-byte or partial
-    // file that looks like a backup and isn't. Remove it: a stray file
-    // that can't be restored from is worse than no file.
+    // file that looks like a backup and isn't. Remove it — but only when
+    // the VACUUM itself was what failed (target is null once it finished).
     if (target !== null) fs.rmSync(target, { force: true });
     db.prepare(
       "UPDATE sync_runs SET status = 'failed', error = ?, finished_at = ? WHERE id = ?"

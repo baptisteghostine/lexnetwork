@@ -117,19 +117,41 @@ describe("runBackup", () => {
     expect(readBackupStatus(db).failing).toBe(false);
   });
 
-  it("a run that fails after VACUUM created the file removes the partial file", () => {
-    // VACUUM INTO writes the target before the run can fail on anything
-    // after it; simulate that later failure so the file already exists.
-    const spy = vi.spyOn(fs, "statSync").mockImplementation(() => {
-      throw new Error("disk went away");
-    });
+  it("a VACUUM that fails mid-copy leaves no partial file behind", () => {
+    // VACUUM INTO creates the target, then fails (corrupt page, full disk).
+    const realPrepare = db.prepare.bind(db);
+    const spy = vi.spyOn(db, "prepare").mockImplementation(((sqlText: string) => {
+      if (sqlText.startsWith("VACUUM INTO")) {
+        return {
+          run: (target: string) => {
+            fs.writeFileSync(target, "");
+            throw new Error("database disk image is malformed");
+          },
+        };
+      }
+      return realPrepare(sqlText);
+    }) as typeof db.prepare);
     try {
-      expect(() => runBackup(db, dataDir, NOW)).toThrow("disk went away");
+      expect(() => runBackup(db, dataDir, NOW)).toThrow("malformed");
     } finally {
       spy.mockRestore();
     }
     expect(fs.existsSync(path.join(dataDir, "backups", backupFileName(NOW)))).toBe(false);
     expect(readBackupStatus(db).failing).toBe(true);
-    expect(readBackupStatus(db).lastFailure?.error).toBe("disk went away");
+    expect(readBackupStatus(db).lastFailure?.error).toContain("malformed");
+  });
+
+  it("a failure after the VACUUM finished keeps the good backup", () => {
+    const spy = vi.spyOn(fs, "readdirSync").mockImplementation(() => {
+      throw new Error("EACCES");
+    });
+    try {
+      expect(() => runBackup(db, dataDir, NOW)).toThrow("EACCES");
+    } finally {
+      spy.mockRestore();
+    }
+    const file = path.join(dataDir, "backups", backupFileName(NOW));
+    expect(fs.existsSync(file)).toBe(true);
+    expect(fs.statSync(file).size).toBeGreaterThan(0);
   });
 });

@@ -31,11 +31,18 @@ export function backoffDelayMs(attempts: number): number {
  * run log full of one job and ~400 empty backup files.
  */
 export function nextSyncRunAt(
-  last: { finishedAt: number | null } | null,
+  last: { status: string; finishedAt: number | null } | null,
   intervalMs: number,
-  now: number
+  now: number,
+  /** When the integration behind this kind was (re)connected, if any. */
+  connectedAt: number | null = null
 ): number {
   if (!last || last.finishedAt === null) return now;
+  // A dead run from before a reconnect belongs to the old connection:
+  // the owner was told "the first sync starts within a few seconds", and
+  // spacing that off a stale failure would make them wait an interval
+  // (a week, for LinkedIn) for nothing.
+  if (last.status === "dead" && connectedAt !== null && connectedAt > last.finishedAt) return now;
   return last.finishedAt + intervalMs;
 }
 

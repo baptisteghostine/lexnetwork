@@ -84,6 +84,12 @@ function providerActive(provider: "google" | "linkedin"): boolean {
   return !!account && account.status !== "revoked";
 }
 
+/** A reconnect deletes and re-creates the account row, so createdAt is
+ * exactly "when this connection began". */
+function connectedAtFor(provider: "google" | "linkedin"): number | null {
+  return getAccount(provider)?.createdAt ?? null;
+}
+
 // Recurring sync cadence (SPEC §9): Gmail 15 min, Calendar 30 min;
 // LinkedIn snapshots move slowly — weekly (SPEC §9a/§9b). Each entry's
 // `connected` gate decides whether its job should exist at all.
@@ -99,10 +105,13 @@ const SYNC_JOBS: {
     | "backup";
   connected: () => boolean;
   intervalMs: number;
+  /** When the integration behind the kind was (re)connected — a dead run
+   * older than that is the previous connection's, not a reason to wait. */
+  connectedAt?: () => number | null;
 }[] = [
-  { kind: "gmail_sync", connected: () => providerActive("google"), intervalMs: 15 * 60 * 1000 },
-  { kind: "calendar_sync", connected: () => providerActive("google"), intervalMs: 30 * 60 * 1000 },
-  { kind: "linkedin_sync", connected: () => providerActive("linkedin"), intervalMs: 7 * 24 * 3600 * 1000 },
+  { kind: "gmail_sync", connected: () => providerActive("google"), connectedAt: () => connectedAtFor("google"), intervalMs: 15 * 60 * 1000 },
+  { kind: "calendar_sync", connected: () => providerActive("google"), connectedAt: () => connectedAtFor("google"), intervalMs: 30 * 60 * 1000 },
+  { kind: "linkedin_sync", connected: () => providerActive("linkedin"), connectedAt: () => connectedAtFor("linkedin"), intervalMs: 7 * 24 * 3600 * 1000 },
   // Dedupe is always on (SPEC §10): the queue only fills as sources add
   // overlapping contacts, and an empty scan is cheap.
   { kind: "dedupe_scan", connected: () => true, intervalMs: 24 * 3600 * 1000 },
@@ -121,6 +130,7 @@ const SYNC_JOBS: {
   {
     kind: "meeting_prep",
     connected: () => providerActive("google") && meetingPrepEnabled(),
+    connectedAt: () => connectedAtFor("google"),
     intervalMs: 15 * 60 * 1000,
   },
   // City placement (SPEC §7a, decision #4): each run works one paced
@@ -157,13 +167,13 @@ export function ensureSyncJobs(now: number): void {
     // re-enqueues land one interval out from the last terminal row, dead
     // included (see nextSyncRunAt for why dead rows must count).
     const last = db
-      .select({ finishedAt: jobs.finishedAt })
+      .select({ status: jobs.status, finishedAt: jobs.finishedAt })
       .from(jobs)
       .where(and(eq(jobs.kind, spec.kind), inArray(jobs.status, ["success", "dead"])))
       .orderBy(desc(jobs.finishedAt))
       .limit(1)
       .get();
-    const runAt = nextSyncRunAt(last ?? null, spec.intervalMs, now);
+    const runAt = nextSyncRunAt(last ?? null, spec.intervalMs, now, spec.connectedAt?.() ?? null);
     enqueueJob({ kind: spec.kind, runAt, dedupeKey: `${spec.kind}:${runAt}` });
   }
 }

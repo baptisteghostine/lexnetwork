@@ -85,11 +85,11 @@ describe("nextSyncRunAt", () => {
 
   it("a kind with no finished row runs now (fresh connection)", () => {
     expect(nextSyncRunAt(null, interval, now)).toBe(now);
-    expect(nextSyncRunAt({ finishedAt: null }, interval, now)).toBe(now);
+    expect(nextSyncRunAt({ status: "success", finishedAt: null }, interval, now)).toBe(now);
   });
 
   it("spaces the next run one interval after the last success", () => {
-    expect(nextSyncRunAt({ finishedAt: now - 60_000 }, interval, now)).toBe(
+    expect(nextSyncRunAt({ status: "success", finishedAt: now - 60_000 }, interval, now)).toBe(
       now - 60_000 + interval
     );
   });
@@ -98,7 +98,21 @@ describe("nextSyncRunAt", () => {
     // The row that just died is the newest terminal row; the caller
     // selects success and dead alike, so the same arithmetic applies.
     const died = now - 1;
-    expect(nextSyncRunAt({ finishedAt: died }, interval, now)).toBe(died + interval);
-    expect(nextSyncRunAt({ finishedAt: died }, interval, now)).toBeGreaterThan(now);
+    expect(nextSyncRunAt({ status: "dead", finishedAt: died }, interval, now)).toBe(died + interval);
+    expect(nextSyncRunAt({ status: "dead", finishedAt: died }, interval, now)).toBeGreaterThan(now);
+  });
+
+  it("a reconnect after a dead run syncs now, not an interval later", () => {
+    const died = now - 3_600_000;
+    const reconnected = now - 5_000;
+    expect(nextSyncRunAt({ status: "dead", finishedAt: died }, interval, now, reconnected)).toBe(now);
+    // ...but a dead run *after* the connection began still spaces out.
+    expect(
+      nextSyncRunAt({ status: "dead", finishedAt: now - 1 }, interval, now, reconnected)
+    ).toBe(now - 1 + interval);
+    // and a success is never overridden by the connection time.
+    expect(
+      nextSyncRunAt({ status: "success", finishedAt: died }, interval, now, reconnected)
+    ).toBe(died + interval);
   });
 });

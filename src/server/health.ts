@@ -1,6 +1,6 @@
 import "server-only";
 
-import { inArray } from "drizzle-orm";
+import { and, inArray } from "drizzle-orm";
 
 import { db, rawDb } from "@/db/client";
 import { integrationAccounts, jobs } from "@/db/schema";
@@ -30,9 +30,13 @@ export function readHealthIssues(): HealthIssue[] {
       lastError: jobs.lastError,
     })
     .from(jobs)
-    .where(inArray(jobs.status, ["success", "dead"]))
-    .all()
-    .filter((r) => r.kind in JOB_LABELS);
+    .where(
+      and(
+        inArray(jobs.status, ["success", "dead"]),
+        inArray(jobs.kind, Object.keys(JOB_LABELS))
+      )
+    )
+    .all();
   return buildHealthIssues({
     backupFailing: readBackupStatus(rawDb).failing,
     accounts,
