@@ -434,6 +434,7 @@ export async function runCalendarSync(): Promise<CalendarSyncStats | null> {
  * the contact form, an import, a "People you met" click — is covered.
  */
 export function rematchUnlinkedAttendees(now: number): number {
+  const mine = ownerAddressSet();
   const rows = db
     .select({ id: calendarEvents.id, attendees: calendarEvents.attendees })
     .from(calendarEvents)
@@ -444,6 +445,9 @@ export function rematchUnlinkedAttendees(now: number): number {
     let hit = false;
     for (const a of list) {
       if (a.contactId !== null) continue;
+      // Events stored before the owner's other addresses were excluded at
+      // sync time still carry them; they must not become a match now.
+      if (mine.has(normalizeEmail(a.email))) continue;
       const match = db
         .select({ contactId: contactEmails.contactId })
         .from(contactEmails)
@@ -470,11 +474,30 @@ export function rematchUnlinkedAttendees(now: number): number {
   return changed;
 }
 
+/** The owner's addresses, normalized — never a matched attendee. */
+function ownerAddressSet(): Set<string> {
+  const account = getAccount("google");
+  return new Set(account ? myAddressList(account).map((a) => normalizeEmail(a)) : []);
+}
+
 export function relinkAttendeeEmail(
   emailNormalized: string,
   contactId: number,
   now: number
 ): number {
+  return relinkAttendeeEmails(new Set([emailNormalized]), contactId, now);
+}
+
+/** One scan for a whole contact's address set (the contact form saves
+ * several at once; scanning per address multiplied the work). */
+export function relinkAttendeeEmails(
+  emailsNormalized: Set<string>,
+  contactId: number,
+  now: number
+): number {
+  const mine = ownerAddressSet();
+  const wanted = new Set([...emailsNormalized].filter((e) => !mine.has(e)));
+  if (wanted.size === 0) return 0;
   const rows = db
     .select({ id: calendarEvents.id, attendees: calendarEvents.attendees })
     .from(calendarEvents)
@@ -484,7 +507,7 @@ export function relinkAttendeeEmail(
     const list = parseStoredAttendees(r.attendees);
     let hit = false;
     for (const a of list) {
-      if (a.contactId === null && normalizeEmail(a.email) === emailNormalized) {
+      if (a.contactId === null && wanted.has(normalizeEmail(a.email))) {
         a.contactId = contactId;
         hit = true;
       }

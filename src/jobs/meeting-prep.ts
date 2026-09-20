@@ -207,11 +207,11 @@ export type MeetingPrepResult = { prepped: number; emailed: number };
 
 export async function runMeetingPrep(now: number): Promise<MeetingPrepResult> {
   const result: MeetingPrepResult = { prepped: 0, emailed: 0 };
-  if (!meetingPrepEnabled()) return result;
-
-  // An email typed onto a contact since their meeting was synced must
-  // still produce a brief — match first, then select.
+  // An email added to a contact since their meeting was synced must still
+  // link the meeting (interaction, touch) — brief or no brief. So this
+  // runs before the toggle check, on every sweep.
   rematchUnlinkedAttendees(now);
+  if (!meetingPrepEnabled()) return result;
 
   const rows = db
     .select()
