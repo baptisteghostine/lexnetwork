@@ -5,7 +5,16 @@ import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 
 import { runAiCall } from "@/lib/ai/call";
-import { GROQ_ENDPOINT, groqClient, toAiResponse, toGroqBody } from "@/lib/ai/groq";
+import {
+  GEMINI,
+  GEMINI_ENDPOINT,
+  geminiClient,
+  GROQ_ENDPOINT,
+  groqClient,
+  toAiResponse,
+  toGroqBody,
+  toOpenAiBody,
+} from "@/lib/ai/groq";
 import { isAllowedOutboundUrl } from "@/lib/net/fetch";
 
 // SPEC §11 (owner-amended): the Groq adapter must present exactly the
@@ -54,6 +63,34 @@ describe("request translation", () => {
         json_schema: { name: "output", schema: { type: "object" }, strict: true },
       },
     });
+  });
+
+  it("Gemini's compatibility layer gets max_tokens and no strict flag", () => {
+    const body = toOpenAiBody(
+      {
+        model: "gemini-2.5-flash",
+        max_tokens: 500,
+        system: "sys",
+        output_config: {
+          format: { type: "json_schema", schema: { type: "object" } },
+        },
+        messages: [{ role: "user", content: "hi" }],
+      },
+      GEMINI
+    );
+    expect(body).toEqual({
+      model: "gemini-2.5-flash",
+      max_tokens: 500,
+      messages: [
+        { role: "system", content: "sys" },
+        { role: "user", content: "hi" },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: { name: "output", schema: { type: "object" } },
+      },
+    });
+    expect(body).not.toHaveProperty("max_completion_tokens");
   });
 
   it("omits response_format when no schema was requested", () => {
@@ -164,7 +201,28 @@ describe("through the call core", () => {
 });
 
 describe("allowlist", () => {
-  it("api.groq.com is an allowed outbound host", () => {
+  it("api.groq.com and generativelanguage.googleapis.com are allowed outbound hosts", () => {
     expect(isAllowedOutboundUrl(GROQ_ENDPOINT)).toBe(true);
+    expect(isAllowedOutboundUrl(GEMINI_ENDPOINT)).toBe(true);
+  });
+});
+
+describe("Gemini client", () => {
+  it("posts to the Gemini endpoint and names Gemini in a rate-limit error", async () => {
+    const seen: string[] = [];
+    const client = geminiClient({
+      apiKey: "k",
+      fetcher: async (url) => {
+        seen.push(url);
+        // Gemini's error bodies are wrapped in an array.
+        return new Response(JSON.stringify([{ error: { message: "quota" } }]), {
+          status: 429,
+        });
+      },
+    });
+    await expect(
+      client.messages.create({ model: "gemini-2.5-flash", max_tokens: 10, messages: [] })
+    ).rejects.toThrow(/Gemini rate limit hit \(free tier\): quota/);
+    expect(seen).toEqual([GEMINI_ENDPOINT]);
   });
 });

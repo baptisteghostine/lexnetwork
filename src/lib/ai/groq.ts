@@ -1,6 +1,7 @@
-// Groq adapter (SPEC §11, owner-amended 2026-08-20): implements the same
-// AiClientLike surface the call core consumes, over Groq's
-// OpenAI-compatible chat/completions API. No SDK — one endpoint, plain
+// OpenAI-compatible adapters (SPEC §11): Groq (owner-amended 2026-08-20)
+// and Gemini (owner-amended 2026-09-20) both expose an OpenAI-style
+// chat/completions endpoint, so one adapter implements the AiClientLike
+// surface the call core consumes for both. No SDK — one endpoint, plain
 // JSON, through the outbound allowlist. Everything downstream (one
 // ai_calls row per call, Zod validation, retry-on-invalid) is unchanged
 // and provider-blind.
@@ -8,6 +9,32 @@
 import type { AiClientLike, AiResponseLike } from "./call";
 
 export const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
+export const GEMINI_ENDPOINT =
+  "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+
+/** The per-provider differences — everything else is the same request. */
+export type OpenAiCompatProvider = {
+  name: "Groq" | "Gemini";
+  endpoint: string;
+  /** Groq follows current OpenAI naming; Gemini's compatibility layer takes the classic one. */
+  maxTokensParam: "max_completion_tokens" | "max_tokens";
+  /** OpenAI's `strict` flag; Gemini's layer documents json_schema without it. */
+  strictSchema: boolean;
+};
+
+export const GROQ: OpenAiCompatProvider = {
+  name: "Groq",
+  endpoint: GROQ_ENDPOINT,
+  maxTokensParam: "max_completion_tokens",
+  strictSchema: true,
+};
+
+export const GEMINI: OpenAiCompatProvider = {
+  name: "Gemini",
+  endpoint: GEMINI_ENDPOINT,
+  maxTokensParam: "max_tokens",
+  strictSchema: false,
+};
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -25,7 +52,10 @@ type GroqResponse = {
  * request body. Exported for tests — the translation rules ARE the
  * adapter's contract.
  */
-export function toGroqBody(params: Record<string, unknown>): Record<string, unknown> {
+export function toOpenAiBody(
+  params: Record<string, unknown>,
+  provider: OpenAiCompatProvider = GROQ
+): Record<string, unknown> {
   const messages: { role: string; content: unknown }[] = [];
   if (typeof params.system === "string" && params.system) {
     messages.push({ role: "system", content: params.system });
@@ -35,7 +65,7 @@ export function toGroqBody(params: Record<string, unknown>): Record<string, unkn
   }
   const body: Record<string, unknown> = {
     model: params.model,
-    max_completion_tokens: params.max_tokens,
+    [provider.maxTokensParam]: params.max_tokens,
     messages,
   };
   // {type:"json_schema", schema} (Anthropic output_config.format) →
@@ -45,11 +75,17 @@ export function toGroqBody(params: Record<string, unknown>): Record<string, unkn
   if (format && format.type === "json_schema" && format.schema) {
     body.response_format = {
       type: "json_schema",
-      json_schema: { name: "output", schema: format.schema, strict: true },
+      json_schema: {
+        name: "output",
+        schema: format.schema,
+        ...(provider.strictSchema ? { strict: true } : {}),
+      },
     };
   }
   return body;
 }
+
+export const toGroqBody = (params: Record<string, unknown>) => toOpenAiBody(params, GROQ);
 
 export function toAiResponse(groq: GroqResponse): AiResponseLike {
   const choice = groq.choices?.[0];
@@ -76,31 +112,35 @@ export function toAiResponse(groq: GroqResponse): AiResponseLike {
 /**
  * The client the call core consumes. `fetcher` is injected so tests run
  * without a network; production passes outboundFetch, which enforces the
- * api.groq.com allowlist entry.
+ * provider's allowlist entry.
  */
-export function groqClient(opts: {
+export function openAiCompatClient(opts: {
+  provider: OpenAiCompatProvider;
   apiKey: string;
   fetcher: FetchLike;
 }): AiClientLike {
+  const { provider } = opts;
   return {
     messages: {
       async create(params) {
-        const res = await opts.fetcher(GROQ_ENDPOINT, {
+        const res = await opts.fetcher(provider.endpoint, {
           method: "POST",
           headers: {
             authorization: `Bearer ${opts.apiKey}`,
             "content-type": "application/json",
           },
-          body: JSON.stringify(toGroqBody(params)),
+          body: JSON.stringify(toOpenAiBody(params, provider)),
         });
-        const json = (await res.json().catch(() => ({}))) as GroqResponse;
+        const raw: unknown = await res.json().catch(() => ({}));
+        // Gemini wraps error bodies in a one-element array.
+        const json = (Array.isArray(raw) ? raw[0] : raw) as GroqResponse;
         if (!res.ok) {
           // 429 = the free tier's per-minute/day caps; say so plainly.
-          const detail = json.error?.message ?? `HTTP ${res.status}`;
+          const detail = json?.error?.message ?? `HTTP ${res.status}`;
           throw new Error(
             res.status === 429
-              ? `Groq rate limit hit (free tier): ${detail}`
-              : `Groq request failed: ${detail}`
+              ? `${provider.name} rate limit hit (free tier): ${detail}`
+              : `${provider.name} request failed: ${detail}`
           );
         }
         return toAiResponse(json);
@@ -108,3 +148,9 @@ export function groqClient(opts: {
     },
   };
 }
+
+export const groqClient = (opts: { apiKey: string; fetcher: FetchLike }) =>
+  openAiCompatClient({ ...opts, provider: GROQ });
+
+export const geminiClient = (opts: { apiKey: string; fetcher: FetchLike }) =>
+  openAiCompatClient({ ...opts, provider: GEMINI });

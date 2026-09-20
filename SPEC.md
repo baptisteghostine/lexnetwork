@@ -474,7 +474,7 @@ Candidate pair scoring:
 
 ## 11. AI Layer
 
-Provider (owner-amended 2026-08-20, was "Anthropic API" only): Anthropic, or Groq's OpenAI-compatible API (free tier, e.g. `openai/gpt-oss-120b`) — configured entirely by env pairs (`ANTHROPIC_API_KEY`+`ANTHROPIC_MODEL` / `GROQ_API_KEY`+`GROQ_MODEL`; `AI_PROVIDER` picks when both exist, defaulting to Groq). The provider adapter is the only part that differs: one `ai_calls` row per call, strict Zod validation with one retry, and never-auto-apply hold for every provider. Groq free-tier rate limits surface as logged errors naming the cap.
+Provider (owner-amended 2026-08-20, was "Anthropic API" only; Gemini added 2026-09-20): Anthropic, Groq's OpenAI-compatible API (free tier, e.g. `openai/gpt-oss-120b`), or Gemini's OpenAI-compatible API (free tier, e.g. `gemini-2.5-flash`; no search grounding) — configured entirely by env pairs (`ANTHROPIC_API_KEY`+`ANTHROPIC_MODEL` / `GROQ_API_KEY`+`GROQ_MODEL` / `GEMINI_API_KEY`+`GEMINI_MODEL`; `AI_PROVIDER` picks when several exist, defaulting to Gemini, then Groq). The two OpenAI-compatible providers share one adapter; the only differences are the endpoint, the max-tokens parameter name and OpenAI's `strict` schema flag. The provider adapter is the only part that differs: one `ai_calls` row per call, strict Zod validation with one retry, and never-auto-apply hold for every provider. Groq free-tier rate limits surface as logged errors naming the cap.
 
 All features: model from the provider's env var; every call logged to `ai_calls` (feature, prompt, model, input/output tokens, latency, error). No AI call ever writes user data directly — output always lands in a review/approval surface.
 
