@@ -39,7 +39,7 @@ export function TodayResurface({
         return (
           <li
             key={p.contactId}
-            className="flex items-center gap-3 rounded-md border border-border/60 px-3 py-2"
+            className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border/60 px-3 py-2 md:flex-nowrap"
           >
             <RotateCcw className="size-3.5 shrink-0 text-muted-foreground" />
             <ContactAvatar
@@ -49,10 +49,10 @@ export function TodayResurface({
               size="sm"
             />
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span className="flex min-w-0 items-center gap-1.5">
+              <span className="flex min-w-0 flex-wrap items-center gap-1.5 md:flex-nowrap">
                 <Link
                   href={`/contacts/${p.contactId}`}
-                  className="truncate text-[13px] font-medium hover:underline"
+                  className="min-w-0 text-[13px] font-medium hover:underline md:truncate"
                 >
                   {p.displayName}
                 </Link>
@@ -61,33 +61,35 @@ export function TodayResurface({
                   <Briefcase className="size-3 shrink-0 text-primary" aria-label="Recent job change" />
                 ) : null}
                 {role ? (
-                  <span className="truncate text-[11px] text-muted-foreground">{role}</span>
+                  <span className="min-w-0 text-[11px] text-muted-foreground md:truncate">{role}</span>
                 ) : null}
               </span>
-              <span className="truncate text-[12px] text-muted-foreground">
+              <span className="text-[12px] text-muted-foreground md:truncate">
                 {p.lastInteractionAt ? `last spoke ${ago(p.lastInteractionAt, now)}` : "never spoke"} ·{" "}
                 {p.interactionCount} interaction{p.interactionCount === 1 ? "" : "s"}
               </span>
             </span>
-            {aiEnabled && <OpenersDialog contactId={p.contactId} label="Openers" />}
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={pending}
-              className="h-7 text-[11px]"
-              onClick={() => run(() => reachedOutAction(p.contactId))}
-            >
-              Reached out
-            </Button>
-            <button
-              aria-label="Not now"
-              title="Not now — comes round again in a few months"
-              disabled={pending}
-              className="text-muted-foreground hover:text-foreground"
-              onClick={() => run(() => dismissResurfaceAction(p.contactId))}
-            >
-              <X className="size-3.5" />
-            </button>
+            <span className="flex basis-full items-center justify-end gap-2 md:basis-auto">
+              {aiEnabled && <OpenersDialog contactId={p.contactId} label="Openers" />}
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={pending}
+                className="h-7 text-[11px]"
+                onClick={() => run(() => reachedOutAction(p.contactId))}
+              >
+                Reached out
+              </Button>
+              <button
+                aria-label="Not now"
+                title="Not now — comes round again in a few months"
+                disabled={pending}
+                className="text-muted-foreground hover:text-foreground"
+                onClick={() => run(() => dismissResurfaceAction(p.contactId))}
+              >
+                <X className="size-3.5" />
+              </button>
+            </span>
           </li>
         );
       })}

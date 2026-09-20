@@ -278,7 +278,9 @@ function compileClause(
 function orderBy(sort: SortSpec): string {
   switch (sort.key) {
     case "name":
-      return `c.display_name COLLATE NOCASE ${sort.dir}`;
+      // Contacts with no name display their email or phone; a name sort
+      // that put "+1310…" above "Aala" opened the list on 500 numbers.
+      return `(COALESCE(c.first_name, '') = '' AND COALESCE(c.last_name, '') = '') ASC, c.display_name COLLATE NOCASE ${sort.dir}`;
     case "company":
       return `c.company COLLATE NOCASE ${sort.dir}, c.display_name COLLATE NOCASE ASC`;
     case "recent":

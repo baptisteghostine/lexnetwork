@@ -76,7 +76,7 @@ export function TodayChanges({
       {visible.map((c) => (
         <li
           key={c.id}
-          className="flex items-center gap-3 rounded-md border border-primary/25 bg-accent/30 px-3 py-2"
+          className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border border-primary/25 bg-accent/30 px-3 py-2 md:flex-nowrap"
         >
           <Briefcase className="size-3.5 shrink-0 text-primary" />
           <ContactAvatar
@@ -92,15 +92,15 @@ export function TodayChanges({
             >
               {c.contactName}
             </Link>
-            <span className="flex min-w-0 items-baseline gap-1.5 text-[12px]">
+            <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 text-[12px] md:flex-nowrap">
               {/* An absent old value means the field was empty before, so
                   there is nothing to strike through — only news. */}
               {c.oldValue ? (
-                <span className="truncate text-muted-foreground line-through decoration-muted-foreground/60">
+                <span className="min-w-0 text-muted-foreground line-through decoration-muted-foreground/60 md:truncate">
                   {c.oldValue}
                 </span>
               ) : null}
-              <span className="truncate font-medium text-success">
+              <span className="min-w-0 font-medium text-success md:truncate">
                 {c.newValue ?? "—"}
               </span>
               <span className="shrink-0 text-[10px] uppercase text-muted-foreground">
@@ -111,30 +111,32 @@ export function TodayChanges({
           <span className="shrink-0 text-[11px] text-muted-foreground">
             {changeAge(c.detectedAt, now)}
           </span>
-          {aiEnabled && (
-            <OpenersDialog
-              contactId={c.contactId}
-              changeId={c.id}
-              label="Openers"
-            />
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={pending}
-            className="h-7 text-[11px]"
-            onClick={() => run(() => actOnChangeAction(c.id))}
-          >
-            Log interaction
-          </Button>
-          <button
-            aria-label="Dismiss change"
-            disabled={pending}
-            className="text-muted-foreground hover:text-foreground"
-            onClick={() => run(() => dismissChangeAction(c.id))}
-          >
-            <X className="size-3.5" />
-          </button>
+          <span className="flex basis-full items-center justify-end gap-2 md:basis-auto">
+            {aiEnabled && (
+              <OpenersDialog
+                contactId={c.contactId}
+                changeId={c.id}
+                label="Openers"
+              />
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={pending}
+              className="h-7 text-[11px]"
+              onClick={() => run(() => actOnChangeAction(c.id))}
+            >
+              Log interaction
+            </Button>
+            <button
+              aria-label="Dismiss change"
+              disabled={pending}
+              className="text-muted-foreground hover:text-foreground"
+              onClick={() => run(() => dismissChangeAction(c.id))}
+            >
+              <X className="size-3.5" />
+            </button>
+          </span>
         </li>
       ))}
       </ol>

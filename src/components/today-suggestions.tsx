@@ -39,41 +39,43 @@ export function TodaySuggestions({
         {items.map((s) => (
           <li
             key={s.id}
-            className="flex items-center gap-3 rounded-md border border-border/60 px-3 py-2"
+            className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border/60 px-3 py-2 md:flex-nowrap"
           >
             <UserPlus className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span className="flex min-w-0 items-baseline gap-1.5">
-                <span className="truncate text-[13px] font-medium">
+              <span className="flex min-w-0 flex-wrap items-baseline gap-1.5 md:flex-nowrap">
+                <span className="min-w-0 text-[13px] font-medium md:truncate">
                   {s.name ?? s.email}
                 </span>
                 {s.name ? (
-                  <span className="truncate text-[11px] text-muted-foreground">{s.email}</span>
+                  <span className="min-w-0 text-[11px] text-muted-foreground md:truncate">{s.email}</span>
                 ) : null}
               </span>
-              <span className="truncate text-[12px] text-muted-foreground">
+              <span className="text-[12px] text-muted-foreground md:truncate">
                 {describeCounts(s)} · seen {ago(s.lastSeenAt, now)}
                 {s.lastTitle ? ` · “${s.lastTitle}”` : ""}
               </span>
             </span>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={pending}
-              className="h-7 text-[11px]"
-              onClick={() => run(() => approveSuggestionAction(s.id))}
-            >
-              Add to Rolo
-            </Button>
-            <button
-              aria-label="Not a contact"
-              title="Not a contact — never suggest again"
-              disabled={pending}
-              className="text-muted-foreground hover:text-foreground"
-              onClick={() => run(() => dismissSuggestionAction(s.id))}
-            >
-              <X className="size-3.5" />
-            </button>
+            <span className="flex basis-full items-center justify-end gap-2 md:basis-auto">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={pending}
+                className="h-7 text-[11px]"
+                onClick={() => run(() => approveSuggestionAction(s.id))}
+              >
+                Add to Rolo
+              </Button>
+              <button
+                aria-label="Not a contact"
+                title="Not a contact — never suggest again"
+                disabled={pending}
+                className="text-muted-foreground hover:text-foreground"
+                onClick={() => run(() => dismissSuggestionAction(s.id))}
+              >
+                <X className="size-3.5" />
+              </button>
+            </span>
           </li>
         ))}
       </ol>

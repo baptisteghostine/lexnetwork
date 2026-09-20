@@ -66,7 +66,7 @@ export function RemindersList({
       {rows.map((r) => (
         <li
           key={r.id}
-          className="group flex items-center gap-2.5 rounded-md border border-border/60 px-3 py-2"
+          className="group flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-md border border-border/60 px-3 py-2 md:flex-nowrap"
         >
           {kind === "recurring" ? (
             <Repeat className="size-3.5 shrink-0 text-muted-foreground" />
@@ -79,7 +79,7 @@ export function RemindersList({
             />
           )}
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-[13px] font-medium">
+            <span className="block text-[13px] font-medium md:truncate">
               {r.title}
             </span>
             <span className="block truncate text-[11px] text-muted-foreground">
@@ -107,72 +107,74 @@ export function RemindersList({
               ) : null}
             </span>
           </span>
-          <span
-            className={cn(
-              "text-[11px] tabular-nums",
-              kind === "due" && now - r.effectiveDueAt >= DAY_MS
-                ? "font-medium text-overdue"
-                : "text-muted-foreground"
-            )}
-          >
-            {kind === "recurring"
-              ? `next ${new Date(r.effectiveDueAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
-              : dueLabel(r.effectiveDueAt, now)}
-          </span>
-          {kind !== "recurring" && (
-            <>
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-label="Complete"
-                disabled={pending}
-                className="size-7 p-0 text-muted-foreground hover:text-success"
-                onClick={() => run(() => completeReminderAction(r.id))}
-              >
-                <Check className="size-4" />
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={pending}
-                    className="h-7 px-2 text-[11px] text-muted-foreground"
-                  >
-                    Snooze
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  {(
-                    [
-                      ["Tomorrow", 1],
-                      ["In 3 days", 3],
-                      ["Next week", 7],
-                    ] as const
-                  ).map(([label, days]) => (
-                    <DropdownMenuItem
-                      key={days}
-                      onSelect={() =>
-                        run(() =>
-                          snoozeReminderAction(r.id, Date.now() + days * DAY_MS)
-                        )
-                      }
+          <span className="flex basis-full items-center justify-end gap-1 md:basis-auto md:gap-2.5">
+            <span
+              className={cn(
+                "text-[11px] tabular-nums",
+                kind === "due" && now - r.effectiveDueAt >= DAY_MS
+                  ? "font-medium text-overdue"
+                  : "text-muted-foreground"
+              )}
+            >
+              {kind === "recurring"
+                ? `next ${new Date(r.effectiveDueAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+                : dueLabel(r.effectiveDueAt, now)}
+            </span>
+            {kind !== "recurring" && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Complete"
+                  disabled={pending}
+                  className="size-7 p-0 text-muted-foreground hover:text-success"
+                  onClick={() => run(() => completeReminderAction(r.id))}
+                >
+                  <Check className="size-4" />
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={pending}
+                      className="h-7 px-2 text-[11px] text-muted-foreground"
                     >
-                      {label}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </>
-          )}
-          <button
-            aria-label="Delete reminder"
-            className="text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
-            disabled={pending}
-            onClick={() => run(() => deleteReminderAction(r.id))}
-          >
-            <Trash2 className="size-3.5" />
-          </button>
+                      Snooze
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {(
+                      [
+                        ["Tomorrow", 1],
+                        ["In 3 days", 3],
+                        ["Next week", 7],
+                      ] as const
+                    ).map(([label, days]) => (
+                      <DropdownMenuItem
+                        key={days}
+                        onSelect={() =>
+                          run(() =>
+                            snoozeReminderAction(r.id, Date.now() + days * DAY_MS)
+                          )
+                        }
+                      >
+                        {label}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            )}
+            <button
+              aria-label="Delete reminder"
+              className="text-muted-foreground transition-opacity hover:text-destructive md:opacity-0 md:group-hover:opacity-100"
+              disabled={pending}
+              onClick={() => run(() => deleteReminderAction(r.id))}
+            >
+              <Trash2 className="size-3.5" />
+            </button>
+          </span>
         </li>
       ))}
     </ul>

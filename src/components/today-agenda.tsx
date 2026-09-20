@@ -38,7 +38,7 @@ function PrepBlock({ person, now }: { person: PrepContact; now: number }) {
       {(person.interactions.length > 0 || person.reminders.length > 0 || person.changes.length > 0) && (
         <ul className="space-y-0.5 text-[12px]">
           {person.changes.map((c, i) => (
-            <li key={`c${i}`} className="flex items-center gap-1.5">
+            <li key={`c${i}`} className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
               <Briefcase className="size-3 shrink-0 text-primary" />
               {c.oldValue ? (
                 <span className="text-muted-foreground line-through">{c.oldValue}</span>
@@ -89,7 +89,7 @@ export function TodayAgenda({
     <ul className="divide-y divide-border rounded-md border border-border">
       {items.map((item) => (
         <li key={item.eventKey} className="flex items-start gap-3 px-3 py-2">
-          <span className="w-24 shrink-0 pt-0.5 text-xs tabular-nums text-muted-foreground">
+          <span className="w-20 shrink-0 pt-0.5 text-xs tabular-nums text-muted-foreground md:w-24">
             {timeRange(item, timezone)}
           </span>
           <div className="min-w-0 flex-1">

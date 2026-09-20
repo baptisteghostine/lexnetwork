@@ -40,6 +40,8 @@ import { cn } from "@/lib/utils";
 export type ContactRow = {
   id: number;
   displayName: string;
+  /** No first or last name: displayName is an email or phone number. */
+  unnamed?: boolean;
   title: string | null;
   company: string | null;
   starred: boolean;
@@ -375,7 +377,13 @@ export function ContactsList({
                 href={`/contacts/${c.id}`}
                 className="truncate text-[13px] font-medium hover:underline"
               >
-                {c.displayName}
+                {c.unnamed ? (
+                  <>
+                    <span className="text-muted-foreground">No name</span> · {c.displayName}
+                  </>
+                ) : (
+                  c.displayName
+                )}
               </Link>
               {c.starred ? (
                 <Star className="size-3 shrink-0 fill-warning text-warning" />

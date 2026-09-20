@@ -120,18 +120,18 @@ export default async function GlobalTimelinePage({
 
   return (
     <div>
-      <header className="flex items-center gap-3 border-b border-border px-5 py-2.5">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-5 py-2.5 md:flex-nowrap">
         <h1 className="text-sm font-semibold">Timeline</h1>
-        <span className="text-xs text-muted-foreground">
+        <span className="hidden text-xs text-muted-foreground md:inline">
           everything, most recent first
         </span>
         <span className="flex-1" />
-        <div className="flex gap-1">
+        <div className="flex basis-full gap-1 overflow-x-auto md:basis-auto">
           {FILTERS.map((f) => (
             <Link
               key={f.key}
               href={f.key === "all" ? "/timeline" : `/timeline?kind=${f.key}`}
-              className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors ${
+              className={`whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors ${
                 kindFilter === f.key
                   ? "bg-primary text-primary-foreground"
                   : "bg-muted text-muted-foreground hover:text-foreground"
@@ -154,7 +154,7 @@ export default async function GlobalTimelinePage({
               <li key={item.key}>
                 <Link
                   href={`/contacts/${item.contactId}`}
-                  className="flex items-center gap-2.5 rounded-md border border-border/60 px-3 py-2 transition-colors hover:bg-accent/50"
+                  className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 rounded-md border border-border/60 px-3 py-2 transition-colors hover:bg-accent/50 md:flex-nowrap"
                 >
                   <span className="text-muted-foreground">
                     {KIND_META[item.kind]?.icon ?? KIND_META.manual.icon}
@@ -165,10 +165,10 @@ export default async function GlobalTimelinePage({
                     hasPhoto={item.contactHasPhoto}
                     size="sm"
                   />
-                  <span className="w-40 shrink-0 truncate text-[13px] font-medium">
+                  <span className="min-w-0 flex-1 truncate text-[13px] font-medium md:w-40 md:flex-none">
                     {item.contactName}
                   </span>
-                  <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">
+                  <span className="order-last line-clamp-2 basis-full text-[12px] text-muted-foreground md:order-none md:line-clamp-none md:min-w-0 md:flex-1 md:basis-auto md:truncate">
                     {item.text}
                   </span>
                   <span className="shrink-0 text-[11px] text-muted-foreground">

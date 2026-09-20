@@ -30,7 +30,12 @@ export function ReminderForm({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState("");
-  const [date, setDate] = useState("");
+  const [date, setDate] = useState(() => {
+    // Today, in the browser's local date — an empty date input renders as a
+    // blank box on iPhone with no hint of what it is.
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  });
   const [time, setTime] = useState("09:00");
   const [recurrence, setRecurrence] = useState<string>("");
   const [customRrule, setCustomRrule] = useState("");
@@ -103,31 +108,31 @@ export function ReminderForm({
             required
           />
         </div>
-        <div className="space-y-1">
+        <div className="flex-1 space-y-1 sm:flex-none">
           <Label className="text-[11px] text-muted-foreground">Date</Label>
           <Input
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
             required
-            className="w-36"
+            className="w-full sm:w-36"
           />
         </div>
-        <div className="space-y-1">
+        <div className="flex-1 space-y-1 sm:flex-none">
           <Label className="text-[11px] text-muted-foreground">Time</Label>
           <Input
             type="time"
             value={time}
             onChange={(e) => setTime(e.target.value)}
-            className="w-28"
+            className="w-full sm:w-28"
           />
         </div>
-        <div className="space-y-1">
+        <div className="flex-1 space-y-1 sm:flex-none">
           <Label className="text-[11px] text-muted-foreground">Repeats</Label>
           <select
             value={recurrence}
             onChange={(e) => setRecurrence(e.target.value)}
-            className="h-8 rounded-md border border-input bg-transparent px-2 text-[13px]"
+            className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-[13px] sm:w-auto"
           >
             {RECURRENCE.map((r) => (
               <option key={r.value} value={r.value}>
@@ -136,7 +141,7 @@ export function ReminderForm({
             ))}
           </select>
         </div>
-        <Button type="submit" size="sm" disabled={pending || !title || !date}>
+        <Button type="submit" size="sm" disabled={pending || !title || !date} className="basis-full sm:basis-auto">
           {pending ? "Adding…" : "Add reminder"}
         </Button>
       </div>
@@ -174,11 +179,11 @@ export function ReminderForm({
               }
             }}
             placeholder="Attach a contact (optional) — type to search"
-            className="max-w-xs"
+            className="sm:max-w-xs"
           />
         )}
         {!contact && contactHits.length > 0 && (
-          <div className="absolute z-10 mt-1 w-full max-w-xs rounded-md border border-border bg-popover p-1 shadow-md">
+          <div className="absolute z-10 mt-1 w-full rounded-md sm:max-w-xs border border-border bg-popover p-1 shadow-md">
             {contactHits.map((c) => (
               <button
                 key={c.id}

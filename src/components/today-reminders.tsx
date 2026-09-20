@@ -43,11 +43,11 @@ export function TodayReminders({
         return (
           <li
             key={r.id}
-            className="flex items-center gap-3 rounded-md border border-border/60 px-3 py-2"
+            className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border/60 px-3 py-2 md:flex-nowrap"
           >
             <Bell className="size-3.5 shrink-0 text-primary" />
             <span className="min-w-0 flex-1">
-              <span className="flex items-center gap-1.5 truncate text-[13px] font-medium">
+              <span className="flex items-center gap-1.5 text-[13px] font-medium md:truncate">
                 {r.title}
                 {r.isRecurring ? (
                   <Repeat className="size-3 shrink-0 text-muted-foreground" />
@@ -68,58 +68,60 @@ export function TodayReminders({
                 </Link>
               ) : null}
             </span>
-            <span
-              className={cn(
-                "text-[11px] tabular-nums",
-                overdueDays > 0
-                  ? "font-medium text-overdue"
-                  : "text-muted-foreground"
-              )}
-            >
-              {overdueDays > 0 ? `${overdueDays}d overdue` : "today"}
-            </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label="Complete reminder"
-              disabled={pending}
-              className="size-7 p-0 text-muted-foreground hover:text-success"
-              onClick={() => run(() => completeReminderAction(r.id))}
-            >
-              <Check className="size-4" />
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={pending}
-                  className="h-7 px-2 text-[11px] text-muted-foreground"
-                >
-                  Snooze
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {(
-                  [
-                    ["Tomorrow", 1],
-                    ["In 3 days", 3],
-                    ["Next week", 7],
-                  ] as const
-                ).map(([label, days]) => (
-                  <DropdownMenuItem
-                    key={days}
-                    onSelect={() =>
-                      run(() =>
-                        snoozeReminderAction(r.id, Date.now() + days * DAY_MS)
-                      )
-                    }
+            <span className="flex basis-full items-center justify-end gap-1 md:basis-auto md:gap-3">
+              <span
+                className={cn(
+                  "text-[11px] tabular-nums",
+                  overdueDays > 0
+                    ? "font-medium text-overdue"
+                    : "text-muted-foreground"
+                )}
+              >
+                {overdueDays > 0 ? `${overdueDays}d overdue` : "today"}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Complete reminder"
+                disabled={pending}
+                className="size-7 p-0 text-muted-foreground hover:text-success"
+                onClick={() => run(() => completeReminderAction(r.id))}
+              >
+                <Check className="size-4" />
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={pending}
+                    className="h-7 px-2 text-[11px] text-muted-foreground"
                   >
-                    {label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                    Snooze
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {(
+                    [
+                      ["Tomorrow", 1],
+                      ["In 3 days", 3],
+                      ["Next week", 7],
+                    ] as const
+                  ).map(([label, days]) => (
+                    <DropdownMenuItem
+                      key={days}
+                      onSelect={() =>
+                        run(() =>
+                          snoozeReminderAction(r.id, Date.now() + days * DAY_MS)
+                        )
+                      }
+                    >
+                      {label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </span>
           </li>
         );
       })}

@@ -29,6 +29,14 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
     };
   }, [open]);
 
+  // Anything that opens a dialog from inside the drawer (quick log) asks
+  // the drawer to get out of the way first.
+  useEffect(() => {
+    const close = () => setOpenedOn(null);
+    window.addEventListener("rolo:close-drawer", close);
+    return () => window.removeEventListener("rolo:close-drawer", close);
+  }, []);
+
   return (
     <>
       <div className="sticky top-0 z-40 flex items-center gap-2 border-b border-border bg-background/95 px-3 py-2 backdrop-blur md:hidden">

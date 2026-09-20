@@ -66,12 +66,17 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 function When({ at }: { at: number }) {
+  const d = new Date(at);
+  // Phones get "22 Aug"; the full date and time would wrap to five lines
+  // in the row's last column.
   return (
-    <span className="text-[11px] text-muted-foreground">
-      {new Date(at).toLocaleString(undefined, {
-        dateStyle: "medium",
-        timeStyle: "short",
-      })}
+    <span className="whitespace-nowrap text-[11px] text-muted-foreground">
+      <span className="md:hidden">
+        {d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+      </span>
+      <span className="hidden md:inline">
+        {d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+      </span>
     </span>
   );
 }
@@ -140,15 +145,15 @@ export function Timeline({
         item.type === "change" ? (
           <li
             key={`c${item.change.id}`}
-            className="flex items-center gap-2.5 rounded-md border border-border/60 px-3 py-2"
+            className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-md border border-border/60 px-3 py-2 md:flex-nowrap"
           >
             <span className="text-muted-foreground">
               <Briefcase className="size-3.5" />
             </span>
-            <span className="text-[13px] font-medium capitalize">
+            <span className="whitespace-nowrap text-[13px] font-medium capitalize">
               {item.change.field} change
             </span>
-            <span className="truncate text-[13px] text-muted-foreground">
+            <span className="order-last basis-full text-[13px] text-muted-foreground md:order-none md:min-w-0 md:basis-auto md:truncate">
               {item.change.oldValue ?? "—"} → {item.change.newValue ?? "—"}
             </span>
             <span className="flex-1" />
@@ -206,16 +211,16 @@ export function Timeline({
         ) : (
           <li
             key={`i${item.interaction.id}`}
-            className="group flex items-center gap-2.5 rounded-md border border-border/60 px-3 py-2"
+            className="group flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-md border border-border/60 px-3 py-2 md:flex-nowrap"
           >
             <span className="text-muted-foreground">
               {KIND_ICON[item.interaction.kind] ?? KIND_ICON.manual}
             </span>
-            <span className="text-[13px] font-medium">
+            <span className="whitespace-nowrap text-[13px] font-medium">
               {KIND_LABEL[item.interaction.kind] ?? item.interaction.kind}
             </span>
             {item.interaction.title ? (
-              <span className="truncate text-[13px] text-muted-foreground">
+              <span className="order-last basis-full text-[13px] text-muted-foreground md:order-none md:min-w-0 md:basis-auto md:truncate">
                 {item.interaction.title}
               </span>
             ) : null}
@@ -225,7 +230,7 @@ export function Timeline({
                   href={gmailThreadUrl(item.interaction.meta)!}
                   target="_blank"
                   rel="noreferrer"
-                  className="whitespace-nowrap text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                  className="order-last whitespace-nowrap text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline md:order-none"
                 >
                   Open in Gmail
                 </a>
@@ -235,7 +240,7 @@ export function Timeline({
             {item.interaction.source === "user" && (
               <button
                 aria-label="Delete interaction"
-                className="text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                className="text-muted-foreground transition-opacity hover:text-destructive md:opacity-0 md:group-hover:opacity-100"
                 disabled={pending}
                 onClick={() =>
                   startTransition(() =>

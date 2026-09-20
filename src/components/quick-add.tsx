@@ -130,11 +130,16 @@ export function QuickAdd() {
           variant="outline"
           size="sm"
           className="w-full justify-start text-muted-foreground"
-          onClick={() => setOpen(true)}
+          onClick={() => {
+            // The button also lives in the phone drawer; the dialog should
+            // not open over an open drawer.
+            window.dispatchEvent(new Event("rolo:close-drawer"));
+            setOpen(true);
+          }}
         >
           <Plus className="size-3.5" />
           Log a meeting
-          <kbd className="ml-auto rounded border border-border px-1 text-[10px]">q</kbd>
+          <kbd className="ml-auto hidden rounded border border-border px-1 text-[10px] md:inline">q</kbd>
         </Button>
       </div>
       <Dialog

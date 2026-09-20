@@ -214,7 +214,7 @@ export default async function ContactPage({
                 </div>
                 {(contact.title || contact.company) && (
                   <p
-                    className="mt-0.5 truncate text-[13px] text-muted-foreground"
+                    className="mt-0.5 line-clamp-2 text-[13px] text-muted-foreground md:line-clamp-none md:truncate"
                     title={sourceTitle("title") ?? sourceTitle("company")}
                   >
                     {[contact.title, contact.company]
@@ -465,8 +465,10 @@ export default async function ContactPage({
                     ) : null}
                     <span className="block text-[11px] text-muted-foreground">
                       {w.isCurrent
-                        ? `${w.startDate ?? "…"} – now`
-                        : `${w.startDate ?? "…"} – ${w.endDate ?? "…"}`}
+                        ? w.startDate
+                          ? `${w.startDate} – now`
+                          : "now"
+                        : [w.startDate, w.endDate].filter(Boolean).join(" – ")}
                     </span>
                   </div>
                 ))}

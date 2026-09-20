@@ -199,19 +199,19 @@ export default async function ContactsPage({
 
   return (
     <div>
-      <header className="flex items-center justify-between border-b border-border px-5 py-2.5">
+      <header className="flex flex-wrap items-center justify-between gap-y-2 border-b border-border px-5 py-2.5">
         <div className="flex items-center gap-3">
           <h1 className="text-sm font-semibold">
             {activeView?.name ?? (archivedView ? "Archived" : "Contacts")}
           </h1>
           <span className="text-xs text-muted-foreground">{total}</span>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex basis-full items-center gap-1 overflow-x-auto md:basis-auto">
           {SORTS.map((s) => (
             <Link
               key={s.key}
               href={`/contacts?sort=${s.key}${typeof params.f === "string" ? `&f=${params.f}` : ""}${activeView ? `&view=${activeView.id}` : ""}`}
-              className={`rounded px-2 py-1 text-xs ${
+              className={`whitespace-nowrap rounded px-2 py-1 text-xs ${
                 sortParam === s.key
                   ? "bg-accent text-foreground"
                   : "text-muted-foreground hover:text-foreground"
@@ -222,7 +222,7 @@ export default async function ContactsPage({
           ))}
           <Link
             href={archivedView ? "/contacts" : "/contacts?archived=1"}
-            className="ml-2 rounded px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+            className="ml-2 whitespace-nowrap rounded px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
           >
             {archivedView ? "Active" : "Archived"}
           </Link>
@@ -267,6 +267,7 @@ export default async function ContactsPage({
             rows={rows.map((c) => ({
               id: c.id,
               displayName: c.displayName,
+              unnamed: !c.firstName?.trim() && !c.lastName?.trim(),
               title: c.title,
               company: c.company,
               starred: c.starred,
