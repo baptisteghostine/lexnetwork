@@ -57,6 +57,8 @@ type BackfillState = {
 
 export type GmailSyncStats = {
   messagesSeen: number;
+  /** Mass mail set aside (isBulkMail): newsletters, receipts, list mail. */
+  bulkSkipped: number;
   interactionsAdded: number;
   contactsTouched: number;
   backfillDone: boolean;
@@ -171,6 +173,12 @@ function processMessages(
 ): void {
   for (const meta of metas) {
     stats.messagesSeen++;
+    // A newsletter, a receipt, a list post: not a conversation, so neither
+    // a touch on a contact's timeline nor a sighting for "People you met".
+    if (meta.bulk) {
+      stats.bulkSkipped++;
+      continue;
+    }
     const { direction, counterparts } = resolveDirection(meta, myAddresses);
     if (counterparts.length === 0) continue;
     const matches = contactIdsByEmail(counterparts);
@@ -230,6 +238,7 @@ export async function runGmailSync(): Promise<GmailSyncStats | null> {
 
   const stats: GmailSyncStats = {
     messagesSeen: 0,
+    bulkSkipped: 0,
     interactionsAdded: 0,
     contactsTouched: 0,
     backfillDone: account.gmailBackfillDone,

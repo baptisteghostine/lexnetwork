@@ -7,8 +7,20 @@
 
 const GMAIL_BASE = "https://gmail.googleapis.com/gmail/v1/users/me";
 
-/** Exactly the headers the schema stores. Never Body, never a payload part. */
-export const METADATA_HEADERS = ["From", "To", "Cc", "Subject"] as const;
+/**
+ * Exactly the headers the sync reads. Never Body, never a payload part.
+ * The first four are what the schema stores; the last two are read only
+ * as a flag (isBulkMail) and never stored — they are how a newsletter or
+ * an order confirmation is told apart from a person writing to you.
+ */
+export const METADATA_HEADERS = [
+  "From",
+  "To",
+  "Cc",
+  "Subject",
+  "List-Unsubscribe",
+  "Precedence",
+] as const;
 
 export function buildProfileUrl(): string {
   return `${GMAIL_BASE}/profile`;
@@ -76,7 +88,23 @@ export type GmailMessageMeta = {
   to: string[];
   cc: string[];
   subject: string | null;
+  /** Mass mail, per isBulkMail: skipped by the sync, never a touch. */
+  bulk: boolean;
 };
+
+/**
+ * Bulk mail carries a List-Unsubscribe header (RFC 2369; every mailing
+ * platform sets it and no human mail client does) or Precedence:
+ * bulk/list/junk (RFC 2076-era, still set by list servers). A person
+ * writing to you sets neither. False negatives are possible — a hand-run
+ * list, a sales tool that hides the header — and those stay a one-click
+ * "not a person" for the owner; the point is the 95% that is obvious.
+ */
+export function isBulkMail(headers: Map<string, string>): boolean {
+  if (headers.has("list-unsubscribe")) return true;
+  const precedence = headers.get("precedence")?.trim().toLowerCase();
+  return precedence === "bulk" || precedence === "list" || precedence === "junk";
+}
 
 type RawMessage = {
   id?: string;
@@ -102,6 +130,7 @@ export function parseMessageMeta(raw: unknown): GmailMessageMeta | null {
     to: splitAddressList(headers.get("to")),
     cc: splitAddressList(headers.get("cc")),
     subject: headers.get("subject") ?? null,
+    bulk: isBulkMail(headers),
   };
 }
 

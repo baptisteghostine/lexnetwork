@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildHistoryListUrl,
+  isBulkMail,
   isGmailRateLimit,
   RATE_LIMIT_RETRY_MS,
   RATE_LIMIT_RUN_BUDGET_MS,
@@ -46,7 +47,15 @@ describe("privacy invariant — request builders", () => {
     expect(url).not.toMatch(/format=(full|raw|minimal)/);
     expect(url.toLowerCase()).not.toContain("body");
     const headers = new URL(url).searchParams.getAll("metadataHeaders");
-    expect(headers).toEqual(["From", "To", "Cc", "Subject"]);
+    // The last two are read as a bulk-mail flag only, never stored.
+    expect(headers).toEqual([
+      "From",
+      "To",
+      "Cc",
+      "Subject",
+      "List-Unsubscribe",
+      "Precedence",
+    ]);
   });
 
   it("no gmail URL contains the q search parameter (metadata scope forbids it)", () => {
@@ -115,6 +124,7 @@ describe("resolveDirection", () => {
     threadId: "t",
     internalDate: 0,
     subject: null,
+    bulk: false,
   };
 
   it("outbound when I sent it; counterparts are the recipients minus me", () => {
@@ -195,5 +205,37 @@ describe("isGmailRateLimit (SPEC §9 quota edge case)", () => {
     const total = RATE_LIMIT_RETRY_MS.reduce((a: number, b: number) => a + b, 0);
     expect(total).toBeLessThanOrEqual(RATE_LIMIT_RUN_BUDGET_MS);
     expect(RATE_LIMIT_RUN_BUDGET_MS).toBeLessThan(5 * 60_000);
+  });
+});
+
+describe("bulk mail flag (SPEC §9 / §9f)", () => {
+  const raw = (headers: Record<string, string>) => ({
+    id: "m1",
+    threadId: "t1",
+    internalDate: "1700000000000",
+    payload: { headers: Object.entries(headers).map(([name, value]) => ({ name, value })) },
+  });
+
+  it("List-Unsubscribe marks a message as bulk, whatever the sender looks like", () => {
+    const meta = parseMessageMeta(
+      raw({
+        From: "Sarah Lee <sarah@careers-mailer.example>",
+        To: "me@london.edu",
+        Subject: "This week's opportunities",
+        "List-Unsubscribe": "<https://example/unsub>, <mailto:unsub@example>",
+      })
+    );
+    expect(meta?.bulk).toBe(true);
+  });
+
+  it("Precedence bulk/list/junk marks bulk; a plain email does not", () => {
+    expect(isBulkMail(new Map([["precedence", "bulk"]]))).toBe(true);
+    expect(isBulkMail(new Map([["precedence", "List"]]))).toBe(true);
+    expect(isBulkMail(new Map([["precedence", "junk"]]))).toBe(true);
+    expect(isBulkMail(new Map([["precedence", "normal"]]))).toBe(false);
+    const meta = parseMessageMeta(
+      raw({ From: "Ana Silva <ana@example.com>", To: "me@london.edu", Subject: "Coffee?" })
+    );
+    expect(meta?.bulk).toBe(false);
   });
 });
