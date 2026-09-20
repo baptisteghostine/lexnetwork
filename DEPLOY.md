@@ -76,6 +76,78 @@ docker compose cp rolo:/app/data/backups .\backups-copy      # pull the nightly 
 docker compose cp .\rolo-YYYYMMDD-HHMMSS.db rolo:/app/data/rolo.db   # restore one (container stopped first)
 ```
 
+## Moving from a laptop to a VPS
+
+A laptop is a bad server: scheduled emails wait for it to wake, the
+extension's weekly sync needs it on, and Docker Desktop's file sharing can
+corrupt the database. The move is a copy of `data/` and four settings.
+
+**0. Pick a box.** Any Linux VPS with 4 GB RAM (the Next.js build needs
+~2 GB; Hetzner CX22 or a DigitalOcean 4 GB droplet both do) running
+Ubuntu 24.04, plus a domain or subdomain you control (`rolo.example.com`
+pointed at the box's IP as an A record).
+
+**1. On the VPS**, as root:
+
+```bash
+apt update && apt install -y docker.io docker-compose-v2 caddy git
+git clone https://github.com/<you>/lexnetwork.git rolo && cd rolo   # private repo: use a fine-grained token as the password
+printf 'ROLO_ALLOWED_ORIGINS=rolo.example.com\n' > .env
+```
+
+Caddy gives you HTTPS with no further setup. Put this in `/etc/caddy/Caddyfile`
+and run `systemctl reload caddy`:
+
+```
+rolo.example.com {
+    reverse_proxy 127.0.0.1:3000
+}
+```
+
+**2. Stop the laptop instance first** — two Rolos syncing the same Gmail
+and calendar would each send the emails. On the laptop:
+
+```powershell
+docker compose stop
+```
+
+**3. Copy the data.** Everything is in `data/` (database, attachments,
+backups, `secret.key` — the last one matters: it encrypts the stored
+OAuth tokens, so without it the VPS asks you to reconnect Google). From
+the laptop, PowerShell:
+
+```powershell
+scp -r .\data root@rolo.example.com:/root/rolo/data
+```
+
+Then on the VPS `chown -R 1000:1000 /root/rolo/data` (the container runs
+as `node`, uid 1000) and start it:
+
+```bash
+docker compose up -d --build
+```
+
+**4. Four settings to update**, now that the address changed:
+
+- Google Cloud Console → Credentials → the OAuth client → add
+  `https://rolo.example.com/api/google/callback` to the redirect URIs.
+- Rolo → Settings → General → **App URL** = `https://rolo.example.com`
+  (links inside the emails).
+- The extension popup → gear → **Rolo address** = `https://rolo.example.com`,
+  Save & test. The pairing token is unchanged (it lives in the database).
+- Tailscale can be removed from the picture, or kept on the VPS as a
+  second, private door — Caddy's public HTTPS plus Rolo's password gate is
+  the setup this document assumes.
+
+**5. Retire the laptop copy.** Leave the container stopped (`docker
+compose down` on the laptop) so it can never wake up and sync in
+parallel. The `data/` folder there is a fine extra backup of the day you
+moved.
+
+Updating on the VPS is the same two commands as anywhere (`git pull`,
+`docker compose up -d --build`); backups run nightly into `data/backups/`
+and should be copied off the box on your own schedule (see below).
+
 ## Backups & restore
 
 A nightly job runs SQLite `VACUUM INTO data/backups/rolo-<timestamp>.db`
