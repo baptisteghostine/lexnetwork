@@ -34,6 +34,7 @@ import {
 } from "@/lib/prep/build";
 import { getSetting } from "@/lib/settings";
 import { aiEnabled, callAi } from "@/server/ai-client";
+import { rematchUnlinkedAttendees } from "@/server/sync/calendar";
 import { ownerTimezone } from "@/server/today-data";
 
 // Pre-meeting brief (SPEC §9e). The scheduler sweeps this every 15 min
@@ -207,6 +208,10 @@ export type MeetingPrepResult = { prepped: number; emailed: number };
 export async function runMeetingPrep(now: number): Promise<MeetingPrepResult> {
   const result: MeetingPrepResult = { prepped: 0, emailed: 0 };
   if (!meetingPrepEnabled()) return result;
+
+  // An email typed onto a contact since their meeting was synced must
+  // still produce a brief — match first, then select.
+  rematchUnlinkedAttendees(now);
 
   const rows = db
     .select()

@@ -414,6 +414,8 @@ Re-running any import with the same file: 100% unchanged, zero writes. An identi
 - Stored in `calendar_events.prep_json` **before** sending, then emailed (Settings → "Email the brief", on by default; needs SMTP) and stamped `prepped_at` — the exactly-once ledger, same posture as `contact_changes.notified_at`. A failed send retries from the stored brief without another AI round. With email off or SMTP unset, the stamp is immediate and the brief is Today-only.
 - Today renders the brief inline under the agenda item (SPEC §12), with a copy button per talking point.
 
+- **Late-added emails still brief (2026-09-20).** Attendees are matched at sync time and the incremental sync never revisits an unchanged event, so an email added to a contact after their meeting synced left them unmatched: no brief, no meeting interaction. The prep sweep now re-matches every still-unmatched attendee before selecting, and the contact form re-links on save — the live case was a test event created before the attendee's email was on their profile.
+
 ### Acceptance criteria
 - [ ] Unit: `selectEventsToPrep` takes meetings inside the lead window soonest first, allows one that just started, and skips prepped / declined / cancelled / stranger-only ones.
 - [ ] Unit: the email names the person and the time in the subject, carries every section (touch, interactions, reminder, change, notes, points), and escapes owner-written markup.

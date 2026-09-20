@@ -415,6 +415,53 @@ export async function runCalendarSync(): Promise<CalendarSyncStats | null> {
  * it was on. Same reconcile pass the sync runs, so the rows it writes are
  * indistinguishable from ones the sync would have written.
  */
+/**
+ * Attendees are matched to contacts when an event is synced, and the
+ * incremental sync never revisits an unchanged event — so an email added
+ * to a contact *after* their meeting was synced left the attendee
+ * unmatched forever: no brief, no meeting interaction. This re-runs the
+ * lookup for every still-unmatched attendee (the table is small: one
+ * window of events), and reconciles interactions when anything linked.
+ * The prep sweep calls it every tick, so every path that adds an email —
+ * the contact form, an import, a "People you met" click — is covered.
+ */
+export function rematchUnlinkedAttendees(now: number): number {
+  const rows = db
+    .select({ id: calendarEvents.id, attendees: calendarEvents.attendees })
+    .from(calendarEvents)
+    .all();
+  let changed = 0;
+  for (const r of rows) {
+    const list = parseStoredAttendees(r.attendees);
+    let hit = false;
+    for (const a of list) {
+      if (a.contactId !== null) continue;
+      const match = db
+        .select({ contactId: contactEmails.contactId })
+        .from(contactEmails)
+        .where(eq(contactEmails.emailNormalized, normalizeEmail(a.email)))
+        .get();
+      if (match) {
+        a.contactId = match.contactId;
+        hit = true;
+      }
+    }
+    if (!hit) continue;
+    db.update(calendarEvents)
+      .set({ attendees: JSON.stringify(list), updatedAt: now })
+      .where(eq(calendarEvents.id, r.id))
+      .run();
+    changed++;
+  }
+  if (changed > 0) {
+    const touched = new Set<number>();
+    const stats: CalendarSyncStats = { eventsSeen: 0, meetingsAdded: 0, contactsTouched: 0, fullWindow: false };
+    reconcileMeetingInteractions(now, stats, touched);
+    for (const id of touched) recomputeContact(id);
+  }
+  return changed;
+}
+
 export function relinkAttendeeEmail(
   emailNormalized: string,
   contactId: number,

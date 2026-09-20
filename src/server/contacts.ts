@@ -29,6 +29,7 @@ import {
 } from "@/lib/contacts/normalize";
 import { toE164 } from "@/lib/imports/phone";
 import { getSetting } from "@/lib/settings";
+import { relinkAttendeeEmail } from "@/server/sync/calendar";
 
 const emailRow = z.object({
   email: z.string().trim().email(),
@@ -143,6 +144,9 @@ function writeMultiValueRows(contactId: number, p: ContactPayload, now: number) 
       })
       .run();
   });
+  // A meeting already synced with this address as an unmatched attendee
+  // becomes theirs now, not at the next prep sweep (SPEC §9e).
+  for (const normalized of seenEmails) relinkAttendeeEmail(normalized, contactId, now);
 
   db.delete(contactPhones).where(eq(contactPhones.contactId, contactId)).run();
   const region = getSetting<string>("phone_default_region") ?? undefined;
