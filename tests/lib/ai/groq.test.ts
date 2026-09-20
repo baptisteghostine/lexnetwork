@@ -68,7 +68,7 @@ describe("request translation", () => {
   it("Gemini's compatibility layer gets max_tokens and no strict flag", () => {
     const body = toOpenAiBody(
       {
-        model: "gemini-2.5-flash",
+        model: "gemini-3.6-flash",
         max_tokens: 500,
         system: "sys",
         output_config: {
@@ -79,7 +79,7 @@ describe("request translation", () => {
       GEMINI
     );
     expect(body).toEqual({
-      model: "gemini-2.5-flash",
+      model: "gemini-3.6-flash",
       max_tokens: 500,
       messages: [
         { role: "system", content: "sys" },
@@ -221,7 +221,7 @@ describe("Gemini client", () => {
       },
     });
     await expect(
-      client.messages.create({ model: "gemini-2.5-flash", max_tokens: 10, messages: [] })
+      client.messages.create({ model: "gemini-3.6-flash", max_tokens: 10, messages: [] })
     ).rejects.toThrow(/Gemini rate limit hit \(free tier\): quota/);
     expect(seen).toEqual([GEMINI_ENDPOINT]);
   });

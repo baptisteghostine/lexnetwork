@@ -30,7 +30,7 @@ export default async function AiPage() {
           <p>
             AI features are off. Set <code>GEMINI_API_KEY</code> and{" "}
             <code>GEMINI_MODEL</code> (free tier at aistudio.google.com —
-            e.g. <code>gemini-2.5-flash</code>), <code>GROQ_API_KEY</code>{" "}
+            e.g. <code>gemini-3.6-flash</code>), <code>GROQ_API_KEY</code>{" "}
             and <code>GROQ_MODEL</code> (free tier at console.groq.com — e.g.{" "}
             <code>openai/gpt-oss-120b</code>), or{" "}
             <code>ANTHROPIC_API_KEY</code> and <code>ANTHROPIC_MODEL</code>,

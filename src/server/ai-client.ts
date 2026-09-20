@@ -22,7 +22,7 @@ import { outboundFetch } from "@/lib/net/fetch";
 // OpenAI-compatible API (GROQ_API_KEY + GROQ_MODEL — free tier, e.g.
 // openai/gpt-oss-120b; owner amendment 2026-08-20) and Gemini's
 // OpenAI-compatible API (GEMINI_API_KEY + GEMINI_MODEL — free tier, e.g.
-// gemini-2.5-flash; owner amendment 2026-09-20). When several are
+// gemini-3.6-flash; owner amendment 2026-09-20). When several are
 // configured, AI_PROVIDER=gemini|groq|anthropic picks; otherwise the
 // free-tier providers win in the order they were adopted, since
 // configuring one expresses the intent to use it.
