@@ -59,14 +59,25 @@ export default async function TodayPage() {
         </span>
       </header>
       <div className="max-w-3xl space-y-6 px-5 py-4">
-        {/* SPEC §12 section order: reminders → keep-in-touch → job changes
-            (Phase 7) → birthdays → calendar agenda (Phase 8). */}
+        {/* SPEC §12 section order: reminders → today's agenda → keep-in-touch
+            → job changes → birthdays → worth reconnecting → people you met.
+            The agenda moved up on 2026-09-20: a meeting in two hours is the
+            most time-sensitive thing here and was sitting under a backlog
+            of job-change cards. */}
         {data.reminders.length > 0 && (
           <section className="space-y-2">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Reminders
             </h2>
             <TodayReminders items={data.reminders} now={now} />
+          </section>
+        )}
+        {data.agenda.length > 0 && (
+          <section className="space-y-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Today&apos;s agenda
+            </h2>
+            <TodayAgenda items={data.agenda} timezone={data.timezone} now={now} />
           </section>
         )}
         <section className="space-y-2">
@@ -129,14 +140,6 @@ export default async function TodayPage() {
                 </li>
               ))}
             </ol>
-          </section>
-        )}
-        {data.agenda.length > 0 && (
-          <section className="space-y-2">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Today&apos;s agenda
-            </h2>
-            <TodayAgenda items={data.agenda} timezone={data.timezone} now={now} />
           </section>
         )}
         {data.resurface.length > 0 && (

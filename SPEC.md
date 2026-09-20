@@ -501,7 +501,7 @@ All features: model from the provider's env var; every call logged to `ai_calls`
 ## 12. Today / Triage UI
 
 ### Behavior
-- Home = one prioritized queue: (1) reminders due, (2) keep-in-touch due (starred first, then overdue-ness), (3) job changes, (4) birthdays this week, (5) today's calendar agenda — with the pre-meeting brief inline (§9e), (6) worth reconnecting (§3, owner request 2026-09-04), (7) people you met (§9f). Section order fixed; counts in header.
+- Home = one prioritized queue: (1) reminders due, (2) today's calendar agenda — with the pre-meeting brief inline (§9e), (3) keep-in-touch due (starred first, then overdue-ness), (4) job changes — a screenful (20) with "Show all", so a backlog never pushes the rest off the page, (5) birthdays this week, (6) worth reconnecting (§3, owner request 2026-09-04), (7) people you met (§9f). Section order fixed; counts in header. *(Agenda moved from fifth to second on 2026-09-20: a meeting in two hours is the most time-sensitive item, and the owner could not find it under 2,500 job-change cards.)*
 - Every item dispatchable via one keystroke while focused: `l` log interaction (with optional note), `s` snooze (then 1/3/7/m picks duration), `n` note, `o` open in Gmail (compose to primary email) / `L` open LinkedIn, `d` dismiss, `Enter` open contact.
   - v1 deviation (Phase 4): `d` is implemented as snooze-to-tomorrow — a due keep-in-touch item has no separate "dismissed" state yet, and the queue hint labels it "dismiss to tomorrow". Revisit when reminders land (Phase 5).
 - Command palette (Cmd+K): jump to contact (fuzzy), create note/reminder, run a saved view, trigger a sync, jump to any screen.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Briefcase, X } from "lucide-react";
@@ -23,6 +23,8 @@ import type { OpenChange } from "@/server/today-data";
 // The diff reads as a diff: the old role struck through in muted text, the
 // new one in the success colour, age on the right. That's what makes the
 // row scannable — you see *what moved* before you read either value.
+const CHANGES_VISIBLE = 20;
+
 export function TodayChanges({
   items,
   now,
@@ -36,16 +38,30 @@ export function TodayChanges({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [showAll, setShowAll] = useState(false);
   const run = (fn: () => Promise<unknown>) =>
     startTransition(async () => {
       await fn();
       router.refresh();
     });
+  // A backlog (an import that read everyone differently, weeks away)
+  // must not push the rest of Today off the screen: show a screenful,
+  // offer the rest.
+  const visible = showAll ? items : items.slice(0, CHANGES_VISIBLE);
 
   return (
     <div className="space-y-1">
       {items.length > 1 && (
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-3">
+          {items.length > CHANGES_VISIBLE && (
+            <button
+              type="button"
+              className="text-[11px] text-muted-foreground hover:text-foreground"
+              onClick={() => setShowAll((v) => !v)}
+            >
+              {showAll ? `Show first ${CHANGES_VISIBLE}` : `Show all ${items.length}`}
+            </button>
+          )}
           <button
             type="button"
             disabled={pending}
@@ -57,7 +73,7 @@ export function TodayChanges({
         </div>
       )}
       <ol className="space-y-1">
-      {items.map((c) => (
+      {visible.map((c) => (
         <li
           key={c.id}
           className="flex items-center gap-3 rounded-md border border-primary/25 bg-accent/30 px-3 py-2"
