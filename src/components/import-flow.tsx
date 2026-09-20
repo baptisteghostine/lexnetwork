@@ -300,7 +300,7 @@ export function StatsRow({ stats }: { stats: ImportStats }) {
     </div>
   );
   return (
-    <div className="flex gap-2">
+    <div className="flex flex-wrap gap-2">
       {cell("total", stats.total)}
       {cell("new", stats.new, "text-success")}
       {cell("updated", stats.updated, "text-blue-400")}

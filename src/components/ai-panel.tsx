@@ -131,11 +131,11 @@ export function AiPanel({
             {suggestions.map((s) => (
               <li
                 key={s.id}
-                className="flex items-center gap-2.5 rounded-md border border-border px-3 py-2"
+                className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-md border border-border px-3 py-2 md:flex-nowrap"
               >
                 <Link
                   href={`/contacts/${s.contactId}`}
-                  className="w-40 shrink-0 truncate text-[13px] font-medium hover:text-primary"
+                  className="min-w-0 flex-1 truncate text-[13px] font-medium hover:text-primary md:w-40 md:flex-none"
                 >
                   {s.contactName}
                 </Link>
@@ -148,7 +148,7 @@ export function AiPanel({
                   </span>
                 )}
                 <span
-                  className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
+                  className="order-last line-clamp-2 basis-full text-xs text-muted-foreground md:order-none md:min-w-0 md:flex-1 md:basis-auto md:truncate"
                   title={s.rationale}
                 >
                   {s.rationale}
@@ -195,7 +195,7 @@ export function AiPanel({
             {audit.calls.map((c) => (
               <li key={c.id} className="rounded-md border border-border/60">
                 <button
-                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs"
+                  className="flex w-full flex-wrap items-center gap-x-2 gap-y-0.5 px-2.5 py-1.5 text-left text-xs md:flex-nowrap"
                   onClick={() =>
                     setExpanded((cur) => (cur === c.id ? null : c.id))
                   }
@@ -210,9 +210,11 @@ export function AiPanel({
                     {c.status}
                   </span>
                   <span className="font-medium">{c.feature}</span>
-                  <span className="text-muted-foreground">{c.model}</span>
-                  <span className="flex-1" />
-                  <span className="tabular-nums text-muted-foreground">
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground md:flex-none">
+                    {c.model}
+                  </span>
+                  <span className="hidden md:block md:flex-1" />
+                  <span className="basis-full tabular-nums text-muted-foreground md:basis-auto">
                     {c.inputTokens ?? "—"} / {c.outputTokens ?? "—"} tok ·{" "}
                     {c.latencyMs ?? "—"}ms · {timeAgo(c.createdAt)}
                   </span>

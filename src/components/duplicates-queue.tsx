@@ -207,7 +207,7 @@ export function DuplicatesQueue({
           {queue.map((p) => (
             <li
               key={p.id}
-              className="flex items-center gap-3 rounded-md border border-border p-3"
+              className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-border p-3 md:flex-nowrap"
             >
               <input
                 type="checkbox"
@@ -216,9 +216,11 @@ export function DuplicatesQueue({
                 checked={selected.has(p.id)}
                 onChange={() => toggle(p.id)}
               />
-              <Side c={p.a} />
-              <Side c={p.b} />
-              <div className="w-40 shrink-0">
+              <div className="flex min-w-0 grow basis-3/4 flex-col gap-1 md:contents">
+                <Side c={p.a} />
+                <Side c={p.b} />
+              </div>
+              <div className="min-w-0 grow basis-1/2 md:w-40 md:grow-0 md:basis-auto">
                 <p className="text-xs font-medium tabular-nums">
                   {(p.score * 100).toFixed(0)}%
                 </p>

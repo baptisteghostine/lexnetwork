@@ -39,7 +39,7 @@ function Row({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-6 px-4 py-3">
+    <div className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
       <div className="min-w-0">
         <p className="text-[13px] font-medium">{label}</p>
         {description ? (
@@ -48,7 +48,7 @@ function Row({
           </p>
         ) : null}
       </div>
-      <div className="flex shrink-0 items-center gap-2">{children}</div>
+      <div className="flex shrink-0 flex-wrap items-center gap-2">{children}</div>
     </div>
   );
 }
@@ -117,7 +117,7 @@ export function GeneralSettings({ initial }: { initial: AppSettings }) {
             name="timezone"
             defaultValue={initial.timezone}
             list="rolo-timezones"
-            className="w-56"
+            className="w-full sm:w-56"
             required
           />
           <datalist id="rolo-timezones">
@@ -142,7 +142,11 @@ export function GeneralSettings({ initial }: { initial: AppSettings }) {
           label="App URL"
           description="Used for links in emails — your reverse-proxy address in production."
         >
-          <Input name="appUrl" defaultValue={initial.appUrl} className="w-64" />
+          <Input
+            name="appUrl"
+            defaultValue={initial.appUrl}
+            className="w-full sm:w-64"
+          />
         </Row>
         <SaveRow pending={pending} state={state} />
       </Card>
