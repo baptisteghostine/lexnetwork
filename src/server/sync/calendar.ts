@@ -27,6 +27,7 @@ import {
   accessTokenFor,
   getAccount,
   markAccountError,
+  myAddressList,
 } from "@/server/sync/accounts";
 import { recordSightings } from "@/server/sync/suggestions";
 
@@ -60,10 +61,16 @@ async function gcalJson(url: string, token: string): Promise<unknown> {
 }
 
 function matchAttendees(
-  e: CalendarEventParsed
+  e: CalendarEventParsed,
+  myAddresses: string[]
 ): { email: string; name: string | null; contactId: number | null }[] {
+  // Google marks only the connected mailbox as `self`; the owner's other
+  // addresses ("my addresses", the same list Gmail direction uses) are
+  // still them — and one of them being a contact would otherwise earn a
+  // pre-meeting brief about the owner.
+  const mine = new Set(myAddresses.map((a) => normalizeEmail(a)));
   return e.attendees
-    .filter((a) => !a.self)
+    .filter((a) => !a.self && !mine.has(normalizeEmail(a.email)))
     .map((a) => {
       const hit = db
         .select({ contactId: contactEmails.contactId })
@@ -305,6 +312,7 @@ export async function runCalendarSync(): Promise<CalendarSyncStats | null> {
   const account = getAccount("google");
   if (!account || account.status === "revoked") return null;
   const token = await accessTokenFor(account);
+  const myAddresses = myAddressList(account);
   const now = Date.now();
 
   const stats: CalendarSyncStats = {
@@ -346,7 +354,7 @@ export async function runCalendarSync(): Promise<CalendarSyncStats | null> {
         for (const e of page.events) {
           stats.eventsSeen++;
           if (!incremental) seenKeys.add(e.eventKey);
-          upsertEvent(account.id, e, matchAttendees(e), now, touched, sightings);
+          upsertEvent(account.id, e, matchAttendees(e, myAddresses), now, touched, sightings);
         }
         pageToken = page.nextPageToken ?? undefined;
         if (page.nextSyncToken) nextSyncToken = page.nextSyncToken;
