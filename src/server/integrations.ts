@@ -23,7 +23,7 @@ import {
   myAddressList,
 } from "@/server/sync/accounts";
 import { runCalendarSync } from "@/server/sync/calendar";
-import { runGmailSync } from "@/server/sync/gmail";
+import { resetGmailBackfill, runGmailSync } from "@/server/sync/gmail";
 import { runLinkedInSync } from "@/server/sync/linkedin";
 import {
   ensureExtensionToken,
@@ -253,27 +253,43 @@ export async function saveIntegrationCredsAction(input: {
 
 export async function updateMyAddressesAction(input: {
   addresses: string;
-}): Promise<{ error?: string }> {
+}): Promise<{ error?: string; rescan?: boolean }> {
   await requireAuth();
   const account = getAccount("google");
   if (!account) return { error: "Google is not connected." };
-  const list = input.addresses
-    .split(/[\n,;]+/)
-    .map((a) => a.trim().toLowerCase())
-    .filter((a) => a.includes("@"));
+  const list = [
+    ...new Set(
+      input.addresses
+        .split(/[\n,;]+/)
+        .map((a) => a.trim().toLowerCase())
+        .filter((a) => a.includes("@"))
+    ),
+  ];
   if (list.length === 0) return { error: "At least one address is required." };
+  const before = [...new Set(myAddressList(account).map((a) => a.toLowerCase()))].sort();
+  const changed = JSON.stringify(before) !== JSON.stringify([...list].sort());
   db.update(integrationAccounts)
     .set({ myAddresses: JSON.stringify(list), updatedAt: Date.now() })
     .where(eq(integrationAccounts.id, account.id))
     .run();
+  if (changed) {
+    // Direction and counterparts of every message depend on this list, so
+    // what was already scanned is now wrong for any message that touched
+    // the new or removed address. Re-read from the top; idempotent.
+    resetGmailBackfill();
+    ensureSyncJobs(Date.now());
+  }
   revalidatePath("/settings");
-  return {};
+  return { rescan: changed };
 }
 
 export async function disconnectIntegrationAction(input: {
   provider: "google" | "linkedin";
 }): Promise<void> {
   await requireAuth();
+  // Clear the backfill cursor before the row goes, or a reconnect (even
+  // to a different mailbox) would resume a stale page token.
+  if (input.provider === "google") resetGmailBackfill();
   disconnectAccount(input.provider);
   ensureSyncJobs(Date.now());
   revalidatePath("/settings");

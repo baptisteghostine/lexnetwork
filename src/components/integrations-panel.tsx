@@ -51,7 +51,9 @@ function RunRow({ run }: { run: SyncRunSummary }) {
             ? "text-emerald-600 dark:text-emerald-400"
             : run.status === "running"
               ? "text-muted-foreground"
-              : "text-red-600 dark:text-red-400"
+              : run.status === "partial"
+                ? "text-amber-600 dark:text-amber-400" // paused, not failed
+                : "text-red-600 dark:text-red-400"
         }
       >
         {run.status}
@@ -170,6 +172,7 @@ function StatusBadge({ status }: { status: string | null }) {
 function GoogleCard({ data }: { data: IntegrationStatus }) {
   const [pending, start] = useTransition();
   const [addresses, setAddresses] = useState(data.myAddresses.join(", "));
+  const [addressMsg, setAddressMsg] = useState<string | null>(null);
   return (
     <div className="space-y-2.5 rounded-md border border-border p-3">
       <div className="flex items-center justify-between">
@@ -231,16 +234,24 @@ function GoogleCard({ data }: { data: IntegrationStatus }) {
               disabled={pending}
               onClick={() =>
                 start(async () => {
-                  await updateMyAddressesAction({ addresses });
+                  const r = await updateMyAddressesAction({ addresses });
+                  setAddressMsg(
+                    r.error
+                      ? r.error
+                      : r.rescan
+                        ? "Saved. Mail is being rescanned from the newest message so every email's direction reflects the new list — a couple of hours at Google's pace."
+                        : "Saved — no change."
+                  );
                 })
               }
             >
               Save my addresses
             </Button>
           </div>
+          {addressMsg && <p className="text-foreground">{addressMsg}</p>}
           <p>
             “My addresses” decide email direction — add every alias you send
-            from.
+            from. Changing the list rescans your mail from the start.
           </p>
           <div className="flex gap-2">
             <SyncNowButton kind="gmail" label="Sync mail now" />

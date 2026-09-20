@@ -229,6 +229,24 @@ function processMessages(
   }
 }
 
+/**
+ * Start the backfill over from the newest message. Idempotent on data —
+ * interactions are keyed by Gmail message id — so the cost is only the
+ * paced re-read. Called when "my addresses" change (every message's
+ * direction and counterparts depend on that list) and on disconnect, so
+ * a reconnect never resumes a stale cursor from a previous account.
+ */
+export function resetGmailBackfill(): void {
+  setSetting(BACKFILL_STATE_KEY, null);
+  const account = getAccount("google");
+  if (account) {
+    db.update(integrationAccounts)
+      .set({ gmailBackfillDone: false, updatedAt: Date.now() })
+      .where(eq(integrationAccounts.id, account.id))
+      .run();
+  }
+}
+
 /** One sync tick. Returns null when no active Google account exists. */
 export async function runGmailSync(): Promise<GmailSyncStats | null> {
   const account = getAccount("google");
