@@ -201,6 +201,15 @@ describe("isGmailRateLimit (SPEC §9 quota edge case)", () => {
     expect(isGmailRateLimit(401, "Quota exceeded")).toBe(false);
   });
 
+  it("the daily cap is a failure, not a two-minute pause", () => {
+    expect(
+      isGmailRateLimit(
+        403,
+        '{"error":{"message":"Quota exceeded for quota metric \'Queries\' and limit \'Queries per day\'","errors":[{"reason":"dailyLimitExceeded"}]}}'
+      )
+    ).toBe(false);
+  });
+
   it("keeps the retry schedule inside the scheduler lease", () => {
     const total = RATE_LIMIT_RETRY_MS.reduce((a: number, b: number) => a + b, 0);
     expect(total).toBeLessThanOrEqual(RATE_LIMIT_RUN_BUDGET_MS);

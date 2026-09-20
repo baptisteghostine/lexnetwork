@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import { contactEmails, integrationAccounts, interactions, syncRuns } from "@/db/schema";
@@ -65,6 +65,10 @@ export type GmailSyncStats = {
   /** Set when Google's per-minute quota cut the run short: the cursor is
    * saved, and the scheduler should come back sooner than the interval. */
   resumeSoon?: boolean;
+  /** Message ids listed but not yet fetched when the budget ran out. */
+  pendingIds?: number;
+  /** Ids the bounded pending queue could not hold (fail loud, never silent). */
+  pendingDropped?: number;
   /** Top unmatched counterpart addresses (suggestion fodder, SPEC §9). */
   unmatchedTop: { email: string; count: number }[];
 };
@@ -122,11 +126,22 @@ async function fetchChunk(
   );
 }
 
+type MetaFetch = { metas: GmailMessageMeta[]; remaining: string[] };
+
+/**
+ * Fetch metadata for `ids`, pausing on Google's per-minute quota while the
+ * run has waiting budget. When the budget is spent it does NOT throw: it
+ * hands back what was fetched and what wasn't, so the caller commits the
+ * former and queues the latter (pushPending) — throwing here discarded a
+ * whole page of paid-for fetches and, in the incremental step, left the
+ * historyId where it was, so a backlog bigger than one run's budget was
+ * re-listed and re-fetched from the same point every two minutes, forever.
+ */
 async function fetchMetas(
   ids: string[],
   token: string,
   budget: RateBudget
-): Promise<GmailMessageMeta[]> {
+): Promise<MetaFetch> {
   const out: GmailMessageMeta[] = [];
   for (let i = 0; i < ids.length; i += METADATA_CONCURRENCY) {
     const chunk = ids.slice(i, i + METADATA_CONCURRENCY);
@@ -135,19 +150,75 @@ async function fetchMetas(
       try {
         metas = await fetchChunk(chunk, token);
       } catch (err) {
-        // Quota hit: pause and retry the same chunk while this run has
-        // waiting budget left; past that, let the run end "partial" —
-        // the caller saved its cursor, the next tick picks it up.
         if (!(err instanceof GmailRateLimited)) throw err;
         const wait = RATE_LIMIT_RETRY_MS[attempt];
-        if (wait === undefined || wait > budget.remainingMs) throw err;
+        if (wait === undefined || wait > budget.remainingMs) {
+          return { metas: out, remaining: ids.slice(i) };
+        }
         budget.remainingMs -= wait;
         await sleep(wait);
       }
     }
     for (const m of metas) if (m) out.push(m);
   }
-  return out;
+  return { metas: out, remaining: [] };
+}
+
+// ---------- pending ids: listed, not yet fetched ----------
+
+const PENDING_IDS_KEY = "sync.gmail.pending_ids";
+const PENDING_IDS_MAX = 20_000;
+type PendingIds = { ids: string[]; cutoffMs: number | null };
+
+function getPending(): PendingIds | null {
+  const p = getSetting<PendingIds>(PENDING_IDS_KEY);
+  return p && Array.isArray(p.ids) && p.ids.length > 0 ? p : null;
+}
+
+/** Queue ids the budget didn't reach, so the list cursor can advance
+ * anyway. `cutoffMs` keeps the backfill window honest for ids that came
+ * from a backfill page; null (incremental) means no cutoff, and a mix
+ * takes the looser rule — a few extra old emails beat a missed new one.
+ * Bounded; overflow is counted on the run, never dropped silently. */
+function pushPending(ids: string[], cutoffMs: number | null, stats: GmailSyncStats): void {
+  const existing = getPending();
+  const merged = [...new Set([...(existing?.ids ?? []), ...ids])];
+  if (merged.length > PENDING_IDS_MAX) {
+    stats.pendingDropped = (stats.pendingDropped ?? 0) + (merged.length - PENDING_IDS_MAX);
+    merged.length = PENDING_IDS_MAX;
+  }
+  const cutoff =
+    existing && existing.ids.length > 0
+      ? existing.cutoffMs === null || cutoffMs === null
+        ? null
+        : Math.min(existing.cutoffMs, cutoffMs)
+      : cutoffMs;
+  setSetting(PENDING_IDS_KEY, { ids: merged, cutoffMs: cutoff });
+  stats.pendingIds = merged.length;
+}
+
+/** Fetch and process queued ids first. Returns true when the queue is
+ * empty afterwards (the run may go on to its cursor step). */
+async function drainPending(
+  token: string,
+  myAddresses: string[],
+  stats: GmailSyncStats,
+  unmatched: Map<string, number>,
+  touched: Set<number>,
+  sightings: SightingInput[],
+  budget: RateBudget
+): Promise<boolean> {
+  const pending = getPending();
+  if (!pending) return true;
+  const { metas, remaining } = await fetchMetas(pending.ids, token, budget);
+  const usable =
+    pending.cutoffMs === null
+      ? metas
+      : metas.filter((m) => m.internalDate >= (pending.cutoffMs as number));
+  processMessages(usable, myAddresses, stats, unmatched, touched, sightings);
+  setSetting(PENDING_IDS_KEY, remaining.length > 0 ? { ids: remaining, cutoffMs: pending.cutoffMs } : null);
+  stats.pendingIds = remaining.length;
+  return remaining.length === 0;
 }
 
 function contactIdsByEmail(addresses: string[]): Map<string, number> {
@@ -219,7 +290,16 @@ function processMessages(
           countsForTouch: direction === "outbound",
           createdAt: Date.now(),
         })
-        .onConflictDoNothing()
+        // A rescan after "my addresses" changed must be able to flip a
+        // stored row's direction (an alias that is now you turns "they
+        // emailed me" into "I emailed them"); onConflictDoNothing made
+        // that rescan a no-op for every message already stored.
+        .onConflictDoUpdate({
+          target: [interactions.contactId, interactions.source, interactions.sourceKey],
+          targetWhere: sql`source_key IS NOT NULL`,
+          set: { direction, countsForTouch: direction === "outbound" },
+          setWhere: sql`${interactions.direction} IS NOT excluded.direction`,
+        })
         .run();
       if (inserted.changes > 0) {
         stats.interactionsAdded++;
@@ -238,13 +318,33 @@ function processMessages(
  */
 export function resetGmailBackfill(): void {
   setSetting(BACKFILL_STATE_KEY, null);
+  setSetting(PENDING_IDS_KEY, null);
   const account = getAccount("google");
-  if (account) {
-    db.update(integrationAccounts)
-      .set({ gmailBackfillDone: false, updatedAt: Date.now() })
-      .where(eq(integrationAccounts.id, account.id))
-      .run();
+  if (!account) return;
+  // A contact that carries one of the owner's own addresses is the owner;
+  // gmail rows filed under it are self-interactions from before that
+  // address was on the list. The rescan cannot repair those (it never
+  // sees "me" as a counterpart), so they go now and the cadence is
+  // recomputed without them.
+  const mine = myAddressList(account).map((a) => normalizeEmail(a));
+  if (mine.length > 0) {
+    const selfIds = db
+      .select({ contactId: contactEmails.contactId })
+      .from(contactEmails)
+      .where(inArray(contactEmails.emailNormalized, mine))
+      .all()
+      .map((r) => r.contactId);
+    if (selfIds.length > 0) {
+      db.delete(interactions)
+        .where(and(eq(interactions.source, "gmail"), inArray(interactions.contactId, selfIds)))
+        .run();
+      for (const id of selfIds) recomputeContact(id);
+    }
   }
+  db.update(integrationAccounts)
+    .set({ gmailBackfillDone: false, updatedAt: Date.now() })
+    .where(eq(integrationAccounts.id, account.id))
+    .run();
 }
 
 /** One sync tick. Returns null when no active Google account exists. */
@@ -281,20 +381,26 @@ export async function runGmailSync(): Promise<GmailSyncStats | null> {
   let paused: string | null = null;
   try {
     try {
-      if (!account.gmailBackfillDone) {
+      // Ids a previous run listed but couldn't fetch come first; only an
+      // empty queue lets this run ask for more.
+      const drained = await drainPending(token, myAddresses, stats, unmatched, touched, sightings, budget);
+      if (drained && !account.gmailBackfillDone) {
         await backfillStep(account.id, token, myAddresses, stats, unmatched, touched, sightings, budget);
-      } else {
+      } else if (drained) {
         await incrementalStep(account.id, token, myAddresses, stats, unmatched, touched, sightings, budget);
       }
     } catch (err) {
-      // Out of waiting budget on Google's per-minute quota. Everything
-      // processed so far is committed and the backfill cursor sits on the
-      // page that didn't finish, so this is a pause, not a failure: keep
-      // what we have, report "partial", and ask to be run again shortly.
+      // The listing or history call itself hit the per-minute quota (the
+      // metadata fetches never throw for it). Nothing was lost: cursors
+      // only move after their ids are stored or queued.
       if (!(err instanceof GmailRateLimited)) throw err;
       paused = `Google's per-minute Gmail quota was hit after ${stats.messagesSeen} messages; the sync resumes in a couple of minutes from where it stopped.`;
-      stats.resumeSoon = true;
     }
+    const queued = getPending();
+    if (queued) {
+      paused = `Google's per-minute Gmail quota was hit; ${queued.ids.length} listed messages are queued and the sync resumes in a couple of minutes.`;
+    }
+    if (paused) stats.resumeSoon = true;
 
     for (const id of touched) recomputeContact(id);
     recordSightings(sightings, "gmail", Date.now());
@@ -365,9 +471,12 @@ async function backfillStep(
     const ids = (listing.messages ?? [])
       .map((m) => m.id)
       .filter((id): id is string => !!id);
-    const metas = await fetchMetas(ids, token, budget);
+    const { metas, remaining } = await fetchMetas(ids, token, budget);
     const inWindow = metas.filter((m) => m.internalDate >= state!.cutoffMs);
     processMessages(inWindow, myAddresses, stats, unmatched, touched, sightings);
+    // Ids the budget didn't reach are queued (with this window's cutoff)
+    // so the page cursor can still move on.
+    if (remaining.length > 0) pushPending(remaining, state.cutoffMs, stats);
     // The list is newest-first: a page that dipped below the cutoff, or a
     // missing next page, ends the backfill.
     if (inWindow.length < metas.length || !listing.nextPageToken) {
@@ -376,6 +485,7 @@ async function backfillStep(
       state = { ...state, pageToken: listing.nextPageToken };
       setSetting(BACKFILL_STATE_KEY, state);
     }
+    if (remaining.length > 0) break; // budget spent; the next run drains the queue first
   }
 
   if (finished) {
@@ -463,10 +573,13 @@ async function incrementalStep(
         const ids = (listing.messages ?? [])
           .map((m) => m.id)
           .filter((id): id is string => !!id);
-        const metas = await fetchMetas(ids, token, budget);
+        const { metas, remaining } = await fetchMetas(ids, token, budget);
         for (const m of metas) {
           if (m.internalDate >= sinceMs) messageIds.add(m.id);
         }
+        // Unfetched ids can't be date-filtered yet; queue them under the
+        // re-list's own cutoff and let the drain sort them out.
+        if (remaining.length > 0) pushPending(remaining, sinceMs, stats);
         // Newest-first: a page dipping below the sync point, or no next
         // page, means the gap is covered.
         if (
@@ -483,8 +596,11 @@ async function incrementalStep(
     }
   }
 
-  const metas = await fetchMetas([...messageIds], token, budget);
+  const { metas, remaining } = await fetchMetas([...messageIds], token, budget);
   processMessages(metas, myAddresses, stats, unmatched, touched, sightings);
+  // With the leftovers queued, the cursor may advance: nothing is lost,
+  // and the next run picks the queue up before asking for new history.
+  if (remaining.length > 0) pushPending(remaining, null, stats);
   if (latestHistoryId) {
     db.update(integrationAccounts)
       .set({ gmailHistoryId: latestHistoryId, updatedAt: Date.now() })

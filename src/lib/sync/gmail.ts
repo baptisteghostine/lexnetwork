@@ -64,10 +64,11 @@ export function buildHistoryListUrl(opts: {
  */
 export function isGmailRateLimit(status: number, body: string): boolean {
   if (status === 429) return true;
-  return (
-    status === 403 &&
-    /rateLimitExceeded|userRateLimitExceeded|Quota exceeded/i.test(body)
-  );
+  if (status !== 403) return false;
+  // The *daily* cap is not a pause — waiting two minutes all day would be
+  // hundreds of pointless runs. Let it fail loud like any other error.
+  if (/dailyLimitExceeded|per day/i.test(body)) return false;
+  return /rateLimitExceeded|userRateLimitExceeded|Quota exceeded|per minute/i.test(body);
 }
 
 /** Waits before retrying a rate-limited batch, in order; then the run
