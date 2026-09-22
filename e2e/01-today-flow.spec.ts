@@ -53,6 +53,9 @@ test("due contact is cleared from Today by keyboard, no reload", async ({
   // interaction; the row must leave the queue without a page reload.
   await row.click();
   await page.keyboard.press("l");
+  // The inline input is focused on the next frame; typing before that
+  // drops the first character.
+  await expect(page.getByPlaceholder(/what happened/)).toBeFocused();
   await page.keyboard.type("Coffee catch-up");
   await page.keyboard.press("Enter");
   await expect(row).toHaveCount(0, { timeout: 15_000 });
