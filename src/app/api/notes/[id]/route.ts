@@ -3,9 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { db } from "@/db/client";
-import { noteMentions, notes } from "@/db/schema";
+import { notes } from "@/db/schema";
 import { isAuthenticated } from "@/lib/auth";
-import { parseMentions } from "@/lib/notes/mentions";
+import { syncNoteMentions } from "@/server/note-sync";
 
 const saveInput = z.object({ bodyMd: z.string().max(200_000) });
 
@@ -36,17 +36,7 @@ export async function PUT(
       .where(eq(notes.id, noteId))
       .run();
     // note_mentions rows are always derived from the body — resync fully.
-    db.delete(noteMentions).where(eq(noteMentions.noteId, noteId)).run();
-    for (const m of parseMentions(bodyMd)) {
-      db.insert(noteMentions)
-        .values({
-          noteId,
-          contactId: m.kind === "contact" ? m.id : null,
-          groupId: m.kind === "group" ? m.id : null,
-        })
-        .onConflictDoNothing()
-        .run();
-    }
+    syncNoteMentions(noteId, bodyMd);
   });
   return NextResponse.json({ savedAt: Date.now() });
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -14,6 +14,9 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Markdown } from "@/components/markdown";
+import { FormatToolbar, formatTextarea } from "@/components/note-editor";
+import { shortcutFormat } from "@/lib/notes/format";
 import { logInteractionAction } from "@/server/notes";
 
 const KINDS = [
@@ -33,6 +36,10 @@ export function LogInteraction({ contactId }: { contactId: number }) {
   const [kind, setKind] = useState<(typeof KINDS)[number]["value"]>("manual");
   const [title, setTitle] = useState("");
   const [when, setWhen] = useState(() => toLocalDatetimeValue(new Date()));
+  // Optional markdown notes — saved as a note dated to the interaction
+  // (SPEC §2), with the same toolbar the note editor has.
+  const [noteMd, setNoteMd] = useState("");
+  const noteRef = useRef<HTMLTextAreaElement>(null);
   const [error, setError] = useState<string | undefined>();
   const [pending, startTransition] = useTransition();
 
@@ -77,6 +84,32 @@ export function LogInteraction({ contactId }: { contactId: number }) {
             />
           </div>
           <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Label>Notes (optional)</Label>
+              <FormatToolbar textareaRef={noteRef} value={noteMd} onChange={setNoteMd} />
+            </div>
+            <textarea
+              ref={noteRef}
+              value={noteMd}
+              rows={Math.min(10, Math.max(3, noteMd.split("\n").length + 1))}
+              placeholder="What you talked about, next steps… Markdown works."
+              className="w-full resize-y rounded-md border border-input bg-transparent px-2.5 py-2 font-mono text-[12.5px] leading-relaxed placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              onChange={(e) => setNoteMd(e.target.value)}
+              onKeyDown={(e) => {
+                const format = shortcutFormat(e);
+                if (format) {
+                  e.preventDefault();
+                  formatTextarea(e.currentTarget, noteMd, format, setNoteMd);
+                }
+              }}
+            />
+            {noteMd.trim() ? (
+              <div className="max-h-40 overflow-y-auto rounded-md border border-border/60 px-2.5 py-1.5">
+                <Markdown>{noteMd}</Markdown>
+              </div>
+            ) : null}
+          </div>
+          <div className="space-y-1.5">
             <Label>When</Label>
             <Input
               type="datetime-local"
@@ -101,11 +134,13 @@ export function LogInteraction({ contactId }: { contactId: number }) {
                   kind,
                   title: title.trim(),
                   occurredAt,
+                  noteMd: noteMd.trim(),
                 });
                 if (res.error) setError(res.error);
                 else {
                   setOpen(false);
                   setTitle("");
+                  setNoteMd("");
                   setWhen(toLocalDatetimeValue(new Date()));
                 }
               })

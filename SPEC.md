@@ -49,6 +49,7 @@ Conventions used below:
 - Notes: markdown with live preview, autosaved (debounced ~800 ms, with a saved/saving indicator), attachments (file/image, stored under `data/attachments/`), a formatting toolbar (owner request 2026-09-22: bold, italic, underline, headline, subtitle, bullet and numbered lists — each a pure toggle over the selection with Ctrl/Cmd+B/I/U and Ctrl+Shift+8/7 shortcuts; underline is `<u>…</u>`, the one HTML tag the renderer honours, everything else that looks like HTML stays inert text), and mentions:
   - `@Name` → autocomplete over contacts → stores a real `note_mentions` row → renders as a link to that contact; the note also appears on the mentioned contact's timeline.
   - `#Group` → same, for groups.
+- "Log interaction" takes optional markdown notes with the same toolbar (owner request 2026-09-22). They are saved as a note row dated to the interaction — the interaction carries the touch, the note carries the words — so the two sit together on the timeline and the text is searchable and summarisable like any note.
 - Global timeline view across all contacts with filters: kind (note/email/meeting/message/reminder/change), date range, tag/group, contact.
 
 ### Edge cases
