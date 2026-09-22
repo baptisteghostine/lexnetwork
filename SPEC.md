@@ -46,7 +46,7 @@ Conventions used below:
 
 ### Behavior
 - Per-contact timeline, reverse chronological, unioning: notes, email interactions (metadata), calendar meetings, message-app interactions (from LinkedIn messages.csv), reminders that fired, and field changes (`contact_changes`).
-- Notes: markdown with live preview, autosaved (debounced ~800 ms, with a saved/saving indicator), attachments (file/image, stored under `data/attachments/`), and mentions:
+- Notes: markdown with live preview, autosaved (debounced ~800 ms, with a saved/saving indicator), attachments (file/image, stored under `data/attachments/`), a formatting toolbar (owner request 2026-09-22: bold, italic, underline, headline, subtitle, bullet and numbered lists — each a pure toggle over the selection with Ctrl/Cmd+B/I/U and Ctrl+Shift+8/7 shortcuts; underline is `<u>…</u>`, the one HTML tag the renderer honours, everything else that looks like HTML stays inert text), and mentions:
   - `@Name` → autocomplete over contacts → stores a real `note_mentions` row → renders as a link to that contact; the note also appears on the mentioned contact's timeline.
   - `#Group` → same, for groups.
 - Global timeline view across all contacts with filters: kind (note/email/meeting/message/reminder/change), date range, tag/group, contact.

@@ -6,9 +6,20 @@ import {
   useRef,
   useState,
   useTransition,
+  type RefObject,
 } from "react";
 import { useRouter } from "next/navigation";
-import { Paperclip, Trash2 } from "lucide-react";
+import {
+  Bold,
+  Heading1,
+  Heading2,
+  Italic,
+  List,
+  ListOrdered,
+  Paperclip,
+  Trash2,
+  Underline,
+} from "lucide-react";
 
 import { Markdown } from "@/components/markdown";
 import { Button } from "@/components/ui/button";
@@ -20,6 +31,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { applyFormat, shortcutFormat, type Format } from "@/lib/notes/format";
 import { activeTrigger, mentionMarkdown } from "@/lib/notes/mentions";
 import {
   deleteNoteAction,
@@ -36,6 +48,75 @@ type AttachmentInfo = {
 };
 
 type MentionResult = { id: number; label: string; detail: string };
+
+const TOOLBAR: { format: Format; label: string; Icon: typeof Bold }[] = [
+  { format: "bold", label: "Bold (Ctrl+B)", Icon: Bold },
+  { format: "italic", label: "Italic (Ctrl+I)", Icon: Italic },
+  { format: "underline", label: "Underline (Ctrl+U)", Icon: Underline },
+  { format: "h1", label: "Headline", Icon: Heading1 },
+  { format: "h2", label: "Subtitle", Icon: Heading2 },
+  { format: "bullets", label: "Bullet list (Ctrl+Shift+8)", Icon: List },
+  { format: "numbered", label: "Numbered list (Ctrl+Shift+7)", Icon: ListOrdered },
+];
+
+/**
+ * Applies a format to the textarea's current selection (SPEC §2 toolbar):
+ * the transform itself is pure (lib/notes/format); this only reads the
+ * selection, hands the new text up, and puts the caret back.
+ */
+export function formatTextarea(
+  ta: HTMLTextAreaElement | null,
+  value: string,
+  format: Format,
+  onChange: (next: string) => void
+): void {
+  const sel = ta
+    ? { start: ta.selectionStart, end: ta.selectionEnd }
+    : { start: value.length, end: value.length };
+  const r = applyFormat(value, sel, format);
+  onChange(r.text);
+  requestAnimationFrame(() => {
+    if (!ta) return;
+    ta.focus();
+    ta.setSelectionRange(r.start, r.end);
+  });
+}
+
+/** Markdown formatting buttons for a textarea — shared by the note editor and the log-interaction dialog. */
+export function FormatToolbar({
+  textareaRef,
+  value,
+  onChange,
+}: {
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <div
+      role="toolbar"
+      aria-label="Formatting"
+      className="flex flex-wrap items-center gap-0.5 text-muted-foreground"
+    >
+      {TOOLBAR.map(({ format, label, Icon }) => (
+        <button
+          key={format}
+          type="button"
+          title={label}
+          aria-label={label}
+          className="rounded p-1 hover:bg-accent hover:text-foreground"
+          // mousedown, not click, so the textarea keeps its selection.
+          onMouseDown={(e) => {
+            e.preventDefault();
+            formatTextarea(textareaRef.current, value, format, onChange);
+          }}
+        >
+          <Icon className="size-3.5" />
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export function NoteEditor({
   noteId,
@@ -124,9 +205,13 @@ export function NoteEditor({
     };
   }, [save]);
 
-  const onChange = (text: string, caret: number) => {
+  const setText = (text: string) => {
     setBody(text);
     scheduleSave(text);
+  };
+
+  const onChange = (text: string, caret: number) => {
+    setText(text);
     const trigger = activeTrigger(text, caret);
     if (trigger && trigger.query.length >= 1) {
       const kind = trigger.sigil === "@" ? "contact" : "group";
@@ -272,6 +357,9 @@ export function NoteEditor({
 
       {editing ? (
         <div className="relative">
+          <div className="mb-1">
+            <FormatToolbar textareaRef={textareaRef} value={body} onChange={setText} />
+          </div>
           <textarea
             ref={textareaRef}
             autoFocus={startInEdit}
@@ -281,6 +369,12 @@ export function NoteEditor({
             className="w-full resize-y rounded-md border border-input bg-transparent px-2.5 py-2 font-mono text-[12.5px] leading-relaxed placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             onChange={(e) => onChange(e.target.value, e.target.selectionStart)}
             onKeyDown={(e) => {
+              const format = shortcutFormat(e);
+              if (format) {
+                e.preventDefault();
+                formatTextarea(e.currentTarget, body, format, setText);
+                return;
+              }
               if (mentionResults.length > 0) {
                 if (e.key === "ArrowDown") {
                   e.preventDefault();
