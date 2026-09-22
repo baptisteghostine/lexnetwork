@@ -5,7 +5,11 @@ import { z } from "zod";
 import { db } from "@/db/client";
 import { notes } from "@/db/schema";
 import { isAuthenticated } from "@/lib/auth";
-import { syncNoteMentions } from "@/server/note-sync";
+import {
+  mentionedContactIds,
+  recomputeNoteContacts,
+  syncNoteMentions,
+} from "@/server/note-sync";
 
 const saveInput = z.object({ bodyMd: z.string().max(200_000) });
 
@@ -30,6 +34,7 @@ export async function PUT(
   }
 
   const bodyMd = parsed.data.bodyMd;
+  const before = mentionedContactIds(noteId);
   db.transaction(() => {
     db.update(notes)
       .set({ bodyMd, updatedAt: Date.now() })
@@ -38,5 +43,15 @@ export async function PUT(
     // note_mentions rows are always derived from the body — resync fully.
     syncNoteMentions(noteId, bodyMd);
   });
+  // A counting note counts for whoever it mentions (SPEC §3): a mention
+  // added or removed by this save moves their cadence clock.
+  if (note.countsForTouch) {
+    const after = mentionedContactIds(noteId);
+    const changed = [
+      ...before.filter((id) => !after.includes(id)),
+      ...after.filter((id) => !before.includes(id)),
+    ];
+    recomputeNoteContacts(changed);
+  }
   return NextResponse.json({ savedAt: Date.now() });
 }

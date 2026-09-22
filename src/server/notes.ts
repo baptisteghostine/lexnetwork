@@ -11,7 +11,11 @@ import { DATA_DIR, db } from "@/db/client";
 import { attachments, interactions, notes } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
 import { recomputeContact } from "@/lib/cadence/recompute";
-import { syncNoteMentions } from "@/server/note-sync";
+import {
+  mentionedContactIds,
+  recomputeNoteContacts,
+  syncNoteMentions,
+} from "@/server/note-sync";
 
 export async function createNoteAction(
   contactId: number | null
@@ -36,15 +40,14 @@ export async function deleteNoteAction(noteId: number): Promise<void> {
     .from(attachments)
     .where(eq(attachments.noteId, noteId))
     .all();
+  const mentioned = mentionedContactIds(noteId);
   db.delete(notes).where(eq(notes.id, noteId)).run(); // cascades mentions + attachment rows
   for (const f of files) {
     // Attachment files are owned by the note (SPEC §2).
     fs.rmSync(path.join(DATA_DIR, f.path), { force: true });
   }
-  if (note.contactId) {
-    recomputeContact(note.contactId);
-    revalidatePath(`/contacts/${note.contactId}`);
-  }
+  // A counting note counted for its contact and everyone it mentioned.
+  recomputeNoteContacts([note.contactId, ...mentioned]);
 }
 
 export async function setNoteCountsForTouchAction(
@@ -58,10 +61,10 @@ export async function setNoteCountsForTouchAction(
     .set({ countsForTouch: counts, updatedAt: Date.now() })
     .where(eq(notes.id, noteId))
     .run();
-  if (note.contactId) {
-    recomputeContact(note.contactId);
-    revalidatePath(`/contacts/${note.contactId}`);
-  }
+  // Counts for the note's contact and for every contact it @-mentions
+  // (SPEC §3) — a note written from Today or the Notes page has no
+  // contact of its own, and the mention is the only link.
+  recomputeNoteContacts([note.contactId, ...mentionedContactIds(noteId)]);
 }
 
 const logInteractionInput = z.object({

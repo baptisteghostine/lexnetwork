@@ -5,10 +5,15 @@
 import { and, desc, eq } from "drizzle-orm";
 
 import { db } from "@/db/client";
-import { contacts, interactions, notes } from "@/db/schema";
+import { contacts, interactions, noteMentions, notes } from "@/db/schema";
 import { computeNextTouchAt } from "./engine";
 
-/** Max occurred_at across counting interactions + counting notes, or null. */
+/**
+ * Max occurred_at across counting interactions + counting notes, or null.
+ * A counting note counts for the contact it is filed under and for every
+ * contact it @-mentions (SPEC §3, 2026-09-22): "coffee with @Ana and
+ * @Ben" written on Ana's profile is a touch with Ben too.
+ */
 export function computeLastInteractionAt(contactId: number): number | null {
   const latestInteraction = db
     .select({ at: interactions.occurredAt })
@@ -31,7 +36,17 @@ export function computeLastInteractionAt(contactId: number): number | null {
     .orderBy(desc(notes.createdAt))
     .limit(1)
     .get();
-  const candidates = [latestInteraction?.at, latestNote?.at].filter(
+  const latestMention = db
+    .select({ at: notes.createdAt })
+    .from(noteMentions)
+    .innerJoin(notes, eq(noteMentions.noteId, notes.id))
+    .where(
+      and(eq(noteMentions.contactId, contactId), eq(notes.countsForTouch, true))
+    )
+    .orderBy(desc(notes.createdAt))
+    .limit(1)
+    .get();
+  const candidates = [latestInteraction?.at, latestNote?.at, latestMention?.at].filter(
     (v): v is number => typeof v === "number"
   );
   return candidates.length ? Math.max(...candidates) : null;

@@ -104,7 +104,7 @@ Same shape: `phone_raw`, `phone_e164` (nullable — not everything parses), `lab
 
 `id, contact_id INTEGER FK → contacts ON DELETE CASCADE nullable (null = standalone note), body_md TEXT NOT NULL DEFAULT '', summary_ai TEXT nullable, counts_for_touch INTEGER NOT NULL DEFAULT 0, created_at, updated_at`.
 - `idx_notes_contact ON notes(contact_id, created_at DESC)`.
-- The note's timeline entry is the note row itself (kind 'note' in the union), *not* duplicated into `interactions` — one source of truth; the cadence engine's "max counting interaction" query unions notes where `counts_for_touch=1`.
+- The note's timeline entry is the note row itself (kind 'note' in the union), *not* duplicated into `interactions` — one source of truth; the cadence engine's "max counting interaction" query unions notes where `counts_for_touch=1` — both `notes.contact_id = ?` and notes joined through `note_mentions.contact_id = ?` (SPEC §3, 2026-09-22).
 - Notes written in the "Log interaction" dialog are ordinary note rows with `created_at` = the interaction's `occurred_at` and `counts_for_touch = 0` (the interaction row carries the touch).
 
 ## note_mentions
