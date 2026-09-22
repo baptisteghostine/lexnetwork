@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   CircleAlert,
+  FileText,
   Globe,
   Handshake,
   Mail,
@@ -30,6 +31,7 @@ import {
 import { requireAuth } from "@/lib/auth";
 import { CADENCE_PRESETS, DAY_MS } from "@/lib/cadence/engine";
 import { changeAge } from "@/lib/digest/network-updates";
+import { noteSnippet } from "@/lib/notes/format";
 import { now as currentTime } from "@/lib/time";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,6 +43,7 @@ import {
   listGroups,
   listTags,
   type TimelineInteraction,
+  type TimelineNote,
 } from "@/server/queries";
 
 export const dynamic = "force-dynamic";
@@ -111,8 +114,13 @@ export default async function ContactPage({
 
   // Dex's "Recent interactions" strip: the last few touches, right under
   // the name — the "where were we?" answer before scrolling the timeline.
+  // A note ticked "counts as interaction" is a touch too (SPEC §3), so
+  // it shows here like one — otherwise the tick looks like it did nothing.
   const recent = timeline
-    .filter((i): i is TimelineInteraction => i.type === "interaction")
+    .filter(
+      (i): i is TimelineInteraction | TimelineNote =>
+        i.type === "interaction" || (i.type === "note" && i.note.countsForTouch)
+    )
     .slice(0, 3);
 
   const cadenceLabel =
@@ -284,41 +292,60 @@ export default async function ContactPage({
                   Recent interactions
                 </h2>
                 <ol className="space-y-1">
-                  {recent.map(({ interaction, at }) => (
+                  {recent.map((item) =>
+                    item.type === "note" ? (
+                      <li
+                        key={`n${item.note.id}`}
+                        className="flex items-baseline gap-2 rounded-md border border-border/60 bg-card/40 px-3 py-1.5 text-[13px]"
+                      >
+                        <span className="translate-y-0.5 text-muted-foreground">
+                          <FileText className="size-3.5" />
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">
+                          {noteSnippet(item.note.bodyMd) || (
+                            <span className="text-muted-foreground">Note</span>
+                          )}
+                        </span>
+                        <span className="shrink-0 text-[11px] text-muted-foreground">
+                          {changeAge(item.at, nowMs)}
+                        </span>
+                      </li>
+                    ) : (
                     <li
-                      key={interaction.id}
+                      key={item.interaction.id}
                       className="flex items-baseline gap-2 rounded-md border border-border/60 bg-card/40 px-3 py-1.5 text-[13px]"
                     >
                       <span className="translate-y-0.5 text-muted-foreground">
-                        {interaction.kind === "message" ? (
+                        {item.interaction.kind === "message" ? (
                           <MessageSquare className="size-3.5" />
-                        ) : interaction.kind === "email" ? (
+                        ) : item.interaction.kind === "email" ? (
                           <Mail className="size-3.5" />
                         ) : (
                           <Handshake className="size-3.5" />
                         )}
                       </span>
                       <span className="min-w-0 flex-1 truncate">
-                        {interaction.direction === "outbound" ? (
+                        {item.interaction.direction === "outbound" ? (
                           <span className="font-medium">You: </span>
                         ) : null}
-                        {interaction.title ?? (
+                        {item.interaction.title ?? (
                           <span className="text-muted-foreground">
-                            {interaction.kind === "message"
+                            {item.interaction.kind === "message"
                               ? "Message"
-                              : interaction.kind === "email"
+                              : item.interaction.kind === "email"
                                 ? "Email"
-                                : interaction.kind === "meeting"
+                                : item.interaction.kind === "meeting"
                                   ? "Meeting"
                                   : "Caught up"}
                           </span>
                         )}
                       </span>
                       <span className="shrink-0 text-[11px] text-muted-foreground">
-                        {changeAge(at, nowMs)}
+                        {changeAge(item.at, nowMs)}
                       </span>
                     </li>
-                  ))}
+                    )
+                  )}
                 </ol>
               </section>
             )}

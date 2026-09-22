@@ -139,3 +139,24 @@ export function shortcutFormat(e: {
   if (k === "u") return "underline";
   return null;
 }
+
+/**
+ * One line of plain text from note markdown, for places that show a note
+ * as a touch rather than a document (the Recent interactions strip):
+ * markers and mention/link syntax stripped, whitespace collapsed, cut on
+ * a word at `max` characters.
+ */
+export function noteSnippet(bodyMd: string, max = 160): string {
+  const text = bodyMd
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "") // images
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1") // links + mentions → label
+    .replace(/<\/?u>/gi, "")
+    .replace(/^\s{0,3}(#{1,6}\s+|[-*+]\s+|\d+\.\s+|>\s?)/gm, "") // block markers
+    .replace(/(\*\*|__|[*_~`])/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max + 1);
+  const space = cut.lastIndexOf(" ");
+  return (space > max / 2 ? cut.slice(0, space) : cut.slice(0, max)).trimEnd() + "…";
+}

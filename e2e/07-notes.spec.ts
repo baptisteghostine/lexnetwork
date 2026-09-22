@@ -83,6 +83,15 @@ test("a counting note that mentions a contact counts for them", async ({
     }, { timeout: 15_000 })
     .toBe(1);
 
+  // On Mia's profile the counting note is visibly an interaction: in the
+  // Recent interactions strip and under the Interactions filter.
+  await page.reload();
+  const strip = page.locator("section", { hasText: "Recent interactions" });
+  await expect(strip.getByText("Coffee with @Noah Mentioned")).toBeVisible();
+  await page.getByRole("button", { name: "Interactions", exact: true }).click();
+  await expect(page.getByLabel("counts as interaction").first()).toBeVisible();
+  await expect(page.getByText("Coffee with", { exact: false }).first()).toBeVisible();
+
   // Noah's profile now shows the touch.
   await page.goto(noahUrl);
   await expect(stat).toHaveText("today", { timeout: 15_000 });

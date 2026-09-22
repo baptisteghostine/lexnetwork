@@ -116,7 +116,10 @@ export function Timeline({
       ? true
       : filter === "notes"
         ? i.type === "note"
-        : i.type === "interaction" || i.type === "change"
+        : // A note ticked "counts as interaction" is one (SPEC §3).
+          i.type === "interaction" ||
+          i.type === "change" ||
+          (i.type === "note" && i.note.countsForTouch)
   );
   return (
     <div className="space-y-2">

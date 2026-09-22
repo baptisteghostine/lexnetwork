@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyFormat,
+  noteSnippet,
   shortcutFormat,
   toggleBlock,
   toggleInline,
@@ -86,5 +87,18 @@ describe("shortcutFormat", () => {
     expect(key("b", { ctrlKey: false })).toBeNull();
     expect(key("b", { altKey: true })).toBeNull();
     expect(key("x")).toBeNull();
+  });
+});
+
+describe("noteSnippet", () => {
+  it("flattens markdown to one plain line", () => {
+    expect(
+      noteSnippet("# Coffee\n\n- met [@Ana](mention://contact/1) at **Blue** Bottle\n- <u>next</u>: intro")
+    ).toBe("Coffee met @Ana at Blue Bottle next: intro");
+  });
+
+  it("cuts on a word with an ellipsis", () => {
+    const s = noteSnippet("alpha beta gamma delta", 12);
+    expect(s).toBe("alpha beta…");
   });
 });
