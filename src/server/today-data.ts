@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import {
@@ -7,6 +7,7 @@ import {
   contactEmails,
   contacts,
   interactions,
+  notes,
   reminders,
 } from "@/db/schema";
 import { upcomingBirthdays, type Feb29Rule, type UpcomingBirthday } from "@/lib/birthdays";
@@ -16,6 +17,8 @@ import { DAY_MS } from "@/lib/cadence/engine";
 import { getSetting } from "@/lib/settings";
 import type { ChangeTriage } from "@/lib/ai/triage";
 import { triageFor } from "@/server/ai-triage";
+import { FOLLOWUP_WINDOW_MS, meetingEnd, selectFollowups } from "@/lib/ai/followup";
+import { readAnnotations } from "@/server/ai-annotations";
 import { fallbackTimezone, fromFakeUtc, localParts } from "@/lib/time";
 
 // The one source of truth for "what is due right now" — the Today page
@@ -79,8 +82,19 @@ export type AgendaItem = {
   prep: MeetingPrep | null;
 };
 
+/** A meeting that just ended with people Rolo knows, awaiting "how did it go?" (SPEC §9e/§11). */
+export type FollowupItem = {
+  id: number;
+  eventKey: string;
+  summary: string | null;
+  startsAt: number;
+  endsAt: number | null;
+  contacts: { contactId: number; name: string }[];
+};
+
 export type TodayData = {
   timezone: string;
+  followups: FollowupItem[];
   reminders: DueReminder[];
   dueContacts: DueContact[];
   changes: OpenChange[];
@@ -307,8 +321,13 @@ export function getTodayData(now: number): TodayData {
   // reader (page or digest) gets here first.
   const resurface = todaysResurfacePicks(now, timezone);
 
+  // (7) Post-meeting follow-up: meetings that ended in the last 48 h with
+  // matched contacts, not yet answered, skipped, or noted by hand.
+  const followups = followupsFor(now);
+
   return {
     timezone,
+    followups,
     agenda,
     resurface,
     reminders: reminderRows.map((r) => ({
@@ -338,4 +357,73 @@ export function getTodayData(now: number): TodayData {
     })),
     birthdays,
   };
+}
+
+function followupsFor(now: number): FollowupItem[] {
+  const rows = db
+    .select()
+    .from(calendarEvents)
+    .where(
+      and(
+        gte(calendarEvents.startsAt, now - FOLLOWUP_WINDOW_MS - 24 * 60 * 60 * 1000),
+        lte(calendarEvents.startsAt, now)
+      )
+    )
+    .all();
+  if (rows.length === 0) return [];
+  const handled = readAnnotations<{ status: string }>("meeting_followup", rows.map((r) => r.id));
+  const parsedAttendees = rows.map((r) => {
+    try {
+      const raw = JSON.parse(r.attendees ?? "[]") as { contactId: number | null }[];
+      return [...new Set(raw.map((a) => a.contactId).filter((id): id is number => typeof id === "number"))];
+    } catch {
+      return [];
+    }
+  });
+  const allIds = [...new Set(parsedAttendees.flat())];
+  const nameById = new Map(
+    allIds.length > 0
+      ? db
+          .select({ id: contacts.id, name: contacts.displayName, archivedAt: contacts.archivedAt })
+          .from(contacts)
+          .where(inArray(contacts.id, allIds))
+          .all()
+          .filter((c) => c.archivedAt === null)
+          .map((c) => [c.id, c.name])
+      : []
+  );
+  // A note written for an attendee after the meeting ended is a capture
+  // by hand — the card has nothing left to ask.
+  const noteRows =
+    allIds.length > 0
+      ? db
+          .select({ contactId: notes.contactId, createdAt: notes.createdAt })
+          .from(notes)
+          .where(inArray(notes.contactId, allIds))
+          .all()
+      : [];
+  const candidates = rows.map((r, i) => {
+    const ids = parsedAttendees[i].filter((id) => nameById.has(id));
+    const end = meetingEnd(r);
+    return {
+      id: r.id,
+      eventKey: r.eventKey,
+      summary: r.summary,
+      startsAt: r.startsAt,
+      endsAt: r.endsAt,
+      status: r.status,
+      myResponse: r.myResponse,
+      matchedContactIds: ids,
+      handled: handled.has(r.id),
+      notedSince: noteRows.some((n) => n.contactId !== null && ids.includes(n.contactId) && n.createdAt > end),
+    };
+  });
+  return selectFollowups(candidates, now).map((e) => ({
+    id: e.id,
+    eventKey: e.eventKey,
+    summary: e.summary,
+    startsAt: e.startsAt,
+    endsAt: e.endsAt,
+    contacts: e.matchedContactIds.map((id) => ({ contactId: id, name: nameById.get(id)! })),
+  }));
 }

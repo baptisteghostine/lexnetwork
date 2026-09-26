@@ -4,6 +4,7 @@ import { Cake, Star } from "lucide-react";
 import { ContactAvatar } from "@/components/contact-avatar";
 import { TodayAgenda } from "@/components/today-agenda";
 import { TodayChanges } from "@/components/today-changes";
+import { TodayFollowups } from "@/components/today-followups";
 import { TodayQueue, type DueItem } from "@/components/today-queue";
 import { TodayReminders } from "@/components/today-reminders";
 import { TodayResurface } from "@/components/today-resurface";
@@ -44,6 +45,8 @@ export default async function TodayPage() {
       `${data.birthdays.length} birthday${data.birthdays.length > 1 ? "s" : ""}`,
     data.agenda.length > 0 &&
       `${data.agenda.length} meeting${data.agenda.length > 1 ? "s" : ""}`,
+    data.followups.length > 0 &&
+      `${data.followups.length} to debrief`,
     data.resurface.length > 0 &&
       `${data.resurface.length} to reconnect`,
     suggestions.total > 0 &&
@@ -78,6 +81,14 @@ export default async function TodayPage() {
               Today&apos;s agenda
             </h2>
             <TodayAgenda items={data.agenda} timezone={data.timezone} now={now} />
+          </section>
+        )}
+        {data.followups.length > 0 && (
+          <section className="space-y-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              After your meetings
+            </h2>
+            <TodayFollowups items={data.followups} timezone={data.timezone} />
           </section>
         )}
         <section className="space-y-2">
