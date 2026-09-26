@@ -38,8 +38,8 @@ export default async function TodayPage() {
     data.reminders.length > 0 &&
       `${data.reminders.length} reminder${data.reminders.length > 1 ? "s" : ""}`,
     `${items.length} due`,
-    data.changes.length > 0 &&
-      `${data.changes.length} job change${data.changes.length > 1 ? "s" : ""}`,
+    data.changes.some((c) => !c.lowSignal) &&
+      `${data.changes.filter((c) => !c.lowSignal).length} job change${data.changes.filter((c) => !c.lowSignal).length > 1 ? "s" : ""}`,
     data.birthdays.length > 0 &&
       `${data.birthdays.length} birthday${data.birthdays.length > 1 ? "s" : ""}`,
     data.agenda.length > 0 &&

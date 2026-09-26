@@ -37,6 +37,7 @@ export const JOB_LABELS: Record<string, string> = {
   network_updates: "Network-updates email",
   meeting_prep: "Pre-meeting brief",
   geocode: "City placement",
+  ai_change_triage: "Job-change triage",
 };
 
 /**

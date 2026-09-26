@@ -16,6 +16,8 @@ export type NetworkUpdate = {
   oldValue: string | null;
   newValue: string | null;
   detectedAt: number;
+  /** AI triage's "why reach out now" (SPEC §5/§11), when it exists. */
+  reason?: string | null;
 };
 
 /** One un-emailed row of contact_changes, joined to its contact. */
@@ -129,7 +131,9 @@ export function buildNetworkUpdates(
       (u) => `<tr>
 <td style="padding:10px 0;border-bottom:1px solid #e5e7eb;font-size:14px">
 <div style="font-weight:600">${esc(u.displayName)}</div>
-<div style="margin-top:2px;font-size:13px">${updateDiffHtml(u)}</div>
+<div style="margin-top:2px;font-size:13px">${updateDiffHtml(u)}</div>${
+        u.reason ? `<div style="margin-top:3px;font-size:12px;color:${MUTED}">${esc(u.reason)}</div>` : ""
+      }
 </td>
 <td style="padding:10px 0;border-bottom:1px solid #e5e7eb;font-size:12px;color:${MUTED};text-align:right;vertical-align:top;white-space:nowrap">${esc(changeAge(u.detectedAt, input.now))}</td>
 </tr>`
@@ -146,7 +150,7 @@ export function buildNetworkUpdates(
   const text = `Rolo — network updates\n\n${input.updates
     .map(
       (u) =>
-        `- ${u.displayName}: ${updateDiffText(u)} (${u.field}, ${changeAge(u.detectedAt, input.now)})`
+        `- ${u.displayName}: ${updateDiffText(u)} (${u.field}, ${changeAge(u.detectedAt, input.now)})${u.reason ? ` — ${u.reason}` : ""}`
     )
     .join("\n")}\n\n${input.appUrl}/today`;
 

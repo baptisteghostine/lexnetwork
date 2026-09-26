@@ -14,6 +14,8 @@ import { parsePrep, type MeetingPrep } from "@/lib/prep/build";
 import { todaysResurfacePicks, type ResurfacePick } from "@/server/resurface";
 import { DAY_MS } from "@/lib/cadence/engine";
 import { getSetting } from "@/lib/settings";
+import type { ChangeTriage } from "@/lib/ai/triage";
+import { triageFor } from "@/server/ai-triage";
 import { fallbackTimezone, fromFakeUtc, localParts } from "@/lib/time";
 
 // The one source of truth for "what is due right now" — the Today page
@@ -53,6 +55,10 @@ export type OpenChange = {
   oldValue: string | null;
   newValue: string | null;
   detectedAt: number;
+  /** AI verdict (SPEC §5/§11), once the triage job has seen it. */
+  triage: ChangeTriage | null;
+  /** Folded away on Today — a rename or a headline tweak, not a move. */
+  lowSignal: boolean;
 };
 
 export type AgendaAttendee = {
@@ -185,22 +191,32 @@ export function getTodayData(now: number): TodayData {
     const key = `${r.contactId}:${r.field}`;
     if (!latestPerField.has(key)) latestPerField.set(key, r);
   }
-  const changes: OpenChange[] = [...latestPerField.values()]
+  const latestRows = [...latestPerField.values()];
+  const verdicts = triageFor(latestRows.map((r) => r.id));
+  const changes: OpenChange[] = latestRows
+    .map((r) => {
+      const v = verdicts.get(r.id) ?? null;
+      return {
+        id: r.id,
+        contactId: r.contactId,
+        contactName: r.contactName,
+        contactHasPhoto: r.photoPath !== null,
+        field: r.field as "company" | "title",
+        oldValue: r.oldValue,
+        newValue: r.newValue,
+        detectedAt: r.detectedAt,
+        triage: v?.triage ?? null,
+        lowSignal: v?.lowSignal ?? false,
+      };
+    })
+    // Triaged significance first, then the old order: company moves
+    // above title-only ones, newest first.
     .sort(
       (a, b) =>
+        (b.triage?.significance ?? 0.5) - (a.triage?.significance ?? 0.5) ||
         Number(b.field === "company") - Number(a.field === "company") ||
         b.detectedAt - a.detectedAt
-    )
-    .map((r) => ({
-      id: r.id,
-      contactId: r.contactId,
-      contactName: r.contactName,
-      contactHasPhoto: r.photoPath !== null,
-      field: r.field as "company" | "title",
-      oldValue: r.oldValue,
-      newValue: r.newValue,
-      detectedAt: r.detectedAt,
-    }));
+    );
 
   // (4) Birthdays this week.
   const birthdayRows = db

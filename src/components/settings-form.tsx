@@ -307,6 +307,20 @@ export function NotificationSettings({ initial }: { initial: AppSettings }) {
             />
           </Row>
           <Row
+            label="Fold low-signal job changes"
+            description="With AI on, each detected change gets a significance 0–1. Changes under this are folded away on Today and left out of emails (renames, headline tweaks). 0 shows everything."
+          >
+            <Input
+              name="triageHideBelow"
+              type="number"
+              min={0}
+              max={0.9}
+              step={0.05}
+              defaultValue={initial.triageHideBelow}
+              className="w-20"
+            />
+          </Row>
+          <Row
             label="Picks per day"
             description="1–10."
           >

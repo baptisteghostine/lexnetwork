@@ -8,6 +8,7 @@ import { buildTodayDigest } from "@/jobs/digest";
 import { runNetworkUpdates, type NetworkUpdatesResult } from "@/jobs/network-updates";
 import { requireAuth } from "@/lib/auth";
 import { sendEmail } from "@/lib/digest/send";
+import { clampHideBelow } from "@/lib/ai/triage";
 import { clampLeadMinutes } from "@/lib/prep/build";
 import { clampResurfacePerDay } from "@/lib/resurface/score";
 import { getSetting, setSetting } from "@/lib/settings";
@@ -28,6 +29,8 @@ export type AppSettings = {
   meetingPrepEmail: boolean;
   resurfaceEnabled: boolean;
   resurfacePerDay: number;
+  /** AI triage significance under which a job change is folded away (SPEC §5/§11). */
+  triageHideBelow: number;
   birthdaysFeb29: "feb28" | "mar1";
   birthdaysImportantOnly: boolean;
   appUrl: string;
@@ -67,6 +70,7 @@ export async function readAppSettings(): Promise<AppSettings> {
     meetingPrepEmail: getSetting<boolean>("meeting_prep.email") ?? true,
     resurfaceEnabled: getSetting<boolean>("resurface.enabled") ?? true,
     resurfacePerDay: clampResurfacePerDay(getSetting<number>("resurface.per_day")),
+    triageHideBelow: clampHideBelow(getSetting<number>("ai.triage.hide_below")),
     birthdaysFeb29: getSetting<"feb28" | "mar1">("birthdays.feb29") ?? "feb28",
     birthdaysImportantOnly:
       getSetting<boolean>("birthdays.important_only") ?? true,
@@ -171,6 +175,7 @@ const notificationsInput = z.object({
   meetingPrepEmail: z.coerce.boolean(),
   resurfaceEnabled: z.coerce.boolean(),
   resurfacePerDay: z.coerce.number().int().min(1).max(10),
+  triageHideBelow: z.coerce.number().min(0).max(0.9),
   smtpHost: z.string().trim().max(300),
   smtpPort: z.coerce.number().int().min(1).max(65535),
   smtpSecure: z.coerce.boolean(),
@@ -194,6 +199,7 @@ export async function updateNotificationsAction(
     meetingPrepEmail: formData.get("meetingPrepEmail") === "on",
     resurfaceEnabled: formData.get("resurfaceEnabled") === "on",
     resurfacePerDay: formData.get("resurfacePerDay") || 3,
+    triageHideBelow: formData.get("triageHideBelow") || 0.3,
     smtpHost: formData.get("smtpHost") ?? "",
     smtpPort: formData.get("smtpPort") || 587,
     smtpSecure: formData.get("smtpSecure") === "on",
@@ -212,6 +218,7 @@ export async function updateNotificationsAction(
   setSetting("meeting_prep.email", s.meetingPrepEmail);
   setSetting("resurface.enabled", s.resurfaceEnabled);
   setSetting("resurface.per_day", s.resurfacePerDay);
+  setSetting("ai.triage.hide_below", clampHideBelow(s.triageHideBelow));
   setSetting("smtp", {
     host: s.smtpHost,
     port: s.smtpPort,

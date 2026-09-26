@@ -27,6 +27,8 @@ import { runCalendarSync } from "@/server/sync/calendar";
 import { runGmailSync } from "@/server/sync/gmail";
 import { runLinkedInSync } from "@/server/sync/linkedin";
 import { runAiBatchTag } from "@/server/ai-batch";
+import { aiEnabled } from "@/server/ai-client";
+import { runChangeTriage } from "@/server/ai-triage";
 import { runDedupeScan } from "@/server/dedupe-scan";
 
 // The in-process scheduler (CLAUDE.md: jobs table, no external broker).
@@ -45,6 +47,9 @@ const HANDLERS: Record<string, Handler> = {
   },
   ai_batch_tag: async (payloadJson) => {
     await runAiBatchTag(payloadJson);
+  },
+  ai_change_triage: async () => {
+    await runChangeTriage(Date.now());
   },
   gmail_sync: async () => {
     const stats = await runGmailSync();
@@ -102,7 +107,8 @@ const SYNC_JOBS: {
     | "network_updates"
     | "meeting_prep"
     | "geocode"
-    | "backup";
+    | "backup"
+    | "ai_change_triage";
   connected: () => boolean;
   intervalMs: number;
   /** When the integration behind the kind was (re)connected — a dead run
@@ -144,6 +150,10 @@ const SYNC_JOBS: {
   // Nightly backup (SPEC §13) — always on; first run fires at first boot,
   // then every 24h from the last success, like dedupe_scan.
   { kind: "backup", connected: () => true, intervalMs: 24 * 3600 * 1000 },
+  // Job-change triage (SPEC §5/§11, 2026-09-26): gives every open change
+  // its verdict, reason and opener. Also enqueued right after an import
+  // that detected moves; the interval only mops up.
+  { kind: "ai_change_triage", connected: () => aiEnabled(), intervalMs: 15 * 60 * 1000 },
 ];
 
 /**

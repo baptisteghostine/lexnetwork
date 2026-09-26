@@ -17,6 +17,8 @@ export type DigestInput = {
     field: "company" | "title";
     oldValue: string | null;
     newValue: string | null;
+    /** AI triage's "why reach out now" (SPEC §5/§11), when it exists. */
+    reason?: string | null;
   }[];
   birthdays: { displayName: string; daysUntil: number; turns: number | null }[];
   /** "Worth reconnecting" (SPEC §3) — optional so older callers/tests stand. */
@@ -144,7 +146,9 @@ export function buildDigest(input: DigestInput): DigestEmail {
         input.changes
           .map((c) =>
             row(
-              `${esc(c.displayName)} <span style="color:${MUTED}">${esc(c.oldValue ?? "—")} →</span> ${esc(c.newValue ?? "—")}`,
+              `${esc(c.displayName)} <span style="color:${MUTED}">${esc(c.oldValue ?? "—")} →</span> ${esc(c.newValue ?? "—")}${
+                c.reason ? `<div style="margin-top:2px;font-size:12px;color:${MUTED}">${esc(c.reason)}</div>` : ""
+              }`,
               c.field
             )
           )
@@ -156,7 +160,7 @@ export function buildDigest(input: DigestInput): DigestEmail {
         input.changes
           .map(
             (c) =>
-              `- ${c.displayName}: ${c.oldValue ?? "—"} → ${c.newValue ?? "—"} (${c.field})`
+              `- ${c.displayName}: ${c.oldValue ?? "—"} → ${c.newValue ?? "—"} (${c.field})${c.reason ? ` — ${c.reason}` : ""}`
           )
           .join("\n")
     );

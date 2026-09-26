@@ -611,6 +611,14 @@ export function executeLinkedInRows(opts: {
     report.baseline = { contacts: movedContacts, matched: matchedContacts };
   }
   report.stats.conflicts = report.conflicts.length;
+  if (report.jobChanges.length > 0 && !report.baseline) {
+    // Triage the new cards now rather than on the next 15-minute sweep
+    // (SPEC §5/§11). Lazy import: the scheduler imports this module.
+    const runAt = Date.now();
+    void import("@/jobs/scheduler").then((m) =>
+      m.enqueueJob({ kind: "ai_change_triage", runAt, dedupeKey: `ai_change_triage:${runAt}` })
+    );
+  }
 
   // ---------- messages → interactions ----------
   const byConversation = new Map<string, LinkedInMessage[]>();
