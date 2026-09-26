@@ -22,9 +22,10 @@ import { contactIdsFor } from "@/server/sync/linkedin-enrich";
 // "Log this conversation" from the messaging view (SPEC §9c messaging,
 // owner request 2026-09-04). The extension reads the thread the owner
 // has open — no request to LinkedIn — and posts dates, direction, and a
-// snippet-bounded first line. Rows go through insertLinkedInMessages with
-// the same conversation+timestamp key the ZIP uses, so a later ZIP import
-// of the same thread is a no-op on these rows, not a duplicate.
+// the text. Rows go through insertLinkedInMessages, which folds a message
+// seen at minute precision here and at second precision in a later ZIP
+// import into one row — so logging a thread and then importing the
+// export never doubles it.
 //
 // The counterpart is matched like the ZIP's messages.csv: profile URL,
 // then a unique name among LinkedIn-sourced contacts. Someone not in

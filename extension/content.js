@@ -594,7 +594,7 @@ function readConversation() {
       messages.push({
         direction: fromCounterpart ? "inbound" : "outbound",
         occurredAt: Math.min(occurredAt, now.getTime()),
-        text: text ? text.slice(0, 400) : null,
+        text: text ? text.slice(0, 4000) : null,
       });
     }
   }

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, gte, isNull, lt, ne, sql } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import {
@@ -294,7 +294,63 @@ export function insertLinkedInMessages(
 ): number {
   const now = Date.now();
   let inserted = 0;
+  const MINUTE = 60_000;
   for (const m of messages) {
+    // The same message reaches Rolo under two clocks: a thread logged from
+    // the messaging view knows its times to the minute, the ZIP to the
+    // second. Before inserting, look for the other-precision twin in the
+    // same minute (same person, same direction) and fold the two into one
+    // row that carries the precise time and whichever text it lacked. Two
+    // rows of the same precision are never folded — those are two messages.
+    const minute = Math.floor(m.occurredAt / MINUTE) * MINUTE;
+    const twin = db
+      .select({
+        id: interactions.id,
+        occurredAt: interactions.occurredAt,
+        title: interactions.title,
+        meta: interactions.meta,
+      })
+      .from(interactions)
+      .where(
+        and(
+          eq(interactions.contactId, contactId),
+          eq(interactions.kind, "message"),
+          eq(interactions.source, SOURCE),
+          eq(interactions.direction, m.direction),
+          gte(interactions.occurredAt, minute),
+          lt(interactions.occurredAt, minute + MINUTE),
+          ne(interactions.occurredAt, m.occurredAt)
+        )
+      )
+      .get();
+    if (twin && (twin.occurredAt === minute || m.occurredAt === minute)) {
+      const precise = twin.occurredAt === minute ? m.occurredAt : twin.occurredAt;
+      const key = `${conversationId}:${precise}`;
+      const exact = db
+        .select({ id: interactions.id })
+        .from(interactions)
+        .where(and(eq(interactions.contactId, contactId), eq(interactions.source, SOURCE), eq(interactions.sourceKey, key)))
+        .get();
+      if (exact && exact.id !== twin.id) {
+        // The precise row already exists too: the minute-precision one is
+        // a plain duplicate, and the precise row takes the usual path below.
+        db.delete(interactions).where(eq(interactions.id, twin.id)).run();
+      } else {
+        const changed =
+          twin.occurredAt !== precise || (twin.title === null && !!m.snippet) || (twin.meta === null && !!m.body);
+        db.update(interactions)
+          .set({
+            occurredAt: precise,
+            sourceKey: key,
+            title: twin.title ?? m.snippet ?? null,
+            meta: twin.meta ?? (m.body ? JSON.stringify({ body: m.body }) : null),
+          })
+          .where(eq(interactions.id, twin.id))
+          .run();
+        if (changed) inserted += 1;
+        continue;
+      }
+    }
     const res = db
       .insert(interactions)
       .values({

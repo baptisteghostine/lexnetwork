@@ -86,3 +86,49 @@ describe("re-importing the same LinkedIn export", () => {
     expect(JSON.parse(body.meta)).toHaveProperty("body");
   });
 });
+
+describe("a thread logged from the extension, then the ZIP", () => {
+  it("folds minute-precision rows into the export's second-precision ones — no duplicates either way", async () => {
+    const { parseMessages, parseProfileOwnerName } = await import("@/lib/imports/linkedin");
+    const { insertLinkedInMessages } = await import("@/server/linkedin-import");
+    const ownerName = parseProfileOwnerName(fs.readFileSync(path.join(FIXTURES, "Profile.csv"), "utf8"));
+    const messages = parseMessages(fs.readFileSync(path.join(FIXTURES, "messages.csv"), "utf8"), ownerName);
+    const before = counts();
+    const ana = rawDb.prepare("SELECT id FROM contacts WHERE display_name = 'Ana Silva'").get() as { id: number };
+    const thread = messages.filter((m) => m.conversationId === "conv-001");
+    expect(thread.length).toBeGreaterThan(0);
+
+    // The messaging view knows the same messages to the minute, in the
+    // browser's clock, with the thread's URL segment as the id.
+    const minute = (ms: number) => Math.floor(ms / 60_000) * 60_000;
+    const logged = insertLinkedInMessages(
+      ana.id,
+      "2-ZmFrZQ==",
+      thread.map((m) => ({ direction: m.direction, occurredAt: minute(m.occurredAt), snippet: m.snippet, body: m.body })),
+      null
+    );
+    expect(logged).toBe(0); // the export was imported first: nothing new
+    expect(counts()).toEqual(before);
+
+    // The other order: a thread logged before the export existed in Rolo.
+    rawDb.prepare("DELETE FROM interactions WHERE contact_id = ?").run(ana.id);
+    const fresh = insertLinkedInMessages(
+      ana.id,
+      "2-ZmFrZQ==",
+      thread.map((m) => ({ direction: m.direction, occurredAt: minute(m.occurredAt), snippet: m.snippet, body: null })),
+      null
+    );
+    expect(fresh).toBe(thread.length);
+    run(messages, "after-thread.zip");
+    expect(counts()).toEqual(before);
+    const rows = rawDb
+      .prepare("SELECT occurred_at, meta FROM interactions WHERE contact_id = ? ORDER BY occurred_at")
+      .all(ana.id) as { occurred_at: number; meta: string | null }[];
+    // The precise times won, and the bodies the thread lacked were filled in.
+    expect(rows.map((r) => r.occurred_at)).toEqual(thread.map((m) => m.occurredAt).sort((a, b) => a - b));
+    expect(rows.every((r) => r.meta !== null)).toBe(true);
+    // And again: still nothing moves.
+    run(messages, "after-thread-2.zip");
+    expect(counts()).toEqual(before);
+  });
+});
