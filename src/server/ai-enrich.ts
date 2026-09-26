@@ -28,7 +28,7 @@ import {
   type EnrichInput,
 } from "@/lib/ai/enrich";
 import { DAY_MS } from "@/lib/cadence/engine";
-import { interactionLabel } from "@/lib/prep/build";
+import { interactionLabelFull } from "@/lib/prep/build";
 import { getSetting } from "@/lib/settings";
 import { readAnnotation, upsertAnnotation, type Annotation } from "@/server/ai-annotations";
 import { aiConfig, aiEnabled, callAi } from "@/server/ai-client";
@@ -115,6 +115,7 @@ function loadInput(contactId: number, now: number): EnrichInput | null {
       kind: interactions.kind,
       direction: interactions.direction,
       title: interactions.title,
+      meta: interactions.meta,
       occurredAt: interactions.occurredAt,
     })
     .from(interactions)
@@ -122,7 +123,7 @@ function loadInput(contactId: number, now: number): EnrichInput | null {
     .orderBy(desc(interactions.occurredAt))
     .limit(8)
     .all()
-    .map((i) => `${interactionLabel(i)} · ${Math.max(0, Math.floor((now - i.occurredAt) / DAY_MS))}d ago`);
+    .map((i) => `${interactionLabelFull(i)} · ${Math.max(0, Math.floor((now - i.occurredAt) / DAY_MS))}d ago`);
   const changes = db
     .select({
       field: contactChanges.field,

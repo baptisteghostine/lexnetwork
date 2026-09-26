@@ -9,12 +9,15 @@
 // anyone going looking for it.
 
 import { DAY_MS } from "@/lib/cadence/engine";
+import { bodyFromMeta } from "@/lib/imports/linkedin";
 
 export type PrepInteraction = {
   kind: string;
   direction: string | null;
   title: string | null;
   occurredAt: number;
+  /** interactions.meta — carries {body} for LinkedIn messages (SPEC §2). */
+  meta?: string | null;
 };
 
 export type PrepContact = {
@@ -115,6 +118,19 @@ export function ago(ts: number, now: number): string {
   if (days < 30) return `${days}d ago`;
   if (days < 365) return `${Math.floor(days / 30)}mo ago`;
   return `${Math.floor(days / 365)}y ago`;
+}
+
+/**
+ * Like interactionLabel, but with the full message text where a row has
+ * one (LinkedIn messages carry {body} in meta), clipped — for prompts,
+ * where the whole exchange is the point. UI rows keep the snippet.
+ */
+export function interactionLabelFull(i: PrepInteraction, max = 400): string {
+  const body = bodyFromMeta(i.meta);
+  if (!body) return interactionLabel(i);
+  const text = body.replace(/\s+/g, " ").trim();
+  const clipped = text.length > max ? `${text.slice(0, max)}…` : text;
+  return `${interactionLabel({ ...i, title: null })} — ${clipped}`;
 }
 
 export function interactionLabel(i: PrepInteraction): string {

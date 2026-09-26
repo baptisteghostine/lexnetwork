@@ -140,6 +140,7 @@ Everything externally-sourced or manually logged (notes live in `notes`):
 - `idx_interactions_contact_time ON interactions(contact_id, occurred_at DESC)` — per-contact timeline.
 - `idx_interactions_time ON interactions(occurred_at DESC)` — global timeline.
 - `idx_interactions_touch ON interactions(contact_id, occurred_at DESC) WHERE counts_for_touch = 1` — the cadence engine's max() lookup.
+- `meta` for LinkedIn messages (source 'linkedin', kind 'message'): `{body}` — the full message text capped at 4,000 chars (2026-09-26); `title` keeps the 160-char snippet. Email rows carry `{threadId, …}` and never a body (CLAUDE.md privacy invariant).
 
 ## reminders
 

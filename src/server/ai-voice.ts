@@ -4,6 +4,7 @@ import { and, desc, eq, isNotNull } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import { interactions } from "@/db/schema";
+import { bodyFromMeta } from "@/lib/imports/linkedin";
 import { VOICE_SNIPPETS_MAX, voiceContext } from "@/lib/ai/voice";
 import { getSetting } from "@/lib/settings";
 
@@ -26,10 +27,11 @@ export function readVoiceSettings(): VoiceSettings {
   };
 }
 
-/** Opening lines of messages the owner sent on LinkedIn, newest first. */
+/** Messages the owner sent on LinkedIn, newest first — full text where the
+ * import kept it (2026-09-26), else the opening line. */
 export function outboundSnippets(limit = VOICE_SNIPPETS_MAX): string[] {
   return db
-    .select({ title: interactions.title })
+    .select({ title: interactions.title, meta: interactions.meta })
     .from(interactions)
     .where(
       and(
@@ -41,7 +43,7 @@ export function outboundSnippets(limit = VOICE_SNIPPETS_MAX): string[] {
     .orderBy(desc(interactions.occurredAt))
     .limit(limit)
     .all()
-    .map((r) => r.title as string);
+    .map((r) => bodyFromMeta(r.meta) ?? (r.title as string));
 }
 
 /** System-prompt fragment for anything that writes as the owner. */

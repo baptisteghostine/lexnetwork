@@ -21,7 +21,7 @@ describe("buildVoicePrompt", () => {
     });
     expect(prompt).toContain("The writer's name: Baptiste");
     expect(prompt).toContain("Full messages they pasted");
-    expect(prompt).toContain("Opening lines of 2 messages");
+    expect(prompt).toContain("2 messages they sent");
     expect(prompt).toContain("- Hi Tom, quick one");
     expect(prompt).toContain("- Salut Marc — petite question");
   });
@@ -32,7 +32,7 @@ describe("buildVoicePrompt", () => {
       examples: "",
       snippets: Array.from({ length: VOICE_SNIPPETS_MAX + 20 }, (_, i) => `line ${i}`),
     });
-    expect(prompt).toContain(`Opening lines of ${VOICE_SNIPPETS_MAX} messages`);
+    expect(prompt).toContain(`${VOICE_SNIPPETS_MAX} messages they sent`);
     expect(prompt).not.toContain(`line ${VOICE_SNIPPETS_MAX}`);
   });
 });

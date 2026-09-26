@@ -10,11 +10,13 @@ import { z } from "zod";
 import { extractJson } from "@/lib/ai/nl-filter";
 
 export const VOICE_SNIPPETS_MAX = 150;
+/** Full messages add up; the newest ones up to this many characters go in. */
+export const VOICE_TOTAL_CHARS = 20000;
 export const VOICE_EXAMPLES_MAX_CHARS = 8000;
 export const VOICE_GUIDE_MAX_CHARS = 3000;
 
 export type VoiceInput = {
-  /** Opening lines of messages the owner sent, newest first. */
+  /** Messages the owner sent, newest first — full text or the opening line. */
   snippets: string[];
   /** Full messages the owner pasted as examples (optional). */
   examples: string;
@@ -23,7 +25,7 @@ export type VoiceInput = {
 
 export const VOICE_SYSTEM = [
   "You are describing how one specific person writes short professional messages, so that drafts written for them later sound like them.",
-  "You are given opening lines of messages they sent (truncated to about 160 characters each) and optionally a few full messages they pasted.",
+  "You are given messages they sent (full text where available, otherwise the opening line, cut at about 160 characters) and optionally a few messages they pasted.",
   "Write a compact style guide in second person (\"You open with…\"), 150–350 words, covering: greeting habits, how they refer to themselves and where they are from (school, company), typical length, tone and formality, sentence rhythm, punctuation and emoji habits, how they ask for things, how they close, and the language(s) they write in — if they mix languages, say when they use which.",
   "Quote 3–5 short verbatim phrases they reuse. Do not invent facts about their life; only describe what the samples show.",
   'Respond with JSON only: {"guide": "..."}',
@@ -34,13 +36,18 @@ export function buildVoicePrompt(input: VoiceInput): string {
   if (input.ownerName) parts.push(`The writer's name: ${input.ownerName}`);
   const examples = input.examples.trim().slice(0, VOICE_EXAMPLES_MAX_CHARS);
   if (examples) parts.push(`Full messages they pasted as examples:\n${examples}`);
-  const snippets = input.snippets
-    .map((s) => s.replace(/\s+/g, " ").trim())
-    .filter((s) => s.length > 0)
-    .slice(0, VOICE_SNIPPETS_MAX);
+  const snippets: string[] = [];
+  let total = 0;
+  for (const raw of input.snippets) {
+    const s = raw.replace(/\s+/g, " ").trim();
+    if (!s) continue;
+    if (snippets.length >= VOICE_SNIPPETS_MAX || total + s.length > VOICE_TOTAL_CHARS) break;
+    snippets.push(s);
+    total += s.length;
+  }
   if (snippets.length > 0) {
     parts.push(
-      `Opening lines of ${snippets.length} messages they sent (newest first, each cut at ~160 chars):\n${snippets
+      `${snippets.length} messages they sent (newest first; long ones are the full text, short ones may be just the opening line):\n${snippets
         .map((s) => `- ${s}`)
         .join("\n")}`
     );

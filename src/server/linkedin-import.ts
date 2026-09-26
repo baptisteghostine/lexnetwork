@@ -286,6 +286,7 @@ export function insertLinkedInMessages(
     direction: "inbound" | "outbound";
     occurredAt: number;
     snippet?: string | null;
+    body?: string | null;
   }[],
   runId: number | null
 ): number {
@@ -303,6 +304,9 @@ export function insertLinkedInMessages(
         // Baptiste from LBS…") — same column manual and email interactions
         // use for theirs.
         title: m.snippet ?? null,
+        // The full text (owner request 2026-09-26), for the timeline's
+        // "full message" and for the AI features; null when absent.
+        meta: m.body ? JSON.stringify({ body: m.body }) : null,
         source: SOURCE,
         sourceKey: `${conversationId}:${m.occurredAt}`,
         // LinkedIn messages count in either direction (SPEC §3).
@@ -311,16 +315,20 @@ export function insertLinkedInMessages(
         createdAt: now,
       })
       // Re-importing a ZIP is the normal ritual, and messages imported
-      // before snippets existed sit with title NULL — fill exactly those,
-      // touch nothing else. The WHERE keeps `changes` honest: pure dupes
-      // still count 0, so messagesLinked doesn't inflate on re-import.
+      // before snippets (or bodies) existed sit with title/meta NULL —
+      // fill exactly those, touch nothing else. The WHERE keeps `changes`
+      // honest: pure dupes still count 0, so messagesLinked doesn't
+      // inflate on re-import.
       .onConflictDoUpdate({
         target: [interactions.contactId, interactions.source, interactions.sourceKey],
         // uq_interactions_source is a partial index; SQLite only matches
         // the ON CONFLICT target when its WHERE is restated.
         targetWhere: sql`source_key IS NOT NULL`,
-        set: { title: sql`excluded.title` },
-        setWhere: sql`${interactions.title} IS NULL AND excluded.title IS NOT NULL`,
+        set: {
+          title: sql`COALESCE(${interactions.title}, excluded.title)`,
+          meta: sql`COALESCE(${interactions.meta}, excluded.meta)`,
+        },
+        setWhere: sql`(${interactions.title} IS NULL AND excluded.title IS NOT NULL) OR (${interactions.meta} IS NULL AND excluded.meta IS NOT NULL)`,
       })
       .run();
     inserted += res.changes;

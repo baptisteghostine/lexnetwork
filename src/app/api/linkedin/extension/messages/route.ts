@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
   const inserted = insertLinkedInMessages(
     contactId,
     convo.conversationId,
-    messages.map((m) => ({ direction: m.direction, occurredAt: m.occurredAt, snippet: m.snippet })),
+    messages.map((m) => ({ direction: m.direction, occurredAt: m.occurredAt, snippet: m.snippet, body: m.body })),
     null
   );
   recomputeContact(contactId);

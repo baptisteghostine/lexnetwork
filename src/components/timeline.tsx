@@ -13,6 +13,7 @@ import {
 
 import { AiNoteSummary } from "@/components/ai-note-summary";
 import { NoteEditor } from "@/components/note-editor";
+import { bodyFromMeta } from "@/lib/imports/linkedin";
 import { Button } from "@/components/ui/button";
 import { createNoteAction, deleteInteractionAction } from "@/server/notes";
 import type { TimelineItem } from "@/server/queries";
@@ -227,6 +228,16 @@ export function Timeline({
                 {item.interaction.title}
               </span>
             ) : null}
+            {item.interaction.kind === "message" && bodyFromMeta(item.interaction.meta) && (
+              <details className="order-last basis-full text-[12px]">
+                <summary className="cursor-pointer text-[11px] text-muted-foreground hover:text-foreground">
+                  Full message
+                </summary>
+                <p className="mt-1 whitespace-pre-wrap rounded-md border border-border/60 bg-accent/20 px-2.5 py-1.5 leading-relaxed">
+                  {bodyFromMeta(item.interaction.meta)}
+                </p>
+              </details>
+            )}
             {item.interaction.kind === "email" &&
               gmailThreadUrl(item.interaction.meta) && (
                 <a

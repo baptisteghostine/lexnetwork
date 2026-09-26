@@ -12,6 +12,8 @@ import {
   parseMessages,
   parseProfileOwnerName,
   stripConnectionsPreamble,
+  bodyFromMeta,
+  messageBody,
 } from "@/lib/imports/linkedin";
 import {
   isBaselineRun,
@@ -316,5 +318,17 @@ describe("baseline rule (SPEC §5, 2026-09-19)", () => {
     expect(isBaselineRun(25, 200)).toBe(false); // an eighth — plausible real moves
     expect(isBaselineRun(475, 2141)).toBe(true); // the run that prompted this
     expect(isBaselineRun(30, 2200)).toBe(false); // a normal monthly ZIP
+  });
+});
+
+describe("message bodies (2026-09-26: full context)", () => {
+  it("keeps the whole text, normalised and capped, next to the snippet", () => {
+    const long = "a".repeat(4500);
+    expect(messageBody("Hi Kate,  \r\n\r\nlong story…  ")).toBe("Hi Kate,\n\nlong story…");
+    expect(messageBody("")).toBeNull();
+    expect(messageBody(long)).toHaveLength(4001);
+    expect(bodyFromMeta(JSON.stringify({ body: "x" }))).toBe("x");
+    expect(bodyFromMeta(JSON.stringify({ threadId: "t" }))).toBeNull();
+    expect(bodyFromMeta("nope")).toBeNull();
   });
 });

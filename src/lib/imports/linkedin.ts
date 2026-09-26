@@ -49,7 +49,34 @@ export type LinkedInMessage = {
    * exported and uploaded themselves.
    */
   snippet: string | null;
+  /**
+   * The full message text, capped (owner request 2026-09-26: "better to
+   * have full context"). Stored in interactions.meta as {body}; the
+   * snippet stays the timeline face, the body is one click away and what
+   * the AI features read. Null when the export carried no content.
+   */
+  body: string | null;
 };
+
+export const MESSAGE_BODY_MAX = 4000;
+
+/** Whole message, whitespace-normalised per line, capped. */
+export function messageBody(text: string): string | null {
+  const clean = text.replace(/\r\n?/g, "\n").replace(/[ \t]+\n/g, "\n").trim();
+  if (!clean) return null;
+  return clean.length <= MESSAGE_BODY_MAX ? clean : `${clean.slice(0, MESSAGE_BODY_MAX)}…`;
+}
+
+/** The body an interaction row carries in meta, or null. */
+export function bodyFromMeta(meta: string | null | undefined): string | null {
+  if (!meta) return null;
+  try {
+    const parsed = JSON.parse(meta) as { body?: unknown };
+    return typeof parsed.body === "string" && parsed.body.trim() ? parsed.body : null;
+  } catch {
+    return null;
+  }
+}
 
 export const MESSAGE_SNIPPET_MAX = 160;
 
@@ -228,6 +255,7 @@ export function parseMessages(
       ),
       occurredAt,
       snippet: iContent >= 0 ? messageSnippet(get(iContent)) : null,
+      body: iContent >= 0 ? messageBody(get(iContent)) : null,
     });
   }
   return out;

@@ -24,7 +24,7 @@ import {
 } from "@/lib/ai/ask-plan";
 import { buildNlSearchSystem, extractJson, type FilterCatalog } from "@/lib/ai/nl-filter";
 import { DAY_MS } from "@/lib/cadence/engine";
-import { interactionLabel } from "@/lib/prep/build";
+import { interactionLabelFull } from "@/lib/prep/build";
 import { aiEnabled, callAi } from "@/server/ai-client";
 import { listCustomFields } from "@/server/custom-fields";
 import { listGroups, listTags } from "@/server/queries";
@@ -229,6 +229,7 @@ function toCandidates(
       kind: interactions.kind,
       direction: interactions.direction,
       title: interactions.title,
+      meta: interactions.meta,
       occurredAt: interactions.occurredAt,
     })
     .from(interactions)
@@ -254,7 +255,7 @@ function toCandidates(
   for (const i of recentRows) {
     const list = recentBy.get(i.contactId) ?? [];
     if (list.length >= recentMax) continue;
-    list.push(`${interactionLabel(i)} · ${Math.max(0, Math.floor((now - i.occurredAt) / DAY_MS))}d ago`);
+    list.push(`${interactionLabelFull(i)} · ${Math.max(0, Math.floor((now - i.occurredAt) / DAY_MS))}d ago`);
     recentBy.set(i.contactId, list);
   }
 
@@ -286,6 +287,7 @@ function timelineExcerpts(ids: number[], rows: Map<number, ContactRow>, now: num
         kind: interactions.kind,
         direction: interactions.direction,
         title: interactions.title,
+        meta: interactions.meta,
         occurredAt: interactions.occurredAt,
       })
       .from(interactions)
@@ -293,7 +295,7 @@ function timelineExcerpts(ids: number[], rows: Map<number, ContactRow>, now: num
       .orderBy(desc(interactions.occurredAt))
       .limit(10)
       .all()
-      .map((i) => `${interactionLabel(i)} · ${Math.max(0, Math.floor((now - i.occurredAt) / DAY_MS))}d ago`);
+      .map((i) => `${interactionLabelFull(i)} · ${Math.max(0, Math.floor((now - i.occurredAt) / DAY_MS))}d ago`);
     const ownerNotes = db
       .select({ body: notes.bodyMd })
       .from(notes)

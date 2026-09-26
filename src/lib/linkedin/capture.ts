@@ -8,6 +8,7 @@
 import { z } from "zod";
 
 import {
+  messageBody,
   messageSnippet,
   normalizeLinkedInUrl,
   type LinkedInConnection,
@@ -137,6 +138,7 @@ export function capturedConversationToMessages(c: CapturedConversation): LinkedI
       counterpartProfileUrl: profileUrl,
       occurredAt: m.occurredAt,
       snippet: m.text ? messageSnippet(m.text) : null,
+      body: m.text ? messageBody(m.text) : null,
     });
   }
   return out.sort((a, b) => a.occurredAt - b.occurredAt);

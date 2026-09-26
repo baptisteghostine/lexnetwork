@@ -38,7 +38,7 @@ import {
 } from "@/lib/ai/prompts";
 import type { ChangeTriage } from "@/lib/ai/triage";
 import { DAY_MS } from "@/lib/cadence/engine";
-import { interactionLabel } from "@/lib/prep/build";
+import { interactionLabelFull } from "@/lib/prep/build";
 import { readAnnotation } from "@/server/ai-annotations";
 import { enrichContact } from "@/server/ai-enrich";
 import { ownerVoiceContext } from "@/server/ai-voice";
@@ -204,6 +204,7 @@ export async function draftMessageAction(input: {
       kind: interactions.kind,
       direction: interactions.direction,
       title: interactions.title,
+      meta: interactions.meta,
       occurredAt: interactions.occurredAt,
     })
     .from(interactions)
@@ -211,7 +212,7 @@ export async function draftMessageAction(input: {
     .orderBy(desc(interactions.occurredAt))
     .limit(6)
     .all()
-    .map((i) => `${interactionLabel(i)} · ${Math.max(0, Math.floor((now - i.occurredAt) / DAY_MS))}d ago`);
+    .map((i) => `${interactionLabelFull(i)} · ${Math.max(0, Math.floor((now - i.occurredAt) / DAY_MS))}d ago`);
   const tagNames = new Map(listTags().map((t) => [t.id, t.name]));
 
   let change: DraftInput["change"] = null;
