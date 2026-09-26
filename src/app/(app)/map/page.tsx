@@ -8,6 +8,7 @@ import { countryNames } from "@/lib/geo/countries";
 import { countryCentroidsLonLat } from "@/lib/geo/world";
 import { getSetting } from "@/lib/settings";
 import { readMapData } from "@/server/map";
+import { DISPLAY_LOCALE } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +49,7 @@ export default async function MapPage({ searchParams }: PageProps<"/map">) {
         <header className="flex shrink-0 items-baseline justify-between border-b border-border px-5 py-2.5">
           <h1 className="text-sm font-semibold">Map</h1>
           <p className="text-xs text-muted-foreground">
-            {data.totalPlaced.toLocaleString()} contacts placed in{" "}
+            {data.totalPlaced.toLocaleString(DISPLAY_LOCALE)} contacts placed in{" "}
             {ranked.length} countries
             {data.noLocation > 0 ? ` · ${data.noLocation} without a location` : ""}
           </p>

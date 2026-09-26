@@ -13,6 +13,7 @@ import {
   type AiCallRow,
   type SuggestionRow,
 } from "@/server/ai";
+import { DISPLAY_LOCALE } from "@/lib/time";
 
 // The AI review surface (SPEC §11): the tag-suggestion queue — nothing
 // applies without approval — and the audit trail of every model call.
@@ -185,8 +186,8 @@ export function AiPanel({
       <section className="space-y-2">
         <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Audit — {audit.totals.calls} call{audit.totals.calls === 1 ? "" : "s"},{" "}
-          {audit.totals.inputTokens.toLocaleString()} in /{" "}
-          {audit.totals.outputTokens.toLocaleString()} out tokens
+          {audit.totals.inputTokens.toLocaleString(DISPLAY_LOCALE)} in /{" "}
+          {audit.totals.outputTokens.toLocaleString(DISPLAY_LOCALE)} out tokens
         </h2>
         {audit.calls.length === 0 ? (
           <p className="text-sm text-muted-foreground">No AI calls yet.</p>
