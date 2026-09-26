@@ -3,8 +3,11 @@
 // them pure is what makes backoff/reclaim unit-testable.
 
 export const POLL_INTERVAL_MS = 15_000;
-// A 'running' job older than this is presumed crashed and reclaimed.
-export const LEASE_MS = 5 * 60_000;
+// A 'running' job older than this is presumed crashed and reclaimed. The
+// AI jobs are the slowest — up to twenty serial model calls on a free
+// tier — and must finish inside the lease, or the loop would reclaim
+// and re-run them beside themselves.
+export const LEASE_MS = 15 * 60_000;
 // Completed job rows are pruned after this long.
 export const PRUNE_AFTER_MS = 7 * 24 * 60 * 60_000;
 

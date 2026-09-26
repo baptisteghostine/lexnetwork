@@ -209,20 +209,32 @@ export function staleContactIds(now: number, cap = RUN_CAP): number[] {
       .map((r) => [r.id, r.updatedAt])
   );
   // Newest data point per contact: the contact row, its newest note, its
-  // newest interaction — one query each, then merged in memory.
+  // newest interaction — one query each, then merged in memory. Notes go
+  // by updated_at: a post-meeting debrief is dated to the meeting, which
+  // may be older than the card, but it was written just now.
   const rows = db
-    .select({ id: contacts.id, updatedAt: contacts.updatedAt, starred: contacts.starred, cadence: contacts.cadenceDays })
+    .select({
+      id: contacts.id,
+      updatedAt: contacts.updatedAt,
+      starred: contacts.starred,
+      cadence: contacts.cadenceDays,
+      title: contacts.title,
+      company: contacts.company,
+    })
     .from(contacts)
     .where(isNull(contacts.archivedAt))
     .all();
   const latestNote = new Map(
     db
-      .select({ contactId: notes.contactId, at: sql<number>`max(${notes.createdAt})` })
+      .select({ contactId: notes.contactId, at: sql<number>`max(${notes.updatedAt})` })
       .from(notes)
       .groupBy(notes.contactId)
       .all()
       .filter((r) => r.contactId !== null)
       .map((r) => [r.contactId as number, r.at])
+  );
+  const withWork = new Set(
+    db.selectDistinct({ contactId: workHistory.contactId }).from(workHistory).all().map((r) => r.contactId)
   );
   const latestInteraction = new Map(
     db
@@ -236,7 +248,10 @@ export function staleContactIds(now: number, cap = RUN_CAP): number[] {
     .map((r) => {
       const newest = Math.max(r.updatedAt, latestNote.get(r.id) ?? 0, latestInteraction.get(r.id) ?? 0);
       const card = cards.get(r.id);
-      const hasData = latestNote.has(r.id) || latestInteraction.has(r.id);
+      // Mirrors hasEnrichMaterial: a captured LinkedIn profile with a
+      // role and a work history is worth a card before any note exists.
+      const hasData =
+        latestNote.has(r.id) || latestInteraction.has(r.id) || withWork.has(r.id) || !!(r.title && r.company);
       return { id: r.id, priority: (r.starred ? 2 : 0) + (r.cadence !== null ? 1 : 0), stale: hasData && (card === undefined || card < newest), newest };
     })
     .filter((r) => r.stale && r.newest <= now)

@@ -390,7 +390,19 @@ async function tick(): Promise<void> {
   try {
     reclaimStaleJobs(now);
     fireDueReminders(now);
-    await runDueJobs(now);
+    // Ticks fire on a fixed interval, so a job outlasting one (an AI
+    // enrichment run is twenty model calls) would otherwise see the next
+    // tick claim the queue's next row beside it — the same annotations
+    // written twice by two runs. One job loop at a time; reminders above
+    // keep sweeping regardless.
+    if (!globalThis.__roloJobsRunning) {
+      globalThis.__roloJobsRunning = true;
+      try {
+        await runDueJobs(now);
+      } finally {
+        globalThis.__roloJobsRunning = false;
+      }
+    }
     pruneOldJobs(now);
   } catch (err) {
     // A failed tick must never kill the loop (e.g. migrations not applied
@@ -402,6 +414,7 @@ async function tick(): Promise<void> {
 declare global {
   // HMR-safe process-wide singleton (same pattern as db/client.ts).
   var __roloScheduler: ReturnType<typeof setInterval> | undefined;
+  var __roloJobsRunning: boolean | undefined;
 }
 
 /** Idempotent: safe under HMR and repeated imports. */

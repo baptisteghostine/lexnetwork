@@ -49,10 +49,13 @@ export async function POST(req: NextRequest) {
   // A capture is exactly the moment a "what I know" card goes stale
   // (SPEC §11); the job picks it up within a tick. Lazy: the scheduler
   // imports the import core this route uses.
+  // Keyed to the minute: a run of captures queues one job, not one each.
   const runAt = Date.now();
-  void import("@/jobs/scheduler").then((m) =>
-    m.enqueueJob({ kind: "ai_enrich", runAt, dedupeKey: `ai_enrich:${runAt}` })
-  );
+  void import("@/jobs/scheduler")
+    .then((m) =>
+      m.enqueueJob({ kind: "ai_enrich", runAt, dedupeKey: `ai_enrich:capture:${Math.floor(runAt / 60_000)}` })
+    )
+    .catch((err) => console.error("[rolo-capture] enrich enqueue failed:", err));
   return extensionJson({
     ok: true,
     runId,

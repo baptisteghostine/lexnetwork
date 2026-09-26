@@ -623,9 +623,9 @@ export function executeLinkedInRows(opts: {
     // Triage the new cards now rather than on the next 15-minute sweep
     // (SPEC §5/§11). Lazy import: the scheduler imports this module.
     const runAt = Date.now();
-    void import("@/jobs/scheduler").then((m) =>
-      m.enqueueJob({ kind: "ai_change_triage", runAt, dedupeKey: `ai_change_triage:${runAt}` })
-    );
+    void import("@/jobs/scheduler")
+      .then((m) => m.enqueueJob({ kind: "ai_change_triage", runAt, dedupeKey: `ai_change_triage:${runAt}` }))
+      .catch((err) => console.error("[rolo-import] triage enqueue failed:", err));
   }
 
   // ---------- messages → interactions ----------
