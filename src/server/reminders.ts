@@ -26,6 +26,11 @@ const createInput = z.object({
 
 export type ReminderFormState = { error?: string; created?: boolean };
 
+/** The reminder form carries times at minute precision. */
+function sameMinute(a: number, b: number): boolean {
+  return Math.floor(a / 60_000) === Math.floor(b / 60_000);
+}
+
 export async function createReminderAction(
   _prev: ReminderFormState,
   formData: FormData
@@ -117,10 +122,16 @@ export async function snoozeReminderAction(
 
 /**
  * Edit a reminder in place (owner request 2026-09-26). Same payload as
- * create. A recurring rule's edit drops its unfired occurrences and
- * materializes the first one again from the new start; a one-off or a
- * single occurrence keeps its series and just moves. A changed due time
- * clears a snooze and a fired flag, so it fires again at the new time.
+ * create. Editing a recurring rule's schedule (rule or start) drops its
+ * unfired occurrences and materializes the next one from the later of the
+ * new start and now — never from a months-old series start, which would
+ * fire every missed occurrence in turn; an edit that only changes the
+ * words carries them onto the live occurrence and leaves the schedule
+ * alone. A one-off or a single occurrence keeps its series and just
+ * moves. A changed due time clears a snooze and a fired flag, so it fires
+ * again at the new time. The form round-trips times at minute precision,
+ * so "changed" is judged at the minute (a follow-up reminder is created
+ * with seconds in its due time).
  */
 export async function updateReminderAction(
   id: number,
@@ -156,13 +167,15 @@ export async function updateReminderAction(
   }
 
   const now = Date.now();
-  const moved = p.dueAt !== r.dueAt;
+  const moved = !sameMinute(p.dueAt, r.dueAt);
+  const dueAt = moved ? p.dueAt : r.dueAt;
+  const ruleChanged = rrule !== r.rrule;
   db.transaction(() => {
     db.update(reminders)
       .set({
         title: p.title,
         body: p.body || r.body,
-        dueAt: p.dueAt,
+        dueAt,
         rrule,
         contactId: p.contactId,
         ...(moved ? { snoozedUntil: null, firedAt: null } : {}),
@@ -170,20 +183,26 @@ export async function updateReminderAction(
       })
       .where(eq(reminders.id, id))
       .run();
-    if (r.rrule !== null || rrule !== null) {
-      // The rule changed (or stopped being one): unfired occurrences were
-      // computed from the old rule, so start the series over.
-      db.delete(reminders)
-        .where(
-          and(
-            eq(reminders.seriesId, id),
-            isNull(reminders.firedAt),
-            isNull(reminders.completedAt)
-          )
-        )
+    if (r.rrule === null && rrule === null) return;
+    const liveOccurrences = and(
+      eq(reminders.seriesId, id),
+      isNull(reminders.firedAt),
+      isNull(reminders.completedAt)
+    );
+    if (!ruleChanged && !moved) {
+      // Same schedule: the live occurrence stays where it is and just
+      // picks up the new words and contact.
+      db.update(reminders)
+        .set({ title: p.title, body: p.body || r.body, contactId: p.contactId, updatedAt: now })
+        .where(liveOccurrences)
         .run();
-      if (rrule !== null) materializeNext(id, p.dueAt - 1);
+      return;
     }
+    // The schedule changed (or the rule was removed): unfired occurrences
+    // were computed from the old one, so start the series over — from
+    // today, not from a series start that may be months back.
+    db.delete(reminders).where(liveOccurrences).run();
+    if (rrule !== null) materializeNext(id, Math.max(dueAt, now) - 1);
   });
   revalidateReminderViews(p.contactId);
   if (r.contactId && r.contactId !== p.contactId) revalidatePath(`/contacts/${r.contactId}`);
