@@ -23,6 +23,8 @@ export type AppSettings = {
   snoozeAllPerDayFloor: number;
   digestHour: number;
   digestSendWhenEmpty: boolean;
+  /** With AI on: skip the digest when the brief says nothing changed (SPEC §3/§11). */
+  digestOnlyWhenChanged: boolean;
   networkUpdatesEmail: boolean;
   meetingPrepEnabled: boolean;
   meetingPrepLeadMinutes: number;
@@ -64,6 +66,7 @@ export async function readAppSettings(): Promise<AppSettings> {
     digestHour: getSetting<number>("digest.hour") ?? 8,
     digestSendWhenEmpty:
       getSetting<boolean>("digest.send_when_empty") ?? false,
+    digestOnlyWhenChanged: getSetting<boolean>("digest.only_when_changed") ?? false,
     networkUpdatesEmail: getSetting<boolean>("network_updates.email") ?? true,
     meetingPrepEnabled: getSetting<boolean>("meeting_prep.enabled") ?? true,
     meetingPrepLeadMinutes: clampLeadMinutes(getSetting<number>("meeting_prep.lead_minutes")),
@@ -169,6 +172,7 @@ export async function updateKeepInTouchAction(
 const notificationsInput = z.object({
   digestHour: z.coerce.number().int().min(0).max(23),
   digestSendWhenEmpty: z.coerce.boolean(),
+  digestOnlyWhenChanged: z.coerce.boolean(),
   networkUpdatesEmail: z.coerce.boolean(),
   meetingPrepEnabled: z.coerce.boolean(),
   meetingPrepLeadMinutes: z.coerce.number().int().min(15).max(1440),
@@ -193,6 +197,7 @@ export async function updateNotificationsAction(
   const parsed = notificationsInput.safeParse({
     digestHour: formData.get("digestHour"),
     digestSendWhenEmpty: formData.get("digestSendWhenEmpty") === "on",
+    digestOnlyWhenChanged: formData.get("digestOnlyWhenChanged") === "on",
     networkUpdatesEmail: formData.get("networkUpdatesEmail") === "on",
     meetingPrepEnabled: formData.get("meetingPrepEnabled") === "on",
     meetingPrepLeadMinutes: formData.get("meetingPrepLeadMinutes") || 120,
@@ -212,6 +217,7 @@ export async function updateNotificationsAction(
   const s = parsed.data;
   setSetting("digest.hour", s.digestHour);
   setSetting("digest.send_when_empty", s.digestSendWhenEmpty);
+  setSetting("digest.only_when_changed", s.digestOnlyWhenChanged);
   setSetting("network_updates.email", s.networkUpdatesEmail);
   setSetting("meeting_prep.enabled", s.meetingPrepEnabled);
   setSetting("meeting_prep.lead_minutes", s.meetingPrepLeadMinutes);
@@ -243,7 +249,7 @@ export type TestDigestState = { error?: string; sent?: boolean };
 export async function sendDigestNowAction(): Promise<TestDigestState> {
   await requireAuth();
   try {
-    const email = buildTodayDigest(Date.now());
+    const email = await buildTodayDigest(Date.now());
     await sendEmail(email);
     return { sent: true };
   } catch (err) {

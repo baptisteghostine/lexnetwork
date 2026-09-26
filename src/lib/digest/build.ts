@@ -1,9 +1,17 @@
 // Pure digest renderer: same data the Today page shows, as an email
 // (SPEC §3 AC: digest contains exactly the items on Today at that moment).
 
+export type DigestLead = {
+  headline: string;
+  narrative: string;
+  picks: { contactId: number; name: string; why: string; draft: string }[];
+};
+
 export type DigestInput = {
   dateLabel: string;
   appUrl: string;
+  /** The AI-written brief (SPEC §3/§11, 2026-09-26); absent when AI is off or failed. */
+  lead?: DigestLead | null;
   reminders: { title: string; contactName: string | null; overdueDays: number }[];
   dueContacts: {
     displayName: string;
@@ -74,12 +82,41 @@ export function buildDigest(input: DigestInput): DigestEmail {
   ].filter(Boolean) as string[];
   const empty = counts.length === 0;
 
-  const subject = empty
-    ? `Rolo — all clear, ${input.dateLabel}`
-    : `Rolo: ${counts.join(" · ")} — ${input.dateLabel}`;
+  const lead = input.lead ?? null;
+  const subject = lead
+    ? `Rolo: ${lead.headline} — ${input.dateLabel}`
+    : empty
+      ? `Rolo — all clear, ${input.dateLabel}`
+      : `Rolo: ${counts.join(" · ")} — ${input.dateLabel}`;
 
   const parts: string[] = [];
   const textParts: string[] = [];
+
+  if (lead) {
+    const picks = lead.picks
+      .map(
+        (p) => `<li style="margin:0 0 10px">
+<a href="${esc(input.appUrl)}/contacts/${p.contactId}" style="color:#111827;font-weight:600;text-decoration:none">${esc(p.name)}</a>
+<span style="color:${MUTED}"> — ${esc(p.why)}</span>
+${p.draft ? `<div style="margin-top:4px;padding:8px 10px;border-left:2px solid ${INDIGO};background:#f5f3ff;font-size:13px;white-space:pre-wrap">${esc(p.draft)}</div>` : ""}
+</li>`
+      )
+      .join("");
+    parts.push(
+      `<p style="margin:16px 0 0;font-size:15px;line-height:1.55">${esc(lead.narrative)}</p>${
+        picks
+          ? `<h2 style="margin:20px 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;color:${MUTED}">Worth a message today</h2><ol style="margin:0;padding-left:18px;font-size:14px">${picks}</ol>`
+          : ""
+      }`
+    );
+    textParts.push(
+      `${lead.narrative}${
+        lead.picks.length
+          ? `\n\nWORTH A MESSAGE TODAY\n${lead.picks.map((p) => `- ${p.name} — ${p.why}${p.draft ? `\n  "${p.draft}"` : ""}`).join("\n")}`
+          : ""
+      }`
+    );
+  }
 
   if (input.reminders.length) {
     parts.push(

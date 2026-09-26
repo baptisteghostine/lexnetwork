@@ -97,3 +97,21 @@ describe("worth reconnecting (SPEC §3)", () => {
     expect(email.text).toContain("WORTH RECONNECTING");
   });
 });
+
+describe("AI lead (SPEC §3/§11)", () => {
+  it("puts the brief first, uses its headline as the subject, and links each pick", () => {
+    const email = buildDigest({
+      ...FIXTURE,
+      lead: {
+        headline: "Ana moved, Diego is overdue",
+        narrative: "Since yesterday Ana moved to Anthropic. Diego has drifted for nine days.",
+        picks: [{ contactId: 5, name: "Ana Silva", why: "fresh move", draft: "Hi Ana — congrats on Anthropic." }],
+      },
+    });
+    expect(email.subject).toBe("Rolo: Ana moved, Diego is overdue — Thu, Aug 13");
+    expect(email.html.indexOf("Since yesterday Ana moved")).toBeLessThan(email.html.indexOf("Keep in touch"));
+    expect(email.html).toContain('href="http://localhost:3000/contacts/5"');
+    expect(email.html).toContain("Hi Ana — congrats on Anthropic.");
+    expect(email.text).toContain('WORTH A MESSAGE TODAY\n- Ana Silva — fresh move\n  "Hi Ana — congrats on Anthropic."');
+  });
+});

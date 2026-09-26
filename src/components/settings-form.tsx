@@ -258,6 +258,15 @@ export function NotificationSettings({ initial }: { initial: AppSettings }) {
             />
           </Row>
           <Row
+            label="Only when something changed"
+            description="With AI on, the digest opens with a written brief. On = skip the email on days the brief finds nothing new and nothing pressing (overrides the option above)."
+          >
+            <Toggle
+              name="digestOnlyWhenChanged"
+              defaultChecked={initial.digestOnlyWhenChanged}
+            />
+          </Row>
+          <Row
             label="Email me when people change jobs"
             description="Sent within 15 minutes of an import spotting a move, once per change — separate from the digest."
           >
