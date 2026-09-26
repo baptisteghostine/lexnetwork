@@ -340,7 +340,9 @@ function adoptFieldSources(
   }
 }
 
-/** Recompute the winner's derived columns after rows moved (raw mirror of lib/cadence/recompute). */
+/** Recompute the winner's derived columns after rows moved (raw mirror of
+ * lib/cadence/recompute, mentions included: a counting note that
+ * @-mentions the contact is a touch too). */
 function recomputeDerived(db: Database, contactId: number, now: number): void {
   const c = contactRow(db, contactId);
   if (!c) return;
@@ -349,7 +351,11 @@ function recomputeDerived(db: Database, contactId: number, now: number): void {
       `SELECT MAX(at) AS at FROM (
          SELECT MAX(occurred_at) AS at FROM interactions WHERE contact_id = @id AND counts_for_touch = 1
          UNION ALL
-         SELECT MAX(created_at) AS at FROM notes WHERE contact_id = @id AND counts_for_touch = 1)`
+         SELECT MAX(created_at) AS at FROM notes WHERE contact_id = @id AND counts_for_touch = 1
+         UNION ALL
+         SELECT MAX(n.created_at) AS at FROM note_mentions m
+           JOIN notes n ON n.id = m.note_id
+           WHERE m.contact_id = @id AND n.counts_for_touch = 1)`
     )
     .get({ id: contactId }) as { at: number | null };
   const lastInteractionAt = latest.at ?? null;

@@ -405,3 +405,28 @@ describe("undo — deleted referents", () => {
     ).toBe(0);
   });
 });
+
+describe("mentions after a merge", () => {
+  it("a counting note that @-mentioned the loser still counts as a touch for the winner", () => {
+    // Written on the third person's profile, mentioning the loser (SPEC §3).
+    const noteAt = NOW - 1_000;
+    const noteId = Number(
+      db
+        .prepare(
+          `INSERT INTO notes (contact_id, body_md, counts_for_touch, created_at, updated_at)
+           VALUES (?, 'coffee with @Kate', 1, ?, ?)`
+        )
+        .run(ids.other, noteAt, noteAt).lastInsertRowid
+    );
+    db.prepare("INSERT INTO note_mentions (note_id, contact_id) VALUES (?, ?)").run(noteId, ids.loser);
+
+    mergeContacts(db, { winnerId: ids.winner, loserId: ids.loser, now: NOW });
+
+    const winner = db
+      .prepare("SELECT last_interaction_at FROM contacts WHERE id = ?")
+      .get(ids.winner) as { last_interaction_at: number | null };
+    // The loser's own manual interaction was at NOW - 5000; the mention is newer.
+    expect(winner.last_interaction_at).toBe(noteAt);
+    expect(count("SELECT count(*) AS n FROM note_mentions WHERE contact_id = ?", ids.winner)).toBe(1);
+  });
+});

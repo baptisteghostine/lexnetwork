@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -18,10 +18,12 @@ import {
   contactSocials,
   contactTags,
   groupMembers,
+  noteMentions,
   notes,
   reminders,
 } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
+import { recomputeContact } from "@/lib/cadence/recompute";
 import {
   deriveDisplayName,
   isValidBirthday,
@@ -496,7 +498,19 @@ export async function deleteContactAction(
       .where(eq(reminders.id, r.id))
       .run();
   }
+  // A counting note filed here may have been a touch for everyone it
+  // @-mentioned (SPEC §3); the cascade takes the note and its mentions,
+  // so those contacts' derived columns are recomputed once it is gone.
+  const mentioned = db
+    .selectDistinct({ contactId: noteMentions.contactId })
+    .from(noteMentions)
+    .innerJoin(notes, eq(noteMentions.noteId, notes.id))
+    .where(and(eq(notes.contactId, contactId), isNotNull(noteMentions.contactId)))
+    .all()
+    .map((m) => m.contactId)
+    .filter((id): id is number => id !== null && id !== contactId);
   db.delete(contacts).where(eq(contacts.id, contactId)).run();
+  for (const id of mentioned) recomputeContact(id);
   for (const rel of files) {
     fs.rmSync(path.join(DATA_DIR, rel), { force: true });
   }
