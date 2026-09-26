@@ -122,6 +122,8 @@ export function applyFormat(text: string, sel: Selection, format: Format): Forma
 /** Keyboard shortcut → format, for the editor's keydown handler. */
 export function shortcutFormat(e: {
   key: string;
+  /** The physical key: with Shift held, `key` is "*" or "&" on most layouts. */
+  code?: string;
   ctrlKey: boolean;
   metaKey: boolean;
   shiftKey: boolean;
@@ -130,8 +132,8 @@ export function shortcutFormat(e: {
   if (!(e.ctrlKey || e.metaKey) || e.altKey) return null;
   const k = e.key.toLowerCase();
   if (e.shiftKey) {
-    if (k === "8") return "bullets";
-    if (k === "7") return "numbered";
+    if (e.code === "Digit8" || k === "8" || k === "*") return "bullets";
+    if (e.code === "Digit7" || k === "7" || k === "&") return "numbered";
     return null;
   }
   if (k === "b") return "bold";

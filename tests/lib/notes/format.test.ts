@@ -81,6 +81,10 @@ describe("shortcutFormat", () => {
     expect(key("u")).toBe("underline");
     expect(key("8", { shiftKey: true })).toBe("bullets");
     expect(key("7", { shiftKey: true })).toBe("numbered");
+    // What a real keydown carries with Shift held on a US/UK layout.
+    expect(key("*", { shiftKey: true, code: "Digit8" })).toBe("bullets");
+    expect(key("&", { shiftKey: true, code: "Digit7" })).toBe("numbered");
+    expect(key("*", { shiftKey: true })).toBe("bullets");
   });
 
   it("ignores plain keys and Alt combinations", () => {

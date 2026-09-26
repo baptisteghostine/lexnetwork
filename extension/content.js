@@ -396,22 +396,36 @@ function cleanName(text) {
   t = t.replace(/^\(\d+\)\s*/, ""); // "(3) Name | LinkedIn" — the unread count
   t = t.replace(/\s*\|\s*LinkedIn\s*$/i, "");
   t = t.replace(/\s*[·•|]\s*(1st|2nd|3rd\+?)\b.*$/i, "");
-  t = t.replace(/\s*\((?:he|she|they|him|her|them)[^)]*\)\s*$/i, "");
+  // Pronouns are "(He/Him)"-shaped — never a bare parenthetical, which
+  // would strip "(Hernandez)" off a name.
+  t = t.replace(/\s*\([a-z]+\/[a-z]+(?:\/[a-z]+)?\)\s*$/i, "");
   t = t.trim();
   return t && !/^linkedin$/i.test(t) ? t : null;
 }
 
+/** The og:* metas are server-rendered for the first profile loaded and
+ * not refreshed when LinkedIn navigates in-page, so they may describe
+ * the profile the owner came from. Trusted only while og:url names the
+ * profile in the address bar. */
+function currentOg(property) {
+  const url = document.querySelector('meta[property="og:url"]')?.getAttribute("content");
+  const id = profileIdFromLocation();
+  if (url && id && !url.toLowerCase().includes(`/in/${id.toLowerCase()}`)) return null;
+  return document.querySelector(`meta[property="${property}"]`)?.getAttribute("content") ?? null;
+}
+
 /** The name from wherever the current layout puts it. LinkedIn moves the
  * heading between redesigns (2026-09: it left <main>), but the document
- * title and the og:title meta have carried "Name | LinkedIn" and
- * "Name - Headline | LinkedIn" for years — so those are the last resort. */
+ * title — which the SPA does keep current — has carried "Name | LinkedIn"
+ * for years, and the og:title meta "Name - Headline | LinkedIn"; so those
+ * are the last resort, title first. */
 function readVisibleName() {
-  const og = document.querySelector('meta[property="og:title"]')?.getAttribute("content");
+  const og = currentOg("og:title");
   const candidates = [
     textOf("main h1"),
     textOf("h1"),
-    og ? og.split(" - ")[0] : null,
     document.title,
+    og ? og.split(" - ")[0] : null,
   ];
   for (const c of candidates) {
     const name = cleanName(c);
@@ -425,7 +439,7 @@ function readVisibleName() {
 function readVisibleHeadline() {
   const dom = textOf("main .text-body-medium.break-words") ?? textOf("main .text-body-medium");
   if (dom) return dom;
-  const og = document.querySelector('meta[property="og:title"]')?.getAttribute("content");
+  const og = currentOg("og:title");
   if (!og) return null;
   const parts = og.replace(/\s*\|\s*LinkedIn\s*$/i, "").split(" - ");
   return parts.length > 1 ? parts.slice(1).join(" - ").trim() || null : null;
