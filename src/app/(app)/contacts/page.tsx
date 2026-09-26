@@ -2,6 +2,7 @@ import Link from "next/link";
 import { eq } from "drizzle-orm";
 
 import { AiSearch } from "@/components/ai-search";
+import { SearchTrigger } from "@/components/command-palette";
 import { ContactsList } from "@/components/contacts-list";
 import { aiEnabled } from "@/server/ai-client";
 import { FilterBar } from "@/components/filter-bar";
@@ -226,7 +227,10 @@ export default async function ContactsPage({
           >
             {archivedView ? "Active" : "Archived"}
           </Link>
-          <Button asChild size="sm" className="ml-3">
+          <span className="ml-3">
+            <SearchTrigger variant="button" />
+          </span>
+          <Button asChild size="sm" className="ml-1.5">
             <Link href="/contacts/new">New contact</Link>
           </Button>
         </div>

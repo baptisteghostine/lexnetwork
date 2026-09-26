@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import { and, asc, eq, isNotNull, isNull, lte, sql } from "drizzle-orm";
 
-import { CommandPalette } from "@/components/command-palette";
+import { CommandPalette, SearchTrigger } from "@/components/command-palette";
 import { GlobalHotkeys } from "@/components/global-hotkeys";
 import { MobileShell } from "@/components/mobile-shell";
 import { QuickAdd } from "@/components/quick-add";
@@ -75,6 +75,7 @@ export default async function AppLayout({
   // inside the phone drawer (SPEC §12 responsive note).
   const navContent = (
     <>
+      <SearchTrigger variant="row" />
       <QuickAdd />
       <SidebarNav
         dueCount={dueCount}

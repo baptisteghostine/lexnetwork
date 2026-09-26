@@ -55,6 +55,62 @@ const NEW_CONTACT = {
   icon: UserPlus,
 };
 
+// Anything visible can open the palette by dispatching this (SPEC §12,
+// owner request 2026-09-26: a phone has no ⌘K, and a laptop wants a
+// button too). The palette listens for it below.
+export const OPEN_PALETTE_EVENT = "rolo:open-palette";
+
+export function openPalette(): void {
+  // The phone drawer gets out of the way first, like quick-add does.
+  window.dispatchEvent(new Event("rolo:close-drawer"));
+  window.dispatchEvent(new Event(OPEN_PALETTE_EVENT));
+}
+
+/** A visible way into the palette: an icon (top bar), a nav row, or a button. */
+export function SearchTrigger({
+  variant,
+}: {
+  variant: "icon" | "row" | "button";
+}) {
+  if (variant === "icon") {
+    return (
+      <button
+        type="button"
+        aria-label="Search"
+        onClick={openPalette}
+        className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+      >
+        <Search className="size-4.5" />
+      </button>
+    );
+  }
+  if (variant === "row") {
+    return (
+      <button
+        type="button"
+        onClick={openPalette}
+        className="mx-2 mb-1 flex items-center gap-2 rounded-md border border-border/60 px-2 py-1.5 text-left text-[13px] text-muted-foreground hover:bg-accent/60 hover:text-foreground [&_svg]:size-3.5"
+      >
+        <Search />
+        <span className="flex-1">Search</span>
+        <kbd className="hidden rounded border border-border px-1 py-px text-[10px] md:inline">
+          ⌘K
+        </kbd>
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={openPalette}
+      className="inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-md border border-border px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+    >
+      <Search className="size-3.5" />
+      Search
+    </button>
+  );
+}
+
 export function CommandPalette() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -100,8 +156,13 @@ export function CommandPalette() {
       }
       if (e.key === "g") chordAt.current = now;
     };
+    const onOpen = () => setOpen(true);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener(OPEN_PALETTE_EVENT, onOpen);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener(OPEN_PALETTE_EVENT, onOpen);
+    };
   }, [open, router]);
 
   // Saved views load once per palette open (run-a-view actions).

@@ -5,6 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
 
+import { SearchTrigger } from "@/components/command-palette";
+
 // Phone-width app chrome (SPEC §12 responsive note): below md the fixed
 // sidebar disappears and this takes over — a slim top bar with a menu
 // button, opening the SAME nav content the desktop sidebar shows, as a
@@ -49,10 +51,11 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
         </button>
         <Link
           href="/today"
-          className="text-sm font-semibold tracking-tight text-primary"
+          className="flex-1 text-sm font-semibold tracking-tight text-primary"
         >
           Rolo
         </Link>
+        <SearchTrigger variant="icon" />
       </div>
 
       {open ? (
