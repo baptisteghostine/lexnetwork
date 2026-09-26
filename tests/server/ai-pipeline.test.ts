@@ -278,6 +278,48 @@ describe("job-change triage", () => {
     expect(shown).toBeDefined();
     expect(shown!.triage).toBeNull();
     rawDb.prepare("DELETE FROM contact_changes WHERE id IN (?, ?)").run(poisonChange, goodChange);
+    // Ids get reused: the next run must not inherit these verdicts.
+    expect((await runChangeTriage(now)).changes).toBe(0);
+    expect(
+      (rawDb.prepare("SELECT count(*) AS n FROM ai_annotations WHERE subject_id IN (?, ?) AND kind='change_triage'").get(poisonChange, goodChange) as { n: number }).n
+    ).toBe(0);
+  });
+});
+
+describe("network-updates email", () => {
+  it("holds the whole batch while any change is still being triaged, then sends once", async () => {
+    const { runNetworkUpdates } = await import("@/jobs/network-updates");
+    const { runChangeTriage } = await import("@/server/ai-triage");
+    const now = Date.now();
+    // A fresh, untriaged change lands (an import just ran).
+    const fresh = Number(
+      rawDb
+        .prepare(
+          "INSERT INTO contact_changes (contact_id, field, old_value, new_value, detected_at, source) VALUES (?, 'company', 'Stripe', 'Anthropic', ?, 'linkedin_import')"
+        )
+        .run(anaId, now).lastInsertRowid
+    );
+    const sentBefore = sent.length;
+    expect(await runNetworkUpdates(now)).toBe("held");
+    expect(sent.length).toBe(sentBefore);
+    expect(
+      (rawDb.prepare("SELECT count(*) AS n FROM contact_changes WHERE notified_at IS NOT NULL").get() as { n: number }).n
+    ).toBe(0);
+
+    await runChangeTriage(now);
+    expect(await runNetworkUpdates(now)).toBe("sent");
+    expect(sent.length).toBe(sentBefore + 1);
+    expect(sent.at(-1)!.html).toContain("Warm and just moved");
+    // Everything open went out or was stamped in that one pass — the
+    // low-signal rewording included, without being in the email.
+    expect(sent.at(-1)!.html).not.toContain("should be stripped");
+    const stamped = rawDb
+      .prepare("SELECT id FROM contact_changes WHERE notified_at IS NOT NULL ORDER BY id")
+      .all() as { id: number }[];
+    expect(stamped.map((r) => r.id)).toEqual([changeId, noiseChangeId, fresh].sort((a, b) => a - b));
+    expect(await runNetworkUpdates(now)).toBe("none");
+    rawDb.prepare("UPDATE contact_changes SET notified_at = NULL").run();
+    sent.length = 0;
   });
 });
 

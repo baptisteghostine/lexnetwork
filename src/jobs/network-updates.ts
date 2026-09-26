@@ -14,7 +14,10 @@ import { triageFor } from "@/server/ai-triage";
 
 // With AI on, a change waits for its triage verdict (up to an hour) so
 // the email carries the reason, and low-signal changes — renames and
-// headline tweaks — are stamped as told without ever being sent.
+// headline tweaks — are stamped as told without ever being sent. The
+// wait is for the batch, not per row: while any pending change is still
+// being triaged, nothing goes out, so one import's news lands in one
+// email instead of trickling out a triage batch at a time.
 const TRIAGE_WAIT_MS = 60 * 60 * 1000;
 
 // Edge-triggered email for job changes (SPEC §5). The scheduler sweeps
@@ -32,10 +35,13 @@ export function networkUpdatesEnabled(): boolean {
   return getSetting<boolean>("network_updates.email") ?? true;
 }
 
-/** Open, never-emailed changes, collapsed by `collapseUpdates`. */
-export function pendingNetworkUpdates(): {
+/** Open, never-emailed changes, collapsed by `collapseUpdates`. `held` is
+ * how many are still waiting on triage — when it is above zero nothing is
+ * returned as ready. */
+export function pendingNetworkUpdates(now = Date.now()): {
   ids: number[];
   updates: NetworkUpdate[];
+  held: number;
 } {
   const rows = db
     .select({
@@ -61,15 +67,16 @@ export function pendingNetworkUpdates(): {
     .all();
 
   const verdicts = triageFor(rows.map((r) => r.id));
-  const now = Date.now();
+  const waiting = aiEnabled()
+    ? rows.filter((r) => !verdicts.has(r.id) && now - r.detectedAt < TRIAGE_WAIT_MS).length
+    : 0;
+  if (waiting > 0) return { ids: [], updates: [], held: waiting };
   const lowSignalIds: number[] = [];
   const ready = rows.filter((r) => {
-    const v = verdicts.get(r.id);
-    if (v?.lowSignal) {
+    if (verdicts.get(r.id)?.lowSignal) {
       lowSignalIds.push(r.id);
       return false;
     }
-    if (!v && aiEnabled() && now - r.detectedAt < TRIAGE_WAIT_MS) return false;
     return true;
   });
   const collapsed = collapseUpdates(
@@ -79,7 +86,7 @@ export function pendingNetworkUpdates(): {
       reason: verdicts.get(r.id)?.triage.reason || null,
     }))
   );
-  return { ids: [...collapsed.ids, ...lowSignalIds], updates: collapsed.updates };
+  return { ids: [...collapsed.ids, ...lowSignalIds], updates: collapsed.updates, held: 0 };
 }
 
 export function markNotified(ids: number[], now: number): void {
@@ -90,13 +97,14 @@ export function markNotified(ids: number[], now: number): void {
     .run();
 }
 
-export type NetworkUpdatesResult = "sent" | "none" | "disabled";
+export type NetworkUpdatesResult = "sent" | "none" | "held" | "disabled";
 
 export async function runNetworkUpdates(
   now: number
 ): Promise<NetworkUpdatesResult> {
   if (!networkUpdatesEnabled()) return "disabled";
-  const { ids, updates } = pendingNetworkUpdates();
+  const { ids, updates, held } = pendingNetworkUpdates(now);
+  if (held > 0) return "held";
   if (updates.length === 0) {
     // Nothing to say — but stamp any orphans (all superseded, or the
     // contact got archived) so they can't accumulate forever.

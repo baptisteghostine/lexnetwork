@@ -24,7 +24,7 @@ import {
   type TriageChange,
 } from "@/lib/ai/triage";
 import { getSetting } from "@/lib/settings";
-import { readAnnotations, upsertAnnotation } from "@/server/ai-annotations";
+import { pruneOrphanAnnotations, readAnnotations, upsertAnnotation } from "@/server/ai-annotations";
 import { aiConfig, aiEnabled, callAi } from "@/server/ai-client";
 import { ownerVoiceContext } from "@/server/ai-voice";
 
@@ -176,6 +176,9 @@ async function triageBatch(
 export async function runChangeTriage(now: number): Promise<TriageStats> {
   const stats: TriageStats = { changes: 0, triaged: 0, unusable: 0, batchErrors: 0, more: false };
   if (!aiEnabled()) return stats;
+  // Change ids get reused once rows are deleted; a verdict left behind
+  // would silently attach to the next change to take the id.
+  pruneOrphanAnnotations("change_triage");
   const pending = untriagedChanges(now);
   stats.changes = pending.length;
   stats.more = pending.length === RUN_CAP;

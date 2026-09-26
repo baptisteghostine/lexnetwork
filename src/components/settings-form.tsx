@@ -453,7 +453,9 @@ export function NotificationSettings({ initial }: { initial: AppSettings }) {
                       ? "Sent — check your inbox."
                       : res.result === "disabled"
                         ? "Turn the job-changes toggle on and save first."
-                        : "Nothing new to send — no unreported job changes right now.")
+                        : res.result === "held"
+                          ? "Held — new job changes are still being triaged by the AI (up to an hour). Try again shortly."
+                          : "Nothing new to send — no unreported job changes right now.")
                 );
               })
             }

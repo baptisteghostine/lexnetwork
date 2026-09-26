@@ -55,12 +55,13 @@ export function collapseUpdates(rows: PendingChangeRow[]): {
         Number(b.field === "company") - Number(a.field === "company") ||
         b.detectedAt - a.detectedAt
     )
-    .map(({ displayName, field, oldValue, newValue, detectedAt }) => ({
+    .map(({ displayName, field, oldValue, newValue, detectedAt, reason }) => ({
       displayName,
       field,
       oldValue,
       newValue,
       detectedAt,
+      reason: reason ?? null,
     }));
   return { ids: rows.map((r) => r.id), updates };
 }

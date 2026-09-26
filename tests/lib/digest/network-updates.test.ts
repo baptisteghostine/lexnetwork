@@ -178,3 +178,24 @@ describe("buildNetworkUpdates", () => {
     expect(email.text).toContain("https://rolo.example/today");
   });
 });
+
+describe("collapseUpdates keeps the triage reason", () => {
+  it("the latest row's reason reaches the email", () => {
+    const { updates } = collapseUpdates([
+      {
+        id: 1,
+        contactId: 7,
+        displayName: "Ana Silva",
+        field: "company",
+        oldValue: "Stripe",
+        newValue: "Anthropic",
+        detectedAt: 1_000,
+        reason: "Warm and just moved",
+      },
+    ]);
+    expect(updates[0].reason).toBe("Warm and just moved");
+    const email = buildNetworkUpdates({ updates, appUrl: "http://x", now: 2_000 });
+    expect(email.text).toContain("— Warm and just moved");
+    expect(email.html).toContain("Warm and just moved");
+  });
+});
