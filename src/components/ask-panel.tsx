@@ -11,10 +11,12 @@ import { askNetworkAction, type AskResult } from "@/server/ask";
 // real contacts (validated server-side) and say how many profiles were
 // shared with the model — transparency is part of the feature.
 
-const SOURCE_LABEL = {
-  filter: "matched by compiled filters",
-  search: "matched by full-text search",
-  network: "your warmest contacts (no filter matched)",
+const STEP_LABEL = {
+  filter: "filter",
+  search: "search",
+  notes: "notes",
+  warm: "fallback",
+  timeline: "read",
 } as const;
 
 export function AskPanel() {
@@ -59,7 +61,7 @@ export function AskPanel() {
         />
         <div className="flex items-center justify-between">
           <p className="text-[11px] text-muted-foreground">
-            The model only sees a shortlist your database selects — every
+            The model plans how to look; your database runs the plan; every
             answer links to real contacts.
           </p>
           <Button size="sm" onClick={ask} disabled={pending || question.trim().length < 5}>
@@ -97,11 +99,20 @@ export function AskPanel() {
               ))}
             </ol>
           )}
-          <p className="border-t border-border/60 pt-2 text-[11px] text-muted-foreground">
-            {result.candidateCount} contact profiles were shared with the model
-            — {SOURCE_LABEL[result.source]}. Both calls are in the audit log
-            below.
-          </p>
+          <div className="space-y-1 border-t border-border/60 pt-2 text-[11px] text-muted-foreground">
+            <p>
+              {result.candidateCount} contact profile{result.candidateCount === 1 ? "" : "s"} shared
+              with the model. What was looked at:
+            </p>
+            <ul className="flex flex-wrap gap-1.5">
+              {result.steps.map((s, i) => (
+                <li key={i} className="rounded border border-border/60 px-1.5 py-px">
+                  <span className="font-medium">{STEP_LABEL[s.kind]}</span> {s.label} · {s.hits}
+                </li>
+              ))}
+            </ul>
+            <p>Every call is in the audit log below.</p>
+          </div>
         </div>
       )}
     </section>

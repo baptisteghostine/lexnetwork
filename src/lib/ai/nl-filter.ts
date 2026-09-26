@@ -69,6 +69,11 @@ const nullable = (type: string) => ({ type: [type, "null"] });
 
 /** JSON schema handed to the API so the model can only emit filter-shaped JSON. */
 export function nlSearchOutputFormat(): Record<string, unknown> {
+  return { type: "json_schema", schema: filterSetJsonSchema() };
+}
+
+/** The FilterSet object schema alone, for callers that nest it (Ask's plan). */
+export function filterSetJsonSchema(): Record<string, unknown> {
   const clause = {
     anyOf: [
       obj({ dim: lit("tag"), ids: { type: "array", items: { type: "integer" } } }),
@@ -92,13 +97,10 @@ export function nlSearchOutputFormat(): Record<string, unknown> {
       }),
     ],
   };
-  return {
-    type: "json_schema",
-    schema: obj({
-      v: { type: "integer", enum: [1] },
-      clauses: { type: "array", items: clause },
-    }),
-  };
+  return obj({
+    v: { type: "integer", enum: [1] },
+    clauses: { type: "array", items: clause },
+  });
 }
 
 // ---------- strict validation ----------

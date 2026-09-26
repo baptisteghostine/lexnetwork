@@ -120,3 +120,24 @@ describe("buildAskPrompt", () => {
     expect(prompt).toContain("never spoken");
   });
 });
+
+describe("buildAskPrompt with retrieval context", () => {
+  it("appends recent exchanges and note snippets when present", () => {
+    const c: AskCandidate = {
+      id: 4,
+      name: "Ana",
+      title: null,
+      company: "Evercore",
+      location: null,
+      tags: [],
+      lastContactDays: 3,
+      history: [],
+      starred: false,
+      recent: ["You messaged — thanks · 3d ago"],
+      notes: ["promised an intro to Sam"],
+    };
+    const p = buildAskPrompt("who owes me", [c]);
+    expect(p).toContain("recent: You messaged — thanks · 3d ago");
+    expect(p).toContain("notes: promised an intro to Sam");
+  });
+});

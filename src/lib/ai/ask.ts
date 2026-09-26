@@ -16,12 +16,17 @@ export type AskCandidate = {
   /** "Title @ Company (2019–2022)" lines, newest first, max 2. */
   history: string[];
   starred: boolean;
+  /** Note snippets that matched the plan's note searches, plus the last note. */
+  notes?: string[];
+  /** Recent exchanges, newest first ("You messaged — Hi… · 12d ago"). */
+  recent?: string[];
 };
 
 export const ASK_SYSTEM = [
   "You advise the owner of a personal professional network.",
-  "You are given their question and a numbered list of candidate contacts pulled from their own database.",
+  "You are given their question and a numbered list of candidate contacts pulled from their own database by a retrieval plan (filters, keyword searches, note searches), with note snippets and recent exchanges where they exist.",
   "Recommend ONLY people from the candidate list, referenced by their exact id.",
+  'If you genuinely need the full history of a few candidates before answering (what was said, what was promised, how the relationship went), respond instead with {"needMore": {"contactIds": [...up to 6 ids...], "why": "..."}} — you get their timelines and one more turn. Do this at most once and only when it changes the answer.',
   "Rank by how directly each person helps with the stated goal; weigh title, company, work history, tags, and how recently the owner spoke to them (a warm contact beats an equally relevant cold one).",
   "Give a concrete, specific reason per pick — what to ask them for and why they can deliver. Never restate their job title as the reason.",
   "If few candidates genuinely fit, return fewer picks and say so in the summary. Do not pad.",
@@ -42,6 +47,8 @@ export function buildAskPrompt(
         : `last contact ${c.lastContactDays}d ago`,
       c.history.length > 0 ? `history: ${c.history.join("; ")}` : undefined,
       c.starred ? "starred" : undefined,
+      c.recent && c.recent.length > 0 ? `recent: ${c.recent.join(" | ")}` : undefined,
+      c.notes && c.notes.length > 0 ? `notes: ${c.notes.join(" | ")}` : undefined,
     ].filter(Boolean);
     return parts.join(" — ");
   });
@@ -55,6 +62,15 @@ export function askOutputFormat(): Record<string, unknown> {
       type: "object",
       properties: {
         summary: { type: "string" },
+        needMore: {
+          type: "object",
+          properties: {
+            contactIds: { type: "array", items: { type: "integer" } },
+            why: { type: "string" },
+          },
+          required: ["contactIds", "why"],
+          additionalProperties: false,
+        },
         picks: {
           type: "array",
           items: {
