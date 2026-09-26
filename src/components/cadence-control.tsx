@@ -16,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { CADENCE_PRESETS, snoozeUntil } from "@/lib/cadence/engine";
 import { setCadenceAction, snoozeContactAction } from "@/server/cadence";
+import { useFormatDate } from "@/components/timezone-context";
 
 export function CadenceControl({
   contactId,
@@ -28,6 +29,7 @@ export function CadenceControl({
   nextTouchAt: number | null;
   snoozedUntil: number | null;
 }) {
+  const fmt = useFormatDate();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [customOpen, setCustomOpen] = useState(false);
@@ -61,7 +63,7 @@ export function CadenceControl({
             {label}
             {nextTouchAt !== null && (
               <span className="text-muted-foreground">
-                · due {new Date(nextTouchAt).toLocaleDateString()}
+                · due {fmt(nextTouchAt, { dateStyle: "medium" })}
               </span>
             )}
           </Button>
@@ -101,10 +103,7 @@ export function CadenceControl({
                   {/* Dex pattern: always show the exact resulting date. */}
                   {menuNow !== null && (
                     <span className="text-[11px] text-muted-foreground">
-                      {new Date(snoozeUntil(p, menuNow)).toLocaleDateString(
-                        undefined,
-                        { month: "short", day: "numeric" }
-                      )}
+                      {fmt(snoozeUntil(p, menuNow), { month: "short", day: "numeric" })}
                     </span>
                   )}
                 </DropdownMenuItem>
@@ -122,7 +121,7 @@ export function CadenceControl({
       {/* recompute clears consumed snoozes, so non-null means still active */}
       {snoozedUntil !== null && (
         <span className="text-[11px] text-muted-foreground">
-          snoozed → {new Date(snoozedUntil).toLocaleDateString()}
+          snoozed → {fmt(snoozedUntil, { dateStyle: "medium" })}
         </span>
       )}
       {customOpen && (

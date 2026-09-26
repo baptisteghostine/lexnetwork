@@ -109,6 +109,24 @@ export function localDateKey(tz: string, epochMs: number): string {
   return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
 }
 
+/**
+ * The one locale Rolo renders dates in. Fixing it (the owner is UK-based)
+ * and always naming the zone keeps server-rendered and browser-rendered
+ * text identical — React refuses to hydrate a client component whose
+ * dates came out differently on the two sides, which is exactly what
+ * `toLocaleString()` with no arguments does the moment the VPS's zone or
+ * ICU locale differs from the browser's.
+ */
+export const DISPLAY_LOCALE = "en-GB";
+
+export function formatInZone(
+  tz: string,
+  epochMs: number,
+  opts: Intl.DateTimeFormatOptions
+): string {
+  return new Intl.DateTimeFormat(DISPLAY_LOCALE, { ...opts, timeZone: tz }).format(epochMs);
+}
+
 /** The owner's timezone: setting first, then the server's zone. */
 export function fallbackTimezone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";

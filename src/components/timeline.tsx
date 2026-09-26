@@ -17,6 +17,7 @@ import { bodyFromMeta } from "@/lib/imports/linkedin";
 import { Button } from "@/components/ui/button";
 import { createNoteAction, deleteInteractionAction } from "@/server/notes";
 import type { TimelineItem } from "@/server/queries";
+import { useFormatDate } from "@/components/timezone-context";
 
 /** SPEC §2/§9: email rows carry an "open in Gmail" link built from the
  * stored thread id — there is no body to show, only a way back to it. */
@@ -67,16 +68,14 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 function When({ at }: { at: number }) {
-  const d = new Date(at);
+  const fmt = useFormatDate();
   // Phones get "22 Aug"; the full date and time would wrap to five lines
   // in the row's last column.
   return (
     <span className="whitespace-nowrap text-[11px] text-muted-foreground">
-      <span className="md:hidden">
-        {d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-      </span>
+      <span className="md:hidden">{fmt(at, { month: "short", day: "numeric" })}</span>
       <span className="hidden md:inline">
-        {d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+        {fmt(at, { dateStyle: "medium", timeStyle: "short" })}
       </span>
     </span>
   );

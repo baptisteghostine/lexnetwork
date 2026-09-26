@@ -10,12 +10,15 @@ import { syncRuns } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
 import type { ImportStats, RowPlan } from "@/lib/imports/types";
 import type { LinkedInReport } from "@/server/linkedin-import";
+import { ownerTimezone } from "@/lib/settings";
+import { formatInZone } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
 export default async function ImportReportPage({
   params,
 }: PageProps<"/imports/[id]">) {
+  const tz = ownerTimezone();
   // Pages guard themselves — see contacts/page.tsx for why.
   await requireAuth();
   const { id } = await params;
@@ -42,10 +45,7 @@ export default async function ImportReportPage({
             LinkedIn import — {run.fileName ?? ""}
           </h1>
           <span className="text-[11px] text-muted-foreground">
-            {new Date(run.startedAt).toLocaleString(undefined, {
-              dateStyle: "medium",
-              timeStyle: "short",
-            })}{" "}
+            {formatInZone(tz, run.startedAt, { dateStyle: "medium", timeStyle: "short" })}{" "}
             · {run.status}
           </span>
         </header>
@@ -82,10 +82,7 @@ export default async function ImportReportPage({
           Import report — {run.fileName ?? run.kind}
         </h1>
         <span className="text-[11px] text-muted-foreground">
-          {new Date(run.startedAt).toLocaleString(undefined, {
-            dateStyle: "medium",
-            timeStyle: "short",
-          })}{" "}
+          {formatInZone(tz, run.startedAt, { dateStyle: "medium", timeStyle: "short" })}{" "}
           · {run.status}
         </span>
       </header>

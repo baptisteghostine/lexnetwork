@@ -21,16 +21,14 @@ import {
   type ReminderListRow,
 } from "@/server/reminders";
 import { cn } from "@/lib/utils";
+import { useFormatDate } from "@/components/timezone-context";
 
-function dueLabel(effectiveDueAt: number, now: number): string {
+type FormatDate = ReturnType<typeof useFormatDate>;
+
+function dueLabel(effectiveDueAt: number, now: number, fmt: FormatDate): string {
   const days = Math.floor((now - effectiveDueAt) / DAY_MS);
   if (days > 0) return `${days}d overdue`;
-  return new Date(effectiveDueAt).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return fmt(effectiveDueAt, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 export function RemindersList({
@@ -42,6 +40,7 @@ export function RemindersList({
   now: number;
   kind: "due" | "upcoming" | "recurring";
 }) {
+  const fmt = useFormatDate();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   // One row at a time turns into the reminder form (owner request
@@ -139,8 +138,8 @@ export function RemindersList({
               )}
             >
               {kind === "recurring"
-                ? `next ${new Date(r.effectiveDueAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
-                : dueLabel(r.effectiveDueAt, now)}
+                ? `next ${fmt(r.effectiveDueAt, { month: "short", day: "numeric" })}`
+                : dueLabel(r.effectiveDueAt, now, fmt)}
             </span>
             {kind !== "recurring" && (
               <>

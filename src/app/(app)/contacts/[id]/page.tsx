@@ -34,7 +34,7 @@ import { requireAuth } from "@/lib/auth";
 import { CADENCE_PRESETS, DAY_MS } from "@/lib/cadence/engine";
 import { changeAge } from "@/lib/digest/network-updates";
 import { noteSnippet } from "@/lib/notes/format";
-import { now as currentTime } from "@/lib/time";
+import { formatInZone, now as currentTime } from "@/lib/time";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -47,6 +47,7 @@ import {
   type TimelineInteraction,
   type TimelineNote,
 } from "@/server/queries";
+import { ownerTimezone } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +63,7 @@ const SOURCE_LABEL: Record<string, string> = {
 export default async function ContactPage({
   params,
 }: PageProps<"/contacts/[id]">) {
+  const tz = ownerTimezone();
   // Pages guard themselves — see contacts/page.tsx for why.
   await requireAuth();
   const { id } = await params;
@@ -101,11 +103,10 @@ export default async function ContactPage({
 
   const birthday =
     contact.birthdayMonth && contact.birthdayDay
-      ? new Date(
-          2000,
-          contact.birthdayMonth - 1,
-          contact.birthdayDay
-        ).toLocaleDateString(undefined, { month: "long", day: "numeric" }) +
+      ? formatInZone("UTC", Date.UTC(2000, contact.birthdayMonth - 1, contact.birthdayDay), {
+          month: "long",
+          day: "numeric",
+        }) +
         (contact.birthdayYear ? `, ${contact.birthdayYear}` : "")
       : null;
 
@@ -137,7 +138,7 @@ export default async function ContactPage({
     const p = provenance[field];
     if (!p) return undefined;
     const label = SOURCE_LABEL[p.source] ?? `From ${p.source}`;
-    return `${label} · ${new Date(p.updatedAt).toLocaleDateString()}`;
+    return `${label} · ${formatInZone(tz, p.updatedAt, { dateStyle: "medium" })}`;
   };
 
   // Icon row under the name (Dex): one icon per way to reach this person.

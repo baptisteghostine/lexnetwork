@@ -7,6 +7,7 @@ import { RefreshCw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { enrichContactAction } from "@/server/ai";
 import type { ProfileCard as Card } from "@/server/ai-enrich";
+import { useFormatDate } from "@/components/timezone-context";
 
 // "What I know" (SPEC §11, 2026-09-26): the AI-written profile card,
 // clearly labelled, regenerable, beside — never inside — the contact's
@@ -21,6 +22,7 @@ export function ProfileCard({
   card: Card | null;
   updatedAt: number | null;
 }) {
+  const fmt = useFormatDate();
   const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +41,7 @@ export function ProfileCard({
           What I know
           {updatedAt ? (
             <span className="font-normal normal-case tracking-normal">
-              · AI, {new Date(updatedAt).toLocaleDateString()}
+              · AI, {fmt(updatedAt, { dateStyle: "medium" })}
             </span>
           ) : null}
         </h2>

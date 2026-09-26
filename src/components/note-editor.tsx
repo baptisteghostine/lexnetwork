@@ -38,6 +38,7 @@ import {
   setNoteCountsForTouchAction,
 } from "@/server/notes";
 import { cn } from "@/lib/utils";
+import { useFormatDate } from "@/components/timezone-context";
 
 type AttachmentInfo = {
   id: number;
@@ -133,6 +134,7 @@ export function NoteEditor({
   createdAt: number;
   startInEdit: boolean;
 }) {
+  const fmt = useFormatDate();
   const router = useRouter();
   const [body, setBody] = useState(initialBody);
   const [editing, setEditing] = useState(startInEdit);
@@ -278,10 +280,7 @@ export function NoteEditor({
     router.refresh();
   };
 
-  const created = new Date(createdAt).toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+  const created = fmt(createdAt, { dateStyle: "medium", timeStyle: "short" });
 
   return (
     <div className="group rounded-md border border-border bg-card/50 p-3">

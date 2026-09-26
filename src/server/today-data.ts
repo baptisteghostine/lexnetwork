@@ -14,12 +14,12 @@ import { upcomingBirthdays, type Feb29Rule, type UpcomingBirthday } from "@/lib/
 import { parsePrep, type MeetingPrep } from "@/lib/prep/build";
 import { todaysResurfacePicks, type ResurfacePick } from "@/server/resurface";
 import { DAY_MS } from "@/lib/cadence/engine";
-import { getSetting } from "@/lib/settings";
+import { getSetting, ownerTimezone } from "@/lib/settings";
 import type { ChangeTriage } from "@/lib/ai/triage";
 import { triageFor } from "@/server/ai-triage";
 import { FOLLOWUP_WINDOW_MS, meetingEnd, selectFollowups } from "@/lib/ai/followup";
 import { readAnnotations } from "@/server/ai-annotations";
-import { fallbackTimezone, fromFakeUtc, localParts } from "@/lib/time";
+import { fromFakeUtc, localParts } from "@/lib/time";
 
 // The one source of truth for "what is due right now" — the Today page
 // and the digest email both render exactly this (SPEC §3 digest AC).
@@ -104,9 +104,7 @@ export type TodayData = {
   resurface: ResurfacePick[];
 };
 
-export function ownerTimezone(): string {
-  return getSetting<string>("timezone") ?? fallbackTimezone();
-}
+export { ownerTimezone };
 
 export function getTodayData(now: number): TodayData {
   const timezone = ownerTimezone();

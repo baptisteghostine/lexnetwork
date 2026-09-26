@@ -13,6 +13,8 @@ import { ContactAvatar } from "@/components/contact-avatar";
 import { db } from "@/db/client";
 import { contacts, interactions, notes } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
+import { ownerTimezone } from "@/lib/settings";
+import { formatInZone } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +47,7 @@ type Item = {
 export default async function GlobalTimelinePage({
   searchParams,
 }: PageProps<"/timeline">) {
+  const tz = ownerTimezone();
   // Pages guard themselves — see contacts/page.tsx for why.
   await requireAuth();
   const params = await searchParams;
@@ -172,10 +175,7 @@ export default async function GlobalTimelinePage({
                     {item.text}
                   </span>
                   <span className="shrink-0 text-[11px] text-muted-foreground">
-                    {new Date(item.at).toLocaleDateString(undefined, {
-                      month: "short",
-                      day: "numeric",
-                    })}
+                    {formatInZone(tz, item.at, { month: "short", day: "numeric" })}
                   </span>
                 </Link>
               </li>

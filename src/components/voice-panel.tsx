@@ -8,12 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { buildVoiceGuideAction, saveVoiceAction, type VoiceView } from "@/server/ai";
+import { useFormatDate } from "@/components/timezone-context";
 
 // "Your voice" (SPEC §11, 2026-09-26): the style guide every draft
 // follows. Built from the owner's own sent messages, then editable — the
 // owner has the last word on how they sound.
 
 export function VoicePanel({ initial }: { initial: VoiceView }) {
+  const fmt = useFormatDate();
   const router = useRouter();
   const [ownerName, setOwnerName] = useState(initial.ownerName ?? "");
   const [examples, setExamples] = useState(initial.examples);
@@ -65,7 +67,7 @@ export function VoicePanel({ initial }: { initial: VoiceView }) {
       <div className="space-y-1">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Label className="text-[11px] text-muted-foreground">
-            Style guide{initial.generatedAt ? ` · built ${new Date(initial.generatedAt).toLocaleDateString()}` : ""}
+            Style guide{initial.generatedAt ? ` · built ${fmt(initial.generatedAt, { dateStyle: "medium" })}` : ""}
           </Label>
           <Button
             size="sm"

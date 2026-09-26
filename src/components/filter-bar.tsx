@@ -21,6 +21,7 @@ import { DAY_MS } from "@/lib/cadence/engine";
 import { encodeFilterParam } from "@/lib/filters/encode";
 import type { FilterClause, FilterSet } from "@/lib/filters/types";
 import { createViewAction } from "@/server/views";
+import { useFormatDate } from "@/components/timezone-context";
 
 type NamedRef = { id: number; name: string };
 
@@ -56,6 +57,7 @@ export function FilterBar({
   allGroups: NamedRef[];
   activeView: { id: number; name: string } | null;
 }) {
+  const fmt = useFormatDate();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [input, setInput] = useState<PendingInput | null>(null);
@@ -110,7 +112,7 @@ export function FilterBar({
       case "lastInteraction":
         return c.op === "never"
           ? "Never spoken"
-          : `Last touch ${c.op} ${new Date(c.at ?? 0).toLocaleDateString()}`;
+          : `Last touch ${c.op} ${fmt(c.at ?? 0, { dateStyle: "medium" })}`;
       case "titleContains":
         return `Title ~ “${c.value}”`;
       case "company":

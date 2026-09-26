@@ -7,8 +7,9 @@ import { db } from "@/db/client";
 import { syncRuns } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
 import type { ImportStats } from "@/lib/imports/types";
-import { now as currentTime } from "@/lib/time";
+import { formatInZone, now as currentTime } from "@/lib/time";
 import { reclaimStaleRuns } from "@/server/import-engine";
+import { ownerTimezone } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,7 @@ const KIND_LABEL: Record<string, string> = {
 };
 
 export default async function ImportsPage() {
+  const tz = ownerTimezone();
   // Pages guard themselves — see contacts/page.tsx for why.
   await requireAuth();
   reclaimStaleRuns();
@@ -109,10 +111,7 @@ export default async function ImportsPage() {
                       {r.status}
                     </span>
                     <span className="order-last text-[11px] text-muted-foreground md:order-none">
-                      {new Date(r.startedAt).toLocaleString(undefined, {
-                        dateStyle: "medium",
-                        timeStyle: "short",
-                      })}
+                      {formatInZone(tz, r.startedAt, { dateStyle: "medium", timeStyle: "short" })}
                     </span>
                   </Link>
                 </li>

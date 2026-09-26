@@ -9,10 +9,12 @@ import { QuickAdd } from "@/components/quick-add";
 import { ShortcutOverlay } from "@/components/shortcut-overlay";
 import { SidebarNav } from "@/components/sidebar-nav";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { TimezoneProvider } from "@/components/timezone-context";
 import { Button } from "@/components/ui/button";
 import { db } from "@/db/client";
 import { contacts, duplicateCandidates, reminders, views } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
+import { ownerTimezone } from "@/lib/settings";
 import { now as currentTime } from "@/lib/time";
 import { logoutAction } from "@/server/auth";
 import { readHealthIssues } from "@/server/health";
@@ -98,6 +100,7 @@ export default async function AppLayout({
   );
 
   return (
+    <TimezoneProvider timezone={ownerTimezone()}>
     <div className="flex min-h-screen">
       <aside className="hidden w-48 shrink-0 flex-col border-r border-border bg-card md:sticky md:top-0 md:flex md:h-screen">
         <div className="px-4 py-3.5">
@@ -129,5 +132,6 @@ export default async function AppLayout({
       <GlobalHotkeys />
       <ShortcutOverlay />
     </div>
+    </TimezoneProvider>
   );
 }
