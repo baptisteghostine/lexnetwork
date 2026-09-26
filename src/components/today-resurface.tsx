@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Briefcase, RotateCcw, Star, X } from "lucide-react";
 
 import { ContactAvatar } from "@/components/contact-avatar";
-import { OpenersDialog } from "@/components/openers-dialog";
+import { DraftDialog } from "@/components/draft-dialog";
 import { Button } from "@/components/ui/button";
 import { ago } from "@/lib/prep/build";
 import { dismissResurfaceAction, reachedOutAction } from "@/server/resurface-actions";
@@ -70,7 +70,7 @@ export function TodayResurface({
               </span>
             </span>
             <span className="flex basis-full items-center justify-end gap-2 md:basis-auto">
-              {aiEnabled && <OpenersDialog contactId={p.contactId} label="Openers" />}
+              {aiEnabled && <DraftDialog contactId={p.contactId} label="Draft" />}
               <Button
                 variant="outline"
                 size="sm"

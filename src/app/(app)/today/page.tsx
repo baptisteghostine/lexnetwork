@@ -84,7 +84,7 @@ export default async function TodayPage() {
           <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Keep in touch
           </h2>
-          <TodayQueue items={items} />
+          <TodayQueue items={items} aiEnabled={aiEnabled()} />
         </section>
         {data.changes.length > 0 && (
           <section className="space-y-2">

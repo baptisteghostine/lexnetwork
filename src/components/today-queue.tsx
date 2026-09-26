@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Star } from "lucide-react";
 
 import { ContactAvatar } from "@/components/contact-avatar";
+import { DraftDialog } from "@/components/draft-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { snoozeContactAction, snoozeAllAction } from "@/server/cadence";
@@ -27,7 +28,13 @@ type Mode =
   | { kind: "snooze"; contactId: number }
   | { kind: "log"; contactId: number };
 
-export function TodayQueue({ items }: { items: DueItem[] }) {
+export function TodayQueue({
+  items,
+  aiEnabled = false,
+}: {
+  items: DueItem[];
+  aiEnabled?: boolean;
+}) {
   const router = useRouter();
   const [selected, setSelected] = useState(0);
   const [mode, setMode] = useState<Mode>({ kind: "idle" });
@@ -201,6 +208,12 @@ export function TodayQueue({ items }: { items: DueItem[] }) {
                 ? "due today"
                 : `${item.daysOverdue}d overdue`}
             </span>
+
+            {aiEnabled && (
+              <span onClick={(e) => e.stopPropagation()}>
+                <DraftDialog contactId={item.contactId} label="Draft" />
+              </span>
+            )}
 
             {mode.kind === "snooze" && mode.contactId === item.contactId && (
               <span className="rounded bg-popover px-2 py-0.5 text-[11px]">

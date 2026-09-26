@@ -19,7 +19,7 @@ import { ContactActions } from "@/components/contact-actions";
 import { ContactAvatar } from "@/components/contact-avatar";
 import { CustomFieldValues } from "@/components/custom-field-values";
 import { LogInteraction } from "@/components/log-interaction";
-import { OpenersDialog } from "@/components/openers-dialog";
+import { DraftDialog } from "@/components/draft-dialog";
 import { RelationshipsCard } from "@/components/relationships-card";
 import { aiEnabled } from "@/server/ai-client";
 import { readRelationships } from "@/server/relationships";
@@ -366,7 +366,7 @@ export default async function ContactPage({
                   Timeline
                 </h2>
                 <div className="flex gap-2">
-                  {ai && <OpenersDialog contactId={contact.id} />}
+                  {ai && <DraftDialog contactId={contact.id} />}
                   <LogInteraction contactId={contact.id} />
                   <AddNoteButton contactId={contact.id} />
                 </div>

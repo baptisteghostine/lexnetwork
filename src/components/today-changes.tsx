@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Briefcase, Check, Copy, X } from "lucide-react";
 
 import { ContactAvatar } from "@/components/contact-avatar";
-import { OpenersDialog } from "@/components/openers-dialog";
+import { DraftDialog } from "@/components/draft-dialog";
 import { Button } from "@/components/ui/button";
 import { TRIAGE_KIND_LABEL } from "@/lib/ai/triage";
 import { changeAge } from "@/lib/digest/network-updates";
@@ -158,11 +158,7 @@ export function TodayChanges({
           </span>
           <span className="flex basis-full items-center justify-end gap-2 md:basis-auto">
             {aiEnabled && (
-              <OpenersDialog
-                contactId={c.contactId}
-                changeId={c.id}
-                label="Openers"
-              />
+              <DraftDialog contactId={c.contactId} changeId={c.id} label="Draft" />
             )}
             <Button
               variant="outline"

@@ -11,6 +11,7 @@ import {
   contactChanges,
   contactTags,
   contacts,
+  interactions,
   notes,
   tags,
 } from "@/db/schema";
@@ -23,15 +24,23 @@ import {
   type FilterCatalog,
 } from "@/lib/ai/nl-filter";
 import {
-  buildOpenersPrompt,
+  buildDraftPrompt,
+  buildDraftSystem,
+  draftFormat,
+  parseDraft,
+  type Draft,
+  type DraftInput,
+} from "@/lib/ai/draft";
+import {
   buildSummarizePrompt,
-  OPENERS_SYSTEM,
-  openersFormat,
-  parseOpeners,
   SUMMARIZE_MIN_CHARS,
   SUMMARIZE_SYSTEM,
-  type OpenersInput,
 } from "@/lib/ai/prompts";
+import type { ChangeTriage } from "@/lib/ai/triage";
+import { DAY_MS } from "@/lib/cadence/engine";
+import { interactionLabel } from "@/lib/prep/build";
+import { readAnnotation } from "@/server/ai-annotations";
+import { ownerVoiceContext } from "@/server/ai-voice";
 import {
   VOICE_SYSTEM as VOICE_SYSTEM_PROMPT,
   buildVoicePrompt,
@@ -144,61 +153,118 @@ export async function nlSearchAction(input: {
   };
 }
 
-// ---------- conversation starters ----------
+// ---------- drafts in the owner's voice ----------
 
-export async function openersAction(input: {
+export type DraftResult =
+  | {
+      draft: Draft;
+      /** Primary email on file, for the Gmail compose link. */
+      email: string | null;
+      linkedinUrl: string | null;
+    }
+  | { error: string };
+
+const draftInput = z.object({
+  contactId: z.number().int().positive(),
+  changeId: z.number().int().positive().optional(),
+  intent: z.string().trim().max(300).optional(),
+});
+
+/**
+ * One draft (message + email + two alternative openings) for a contact,
+ * grounded in what Rolo knows — notes, recent exchanges, a detected
+ * change and its triage — and written in the owner's voice (SPEC §11,
+ * 2026-09-26). Never sent from here.
+ */
+export async function draftMessageAction(input: {
   contactId: number;
   changeId?: number;
-}): Promise<{ openers?: string[]; error?: string }> {
+  intent?: string;
+}): Promise<DraftResult> {
   await requireAuth();
   if (!aiEnabled()) return { error: "AI is not configured." };
-  const detail = getContactDetail(input.contactId);
+  const parsed = draftInput.safeParse(input);
+  if (!parsed.success) return { error: "Invalid request." };
+  const detail = getContactDetail(parsed.data.contactId);
   if (!detail) return { error: "Contact not found." };
+  const now = Date.now();
 
   const recentNotes = db
     .select({ body: notes.bodyMd })
     .from(notes)
-    .where(eq(notes.contactId, input.contactId))
+    .where(eq(notes.contactId, detail.contact.id))
     .orderBy(desc(notes.createdAt))
     .limit(5)
     .all()
-    .map((n) => n.body.slice(0, 500))
-    .filter((b) => b.trim() !== "");
+    .map((n) => n.body.replace(/\s+/g, " ").trim().slice(0, 500))
+    .filter((b) => b !== "");
+  const recent = db
+    .select({
+      kind: interactions.kind,
+      direction: interactions.direction,
+      title: interactions.title,
+      occurredAt: interactions.occurredAt,
+    })
+    .from(interactions)
+    .where(eq(interactions.contactId, detail.contact.id))
+    .orderBy(desc(interactions.occurredAt))
+    .limit(6)
+    .all()
+    .map((i) => `${interactionLabel(i)} · ${Math.max(0, Math.floor((now - i.occurredAt) / DAY_MS))}d ago`);
+  const tagNames = new Map(listTags().map((t) => [t.id, t.name]));
 
-  let change: OpenersInput["change"] = null;
-  if (input.changeId) {
+  let change: DraftInput["change"] = null;
+  if (parsed.data.changeId) {
     const row = db
       .select()
       .from(contactChanges)
-      .where(eq(contactChanges.id, input.changeId))
+      .where(eq(contactChanges.id, parsed.data.changeId))
       .get();
-    if (row && row.contactId === input.contactId) {
-      change = { field: row.field, oldValue: row.oldValue, newValue: row.newValue };
+    if (row && row.contactId === detail.contact.id) {
+      const triage = readAnnotation<ChangeTriage>("change_triage", row.id)?.payload ?? null;
+      change = {
+        field: row.field,
+        oldValue: row.oldValue,
+        newValue: row.newValue,
+        reason: triage?.reason || null,
+      };
     }
   }
 
   const result = await callAi({
-    feature: "openers",
-    system: OPENERS_SYSTEM,
-    prompt: buildOpenersPrompt({
+    feature: "draft",
+    system: buildDraftSystem(ownerVoiceContext()),
+    prompt: buildDraftPrompt({
       displayName: detail.contact.displayName,
+      firstName: detail.contact.firstName,
       title: detail.contact.title,
       company: detail.contact.company,
+      location: detail.contact.location,
       workHistory: detail.workHistory.map((w) => ({
         company: w.company,
         title: w.title,
         isCurrent: w.isCurrent,
       })),
+      education: detail.education.map((e) => ({ school: e.school, degree: e.degree, field: e.field })),
+      tags: detail.tagIds.map((id) => tagNames.get(id)).filter((n): n is string => !!n),
+      lastContactDays:
+        detail.contact.lastInteractionAt === null
+          ? null
+          : Math.max(0, Math.floor((now - detail.contact.lastInteractionAt) / DAY_MS)),
+      recentInteractions: recent,
       notes: recentNotes,
       change,
+      intent: parsed.data.intent || null,
     }),
-    maxTokens: 1024,
-    outputFormat: openersFormat(),
+    maxTokens: 1800,
+    outputFormat: draftFormat(),
   });
   if (!result.ok) return { error: result.error };
-  const openers = parseOpeners(result.text);
-  if (!openers) return { error: "The model returned an unusable response." };
-  return { openers };
+  const draft = parseDraft(result.text);
+  if (!draft) return { error: "The model returned an unusable draft — try again." };
+  const primary = [...detail.emails].sort((a, b) => a.priority - b.priority)[0]?.email ?? null;
+  const linkedin = detail.socials.find((s) => s.platform === "linkedin")?.url ?? null;
+  return { draft, email: primary, linkedinUrl: linkedin };
 }
 
 // ---------- note summarization ----------
