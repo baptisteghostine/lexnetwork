@@ -487,6 +487,11 @@ export function mergeContacts(
     // The loser goes away; conflicting child rows cascade with it. All of
     // them are in the snapshot for undo.
     db.prepare("DELETE FROM contacts WHERE id = ?").run(loserId);
+    // The loser's AI profile card describes a row that no longer exists;
+    // its id will be handed to the next contact, so the card goes too.
+    db.prepare("DELETE FROM ai_annotations WHERE kind = 'contact_profile' AND subject_id = ?").run(
+      loserId
+    );
 
     recomputeDerived(db, winnerId, now);
     const winnerAfter = contactRow(db, winnerId)!;

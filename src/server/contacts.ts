@@ -24,6 +24,7 @@ import {
 } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
 import { recomputeContact } from "@/lib/cadence/recompute";
+import { pruneOrphanAnnotations } from "@/server/ai-annotations";
 import {
   deriveDisplayName,
   isValidBirthday,
@@ -510,6 +511,10 @@ export async function deleteContactAction(
     .map((m) => m.contactId)
     .filter((id): id is number => id !== null && id !== contactId);
   db.delete(contacts).where(eq(contacts.id, contactId)).run();
+  // The cascade took this contact's change rows too; their AI verdicts and
+  // the profile card must not outlive them (ids get reused).
+  pruneOrphanAnnotations("contact_profile");
+  pruneOrphanAnnotations("change_triage");
   for (const id of mentioned) recomputeContact(id);
   for (const rel of files) {
     fs.rmSync(path.join(DATA_DIR, rel), { force: true });

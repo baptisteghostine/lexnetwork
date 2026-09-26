@@ -29,6 +29,7 @@ import {
   markAccountError,
   myAddressList,
 } from "@/server/sync/accounts";
+import { pruneOrphanAnnotations } from "@/server/ai-annotations";
 import { recordSightings } from "@/server/sync/suggestions";
 
 // Calendar sync engine (SPEC §9): bounded window first, then syncToken
@@ -116,6 +117,7 @@ function upsertEvent(
 ): void {
   if (e.status === "cancelled") {
     db.delete(calendarEvents).where(eq(calendarEvents.eventKey, e.eventKey)).run();
+    pruneOrphanAnnotations("meeting_followup");
     // A meeting already promoted to an interaction never happened after all.
     deleteMeetingInteractions([e.eventKey], touched);
     return;
@@ -304,6 +306,7 @@ function pruneUnseenWindowEvents(
     const chunk = stale.slice(i, i + 200);
     db.delete(calendarEvents).where(inArray(calendarEvents.eventKey, chunk)).run();
   }
+  pruneOrphanAnnotations("meeting_followup");
   deleteMeetingInteractions(stale, touched);
 }
 

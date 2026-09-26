@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import { aiAnnotations } from "@/db/schema";
@@ -87,4 +87,25 @@ export function deleteAnnotation(kind: AnnotationKind, subjectId: number): void 
   db.delete(aiAnnotations)
     .where(and(eq(aiAnnotations.kind, kind), eq(aiAnnotations.subjectId, subjectId)))
     .run();
+}
+
+const SUBJECT_TABLE: Record<AnnotationKind, string> = {
+  change_triage: "contact_changes",
+  contact_profile: "contacts",
+  meeting_followup: "calendar_events",
+};
+
+/**
+ * Drop annotations whose subject row is gone. Call right after deleting
+ * subjects, before anything inserts: the subject tables have plain
+ * integer keys, so SQLite hands a deleted top id straight to the next
+ * row, and an orphan left behind would then describe a stranger — a
+ * deleted person's "what I know" card on the next import, a cancelled
+ * meeting's "captured" mark silencing the next meeting's debrief.
+ */
+export function pruneOrphanAnnotations(kind: AnnotationKind): void {
+  db.run(
+    sql`DELETE FROM ai_annotations WHERE kind = ${kind}
+        AND subject_id NOT IN (SELECT id FROM ${sql.raw(SUBJECT_TABLE[kind])})`
+  );
 }

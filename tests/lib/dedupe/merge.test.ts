@@ -430,3 +430,13 @@ describe("mentions after a merge", () => {
     expect(count("SELECT count(*) AS n FROM note_mentions WHERE contact_id = ?", ids.winner)).toBe(1);
   });
 });
+
+describe("AI annotations after a merge", () => {
+  it("the loser's profile card is removed with the loser", () => {
+    db.prepare(
+      "INSERT INTO ai_annotations (kind, subject_id, payload_json, model, created_at, updated_at) VALUES ('contact_profile', ?, '{}', 'fake', ?, ?)"
+    ).run(ids.loser, NOW, NOW);
+    mergeContacts(db, { winnerId: ids.winner, loserId: ids.loser, now: NOW });
+    expect(count("SELECT count(*) AS n FROM ai_annotations WHERE subject_id = ?", ids.loser)).toBe(0);
+  });
+});

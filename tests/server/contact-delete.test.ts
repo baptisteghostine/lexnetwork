@@ -68,3 +68,37 @@ describe("deleteContactAction", () => {
     expect(rawDb.prepare("SELECT count(*) AS n FROM notes").get()).toEqual({ n: 0 });
   });
 });
+
+describe("AI annotations follow their subject", () => {
+  it("a deleted contact's profile card and triage verdicts do not attach to the next contact", async () => {
+    const now = Date.now();
+    const { upsertAnnotation, readAnnotation } = await import("@/server/ai-annotations");
+    const carl = Number(
+      rawDb
+        .prepare("INSERT INTO contacts (display_name, created_at, updated_at) VALUES (?, ?, ?)")
+        .run("Carl Deleted", now, now).lastInsertRowid
+    );
+    const changeId = Number(
+      rawDb
+        .prepare(
+          "INSERT INTO contact_changes (contact_id, field, old_value, new_value, detected_at, source) VALUES (?, 'company', 'A', 'B', ?, 'linkedin_import')"
+        )
+        .run(carl, now).lastInsertRowid
+    );
+    upsertAnnotation("contact_profile", carl, { summary: "Carl's card" }, "fake", null);
+    upsertAnnotation("change_triage", changeId, { kind: "new_company" }, "fake", null);
+
+    const { deleteContactAction } = await import("@/server/contacts");
+    await expect(deleteContactAction(carl, "Carl Deleted")).rejects.toThrow("REDIRECT:/contacts");
+
+    // SQLite hands the freed top id to the next row.
+    const dana = Number(
+      rawDb
+        .prepare("INSERT INTO contacts (display_name, created_at, updated_at) VALUES (?, ?, ?)")
+        .run("Dana New", now, now).lastInsertRowid
+    );
+    expect(dana).toBe(carl);
+    expect(readAnnotation("contact_profile", dana)).toBeNull();
+    expect(readAnnotation("change_triage", changeId)).toBeNull();
+  });
+});
