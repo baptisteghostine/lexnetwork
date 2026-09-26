@@ -25,8 +25,11 @@ Every feature serves one loop: capture context automatically → surface who's d
   prompts to improve their products; the owner accepted that for the
   contact names and headlines these prompts carry). Plain text calls
   only — no Google Search grounding, which would send contact data to
-  a search backend. Model IDs come from env (`ANTHROPIC_MODEL` /
-  `GROQ_MODEL` / `GEMINI_MODEL`) — never hardcode a model. Free-tier caps (30 req/min, 200k tokens/day) mean
+  a search backend. OpenAI's API was added 2026-09-26 (owner request,
+  paid account, `OPENAI_API_KEY` + `OPENAI_MODEL`) through the same
+  OpenAI-compatible adapter. Model IDs come from env (`ANTHROPIC_MODEL` /
+  `GROQ_MODEL` / `GEMINI_MODEL` / `OPENAI_MODEL`) — never hardcode a
+  model. Free-tier caps (30 req/min, 200k tokens/day) mean
   429s are expected during batch tagging; they surface as logged errors,
   never silent drops.
 - **Tests:** Vitest for unit (cadence engine, dedupe matcher, import parsers are mandatory coverage), Playwright for 2–3 critical E2E flows.

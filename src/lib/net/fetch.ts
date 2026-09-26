@@ -15,10 +15,11 @@ const ALLOWED_HOSTS = new Set<string>([
   "www.linkedin.com",
   "api.linkedin.com",
   // AI providers (SPEC §11; Groq added by owner amendment 2026-08-20,
-  // Gemini 2026-09-20)
+  // Gemini 2026-09-20, OpenAI 2026-09-26)
   "api.anthropic.com",
   "api.groq.com",
   "generativelanguage.googleapis.com",
+  "api.openai.com",
   // Nominatim geocoding, off by default (SPEC decision #4)
   "nominatim.openstreetmap.org",
 ]);

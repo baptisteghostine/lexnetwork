@@ -1,7 +1,7 @@
-// OpenAI-compatible adapters (SPEC §11): Groq (owner-amended 2026-08-20)
-// and Gemini (owner-amended 2026-09-20) both expose an OpenAI-style
-// chat/completions endpoint, so one adapter implements the AiClientLike
-// surface the call core consumes for both. No SDK — one endpoint, plain
+// OpenAI-compatible adapters (SPEC §11): Groq (owner-amended 2026-08-20),
+// Gemini (owner-amended 2026-09-20) and OpenAI itself (owner-amended
+// 2026-09-26) all expose the same chat/completions shape, so one adapter
+// implements the AiClientLike surface the call core consumes for all. No SDK — one endpoint, plain
 // JSON, through the outbound allowlist. Everything downstream (one
 // ai_calls row per call, Zod validation, retry-on-invalid) is unchanged
 // and provider-blind.
@@ -11,15 +11,18 @@ import type { AiClientLike, AiResponseLike } from "./call";
 export const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
 export const GEMINI_ENDPOINT =
   "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+export const OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions";
 
 /** The per-provider differences — everything else is the same request. */
 export type OpenAiCompatProvider = {
-  name: "Groq" | "Gemini";
+  name: "Groq" | "Gemini" | "OpenAI";
   endpoint: string;
   /** Groq follows current OpenAI naming; Gemini's compatibility layer takes the classic one. */
   maxTokensParam: "max_completion_tokens" | "max_tokens";
   /** OpenAI's `strict` flag; Gemini's layer documents json_schema without it. */
   strictSchema: boolean;
+  /** Free tiers hit per-minute/day caps as a matter of course; say so in the error. */
+  freeTier: boolean;
 };
 
 export const GROQ: OpenAiCompatProvider = {
@@ -27,6 +30,7 @@ export const GROQ: OpenAiCompatProvider = {
   endpoint: GROQ_ENDPOINT,
   maxTokensParam: "max_completion_tokens",
   strictSchema: true,
+  freeTier: true,
 };
 
 export const GEMINI: OpenAiCompatProvider = {
@@ -34,6 +38,15 @@ export const GEMINI: OpenAiCompatProvider = {
   endpoint: GEMINI_ENDPOINT,
   maxTokensParam: "max_tokens",
   strictSchema: false,
+  freeTier: true,
+};
+
+export const OPENAI: OpenAiCompatProvider = {
+  name: "OpenAI",
+  endpoint: OPENAI_ENDPOINT,
+  maxTokensParam: "max_completion_tokens",
+  strictSchema: true,
+  freeTier: false,
 };
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
@@ -139,7 +152,7 @@ export function openAiCompatClient(opts: {
           const detail = json?.error?.message ?? `HTTP ${res.status}`;
           throw new Error(
             res.status === 429
-              ? `${provider.name} rate limit hit (free tier): ${detail}`
+              ? `${provider.name} rate limit hit${provider.freeTier ? " (free tier)" : ""}: ${detail}`
               : `${provider.name} request failed: ${detail}`
           );
         }
@@ -154,3 +167,6 @@ export const groqClient = (opts: { apiKey: string; fetcher: FetchLike }) =>
 
 export const geminiClient = (opts: { apiKey: string; fetcher: FetchLike }) =>
   openAiCompatClient({ ...opts, provider: GEMINI });
+
+export const openAiClient = (opts: { apiKey: string; fetcher: FetchLike }) =>
+  openAiCompatClient({ ...opts, provider: OPENAI });

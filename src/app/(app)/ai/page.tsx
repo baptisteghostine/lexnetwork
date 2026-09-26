@@ -28,7 +28,8 @@ export default async function AiPage() {
       {!enabled ? (
         <div className="max-w-2xl space-y-2 px-5 py-4 text-sm text-muted-foreground">
           <p>
-            AI features are off. Set <code>GEMINI_API_KEY</code> and{" "}
+            AI features are off. Set <code>OPENAI_API_KEY</code> and{" "}
+            <code>OPENAI_MODEL</code>, <code>GEMINI_API_KEY</code> and{" "}
             <code>GEMINI_MODEL</code> (free tier at aistudio.google.com —
             e.g. <code>gemini-3.6-flash</code>), <code>GROQ_API_KEY</code>{" "}
             and <code>GROQ_MODEL</code> (free tier at console.groq.com — e.g.{" "}

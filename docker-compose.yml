@@ -15,9 +15,12 @@ services:
       # generated secret persists in data/secret.key.
       - SESSION_SECRET=${SESSION_SECRET:-}
       # AI layer (optional) — one provider pair must be set for AI
-      # affordances to appear. Gemini (free tier), Groq (free tier) or
-      # Anthropic; when several are set, AI_PROVIDER=gemini|groq|anthropic
-      # picks (default: gemini, then groq).
+      # affordances to appear. OpenAI, Gemini (free tier), Groq (free
+      # tier) or Anthropic; when several are set,
+      # AI_PROVIDER=openai|gemini|groq|anthropic picks (default: the most
+      # recently adopted — openai, then gemini, then groq).
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - GEMINI_MODEL=${GEMINI_MODEL:-}
       - GROQ_API_KEY=${GROQ_API_KEY:-}

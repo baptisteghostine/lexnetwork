@@ -11,6 +11,9 @@ import {
   geminiClient,
   GROQ_ENDPOINT,
   groqClient,
+  OPENAI,
+  OPENAI_ENDPOINT,
+  openAiClient,
   toAiResponse,
   toGroqBody,
   toOpenAiBody,
@@ -201,9 +204,42 @@ describe("through the call core", () => {
 });
 
 describe("allowlist", () => {
-  it("api.groq.com and generativelanguage.googleapis.com are allowed outbound hosts", () => {
+  it("api.groq.com, generativelanguage.googleapis.com and api.openai.com are allowed outbound hosts", () => {
     expect(isAllowedOutboundUrl(GROQ_ENDPOINT)).toBe(true);
     expect(isAllowedOutboundUrl(GEMINI_ENDPOINT)).toBe(true);
+    expect(isAllowedOutboundUrl(OPENAI_ENDPOINT)).toBe(true);
+  });
+});
+
+describe("OpenAI client", () => {
+  it("posts an OpenAI-shaped body with a strict schema to api.openai.com", async () => {
+    let seen: { url: string; body: Record<string, unknown> } | null = null;
+    const client = openAiClient({
+      apiKey: "k",
+      fetcher: async (url, init) => {
+        seen = { url, body: JSON.parse(String(init?.body)) as Record<string, unknown> };
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { content: "{}" }, finish_reason: "stop" }],
+            usage: { prompt_tokens: 3, completion_tokens: 1 },
+          }),
+          { status: 200 }
+        );
+      },
+    });
+    const res = await client.messages.create({
+      model: "m",
+      max_tokens: 10,
+      output_config: { format: { type: "json_schema", schema: { type: "object" } } },
+      messages: [{ role: "user", content: "hi" }],
+    });
+    expect(seen!.url).toBe(OPENAI_ENDPOINT);
+    expect(seen!.body.max_completion_tokens).toBe(10);
+    expect(OPENAI.strictSchema).toBe(true);
+    expect(
+      (seen!.body.response_format as { json_schema: { strict: boolean } }).json_schema.strict
+    ).toBe(true);
+    expect(res.usage?.input_tokens).toBe(3);
   });
 });
 
