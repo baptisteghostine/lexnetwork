@@ -111,6 +111,26 @@ export async function runAiCall(opts: {
       .map((b) => b.text)
       .join("");
 
+    // Anthropic says "max_tokens", the OpenAI-compatible providers "length":
+    // the reply was cut off at the token cap. What came back is at best
+    // unparseable JSON and at worst a truncated draft presented as whole,
+    // so it is logged and reported as a failure, never as a success.
+    if (response.stop_reason === "max_tokens" || response.stop_reason === "length") {
+      const callId = logCall(opts.db, {
+        feature: opts.feature,
+        model: opts.model,
+        prompt: storedPrompt,
+        response: text || null,
+        inputTokens: response.usage?.input_tokens ?? null,
+        outputTokens: response.usage?.output_tokens ?? null,
+        latencyMs: now() - startedAt,
+        status: "error",
+        error: `Reply cut off at the ${opts.maxTokens}-token limit.`,
+        createdAt: startedAt,
+      });
+      return { ok: false, error: "The model's reply was cut off at the token limit.", callId };
+    }
+
     if (response.stop_reason === "refusal") {
       const callId = logCall(opts.db, {
         feature: opts.feature,

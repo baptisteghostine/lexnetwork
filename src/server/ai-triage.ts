@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, inArray, isNull, notInArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import {
@@ -39,24 +39,21 @@ export function triageHideBelow(): number {
   return clampHideBelow(getSetting<number>("ai.triage.hide_below"));
 }
 
-/** Verdicts for a set of changes, with the fold decision applied. */
+/** Verdicts for a set of changes, with the fold decision applied. A null
+ * payload is a change the model could not triage (see runChangeTriage):
+ * it reads as untriaged and is never re-sent. */
 export function triageFor(changeIds: number[]): Map<number, { triage: ChangeTriage; lowSignal: boolean }> {
   const out = new Map<number, { triage: ChangeTriage; lowSignal: boolean }>();
   if (changeIds.length === 0) return out;
   const hideBelow = triageHideBelow();
-  for (const [id, a] of readAnnotations<ChangeTriage>("change_triage", changeIds)) {
+  for (const [id, a] of readAnnotations<ChangeTriage | null>("change_triage", changeIds)) {
+    if (!a.payload) continue;
     out.set(id, { triage: a.payload, lowSignal: isLowSignal(a.payload, hideBelow) });
   }
   return out;
 }
 
 function untriagedChanges(now: number): TriageChange[] {
-  const triaged = db
-    .select({ id: aiAnnotations.subjectId })
-    .from(aiAnnotations)
-    .where(eq(aiAnnotations.kind, "change_triage"))
-    .all()
-    .map((r) => r.id);
   const rows = db
     .select({
       id: contactChanges.id,
@@ -77,7 +74,10 @@ function untriagedChanges(now: number): TriageChange[] {
         isNull(contactChanges.dismissedAt),
         isNull(contactChanges.actedAt),
         isNull(contacts.archivedAt),
-        triaged.length > 0 ? notInArray(contactChanges.id, triaged) : undefined
+        // An anti-join, not NOT IN (...ids): verdicts are never pruned, so
+        // a bound list would one day cross SQLite's variable limit.
+        sql`NOT EXISTS (SELECT 1 FROM ${aiAnnotations} a
+              WHERE a.kind = 'change_triage' AND a.subject_id = ${contactChanges.id})`
       )
     )
     .orderBy(desc(contactChanges.detectedAt))
@@ -123,38 +123,87 @@ function untriagedChanges(now: number): TriageChange[] {
   }));
 }
 
-export type TriageStats = { changes: number; triaged: number; batchErrors: number };
+export type TriageStats = {
+  changes: number;
+  triaged: number;
+  /** Changes the model answered for but not usably — stamped as untriageable. */
+  unusable: number;
+  batchErrors: number;
+  /** More untriaged changes remain past this run's cap. */
+  more: boolean;
+};
+
+/** Ten items' worth of reasons and openers is near 2,500 tokens; reasoning
+ * models also spend the cap on thinking. */
+const TRIAGE_MAX_TOKENS = 6000;
+
+/**
+ * One batch: ask, parse, and on an unusable reply try each half once —
+ * a cut-off reply or one malformed item should not cost the other nine
+ * their verdict. Returns the verdicts won; a model/API error (429, network)
+ * returns null so the batch waits for the next run instead.
+ */
+async function triageBatch(
+  batch: TriageChange[],
+  system: string,
+  depth = 0
+): Promise<{ verdicts: Map<number, ChangeTriage>; callId: number | null } | null> {
+  const allowed = new Set(batch.map((c) => c.id));
+  const result = await callAi({
+    feature: "change_triage",
+    system,
+    prompt: buildTriagePrompt(batch),
+    maxTokens: TRIAGE_MAX_TOKENS,
+    outputFormat: triageFormat(),
+  });
+  if (!result.ok) {
+    console.error("[rolo-triage] batch failed:", result.error);
+    return null;
+  }
+  const verdicts = parseTriage(result.text, allowed);
+  if (verdicts.size > 0 || batch.length < 2 || depth > 0) return { verdicts, callId: result.callId };
+  const mid = Math.ceil(batch.length / 2);
+  const halves = await Promise.all([
+    triageBatch(batch.slice(0, mid), system, depth + 1),
+    triageBatch(batch.slice(mid), system, depth + 1),
+  ]);
+  if (halves[0] === null && halves[1] === null) return null;
+  const merged = new Map<number, ChangeTriage>();
+  for (const h of halves) for (const [id, v] of h?.verdicts ?? []) merged.set(id, v);
+  return { verdicts: merged, callId: halves[0]?.callId ?? halves[1]?.callId ?? null };
+}
 
 export async function runChangeTriage(now: number): Promise<TriageStats> {
-  const stats: TriageStats = { changes: 0, triaged: 0, batchErrors: 0 };
+  const stats: TriageStats = { changes: 0, triaged: 0, unusable: 0, batchErrors: 0, more: false };
   if (!aiEnabled()) return stats;
   const pending = untriagedChanges(now);
   stats.changes = pending.length;
+  stats.more = pending.length === RUN_CAP;
   if (pending.length === 0) return stats;
   const model = aiConfig()?.model ?? "unknown";
   const system = buildTriageSystem(ownerVoiceContext());
 
   for (let i = 0; i < pending.length; i += TRIAGE_BATCH) {
     const batch = pending.slice(i, i + TRIAGE_BATCH);
-    const allowed = new Set(batch.map((c) => c.id));
-    const result = await callAi({
-      feature: "change_triage",
-      system,
-      prompt: buildTriagePrompt(batch),
-      maxTokens: 2500,
-      outputFormat: triageFormat(),
-    });
-    if (!result.ok) {
+    const answered = await triageBatch(batch, system);
+    if (answered === null) {
       stats.batchErrors++;
-      console.error("[rolo-triage] batch failed:", result.error);
       continue;
     }
-    const verdicts = parseTriage(result.text, allowed);
-    for (const [id, verdict] of verdicts) {
-      upsertAnnotation("change_triage", id, verdict, model, result.callId);
+    for (const [id, verdict] of answered.verdicts) {
+      upsertAnnotation("change_triage", id, verdict, model, answered.callId);
       stats.triaged++;
     }
-    if (verdicts.size === 0) stats.batchErrors++;
+    // The model answered and still gave these nothing usable. Stamp them
+    // as untriageable (a null verdict) rather than re-send the same rows
+    // every quarter hour forever while newer changes queue behind them;
+    // Today shows them as plain, unexplained changes.
+    for (const c of batch) {
+      if (answered.verdicts.has(c.id)) continue;
+      upsertAnnotation("change_triage", c.id, null, model, answered.callId);
+      stats.unusable++;
+    }
+    if (answered.verdicts.size === 0) stats.batchErrors++;
   }
   return stats;
 }

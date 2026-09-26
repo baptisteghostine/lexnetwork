@@ -50,7 +50,14 @@ const HANDLERS: Record<string, Handler> = {
     await runAiBatchTag(payloadJson);
   },
   ai_change_triage: async () => {
-    await runChangeTriage(Date.now());
+    const stats = await runChangeTriage(Date.now());
+    // A big import leaves more than one run's cap: keep going now rather
+    // than a cap's worth per interval, so one import's news lands in one
+    // email (network_updates holds until the batch is triaged).
+    if (stats.more && stats.batchErrors === 0) {
+      const runAt = Date.now();
+      enqueueJob({ kind: "ai_change_triage", runAt, dedupeKey: `ai_change_triage:${runAt}` });
+    }
   },
   ai_enrich: async () => {
     await runEnrichJob(Date.now());

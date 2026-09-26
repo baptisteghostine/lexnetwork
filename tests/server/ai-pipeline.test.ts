@@ -45,6 +45,10 @@ function answer(system: string, user: string): unknown {
     return { guide: "You open with the first name and a dash, keep to three lines, close with Best, Baptiste." };
   }
   if (system.includes("triage job changes")) {
+    // A poison batch (see the "poison" contact): the whole batch comes back
+    // unusable, and so does the half that still holds the poison line.
+    if (user.includes("Poison Pill") && user.includes("Stripe → Anthropic")) return { items: "garbage" };
+    if (user.includes("Poison Pill")) return { items: [] };
     // The move is the line that reads "Stripe → Anthropic"; the other is a rewording.
     const items = user.split("\n").map((line) => {
       const id = ids(line)[0];
@@ -237,6 +241,43 @@ describe("job-change triage", () => {
     expect(today.changes.find((c) => c.id === noiseChangeId)!.lowSignal).toBe(true);
     // A second run finds nothing left to do.
     expect((await runChangeTriage(NOW)).changes).toBe(0);
+  });
+
+  it("an unusable reply is retried by halves and the leftovers stamped, not re-sent forever", async () => {
+    const { runChangeTriage } = await import("@/server/ai-triage");
+    const now = Date.now();
+    const poison = Number(
+      rawDb
+        .prepare("INSERT INTO contacts (display_name, created_at, updated_at) VALUES ('Poison Pill', ?, ?)")
+        .run(now, now).lastInsertRowid
+    );
+    const ins = rawDb.prepare(
+      "INSERT INTO contact_changes (contact_id, field, old_value, new_value, detected_at, source) VALUES (?, 'company', ?, ?, ?, 'linkedin_import')"
+    );
+    const poisonChange = Number(ins.run(poison, "X", "Y", now).lastInsertRowid);
+    const goodChange = Number(ins.run(anaId, "Stripe", "Anthropic", now - 1).lastInsertRowid);
+    const before = calls.length;
+
+    const stats = await runChangeTriage(now);
+    // First call: the pair, unusable. Then each half once: Ana's half is
+    // fine, the poison half is not.
+    expect(calls.length - before).toBe(3);
+    expect(stats).toMatchObject({ changes: 2, triaged: 1, unusable: 1, more: false });
+    const verdicts = rawDb
+      .prepare("SELECT subject_id, payload_json FROM ai_annotations WHERE kind='change_triage' AND subject_id IN (?, ?)")
+      .all(poisonChange, goodChange) as { subject_id: number; payload_json: string }[];
+    expect(verdicts.find((v) => v.subject_id === goodChange)?.payload_json).toContain("new_company");
+    expect(verdicts.find((v) => v.subject_id === poisonChange)?.payload_json).toBe("null");
+
+    // The next run has nothing to send: the poison change is stamped, and
+    // Today shows it as a plain untriaged change.
+    const again = await runChangeTriage(now);
+    expect(again.changes).toBe(0);
+    const { getTodayData } = await import("@/server/today-data");
+    const shown = getTodayData(now).changes.find((c) => c.id === poisonChange);
+    expect(shown).toBeDefined();
+    expect(shown!.triage).toBeNull();
+    rawDb.prepare("DELETE FROM contact_changes WHERE id IN (?, ?)").run(poisonChange, goodChange);
   });
 });
 

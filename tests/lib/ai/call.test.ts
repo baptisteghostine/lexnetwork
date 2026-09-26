@@ -49,6 +49,31 @@ function rows(): Record<string, unknown>[] {
 }
 
 describe("runAiCall", () => {
+  it("logs a reply cut off at the token cap as an error, whichever provider says so", async () => {
+    for (const stop of ["max_tokens", "length"]) {
+      const result = await runAiCall({
+        db,
+        client: fakeClient(async () => ({
+          content: [{ type: "text", text: '{"items":[{"id":1,' }],
+          usage: { input_tokens: 10, output_tokens: 2500 },
+          stop_reason: stop,
+        })),
+        feature: "change_triage",
+        model: "test-model",
+        prompt: "triage",
+        maxTokens: 2500,
+        now: ticker(1000, 250),
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toMatch(/cut off/);
+    }
+    const logged = rows();
+    expect(logged).toHaveLength(2);
+    expect(logged.map((r) => r.status)).toEqual(["error", "error"]);
+    expect(String(logged[0].error)).toContain("2500-token limit");
+    db.exec("DELETE FROM ai_calls");
+  });
+
   it("logs exactly one row with tokens and latency on success", async () => {
     const result = await runAiCall({
       db,
