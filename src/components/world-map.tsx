@@ -99,10 +99,10 @@ export function WorldMap({
               selectedId === s.id && "fill-primary/50"
             )}
           >
-            <title>
-              {s.name}
-              {has ? ` — ${counts[s.id]} contact${counts[s.id] === 1 ? "" : "s"}` : ""}
-            </title>
+            {/* One string child: React 19 renders a <title> with an array
+                of children as empty on the server, which the client then
+                fails to hydrate against. */}
+            <title>{`${s.name}${has ? ` — ${counts[s.id]} contact${counts[s.id] === 1 ? "" : "s"}` : ""}`}</title>
           </path>
         );
       })}
@@ -133,9 +133,7 @@ export function WorldMap({
           >
             {b.count}
           </text>
-          <title>
-            {b.name} — {b.count} contact{b.count === 1 ? "" : "s"}
-          </title>
+          <title>{`${b.name} — ${b.count} contact${b.count === 1 ? "" : "s"}`}</title>
         </g>
       ))}
       {cityDots.map((c) => (
@@ -164,9 +162,7 @@ export function WorldMap({
               {c.count}
             </text>
           ) : null}
-          <title>
-            {c.label} — {c.count} contact{c.count === 1 ? "" : "s"}
-          </title>
+          <title>{`${c.label} — ${c.count} contact${c.count === 1 ? "" : "s"}`}</title>
         </g>
       ))}
     </svg>
