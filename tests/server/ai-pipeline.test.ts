@@ -423,6 +423,10 @@ describe("post-meeting follow-up", () => {
     expect(reminders.map((r) => r.title)).toEqual(["Send the deck", "Intro to Priya"]);
     expect(reminders.every((r) => r.contact_id === anaId)).toBe(true); // 999 fell back to the attendee
     expect(reminders[1].due_at - reminders[0].due_at).toBe(364 * 24 * H); // 900 clamped to 365
+    // A second submit for the same meeting (double click, stale tab) writes nothing more.
+    const again = await captureFollowupAction({ eventId, text: "Went well, again" });
+    expect(again).toEqual({ noteId: res.noteId, reminders: 2 });
+    expect((rawDb.prepare("SELECT count(*) AS n FROM reminders").get() as { n: number }).n).toBe(2);
     expect(getTodayData(NOW).followups).toEqual([]);
   });
 

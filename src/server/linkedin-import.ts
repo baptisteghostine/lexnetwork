@@ -45,6 +45,8 @@ export type UnmatchedConversation = {
     occurredAt: number;
     /** Absent in reports written before snippets existed. */
     snippet?: string | null;
+    /** Absent in reports written before bodies were kept (2026-09-26). */
+    body?: string | null;
   }[];
 };
 

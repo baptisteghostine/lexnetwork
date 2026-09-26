@@ -93,12 +93,14 @@ export function filterSetJsonSchema(): Record<string, unknown> {
         dim: lit("customField"),
         fieldId: { type: "integer" },
         op: lit("contains", "equals", "gt", "lt", "before", "after", "includes"),
-        value: { type: ["string", "number"] },
+        // A union spelled with anyOf: the only type array the strict
+        // structured-output dialects document is the nullable one.
+        value: { anyOf: [{ type: "string" }, { type: "number" }] },
       }),
     ],
   };
   return obj({
-    v: { type: "integer", enum: [1] },
+    v: { type: "integer" },
     clauses: { type: "array", items: clause },
   });
 }

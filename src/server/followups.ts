@@ -17,7 +17,7 @@ import {
 import { requireAuth } from "@/lib/auth";
 import { DAY_MS } from "@/lib/cadence/engine";
 import { aiConfig, aiEnabled, callAi } from "@/server/ai-client";
-import { upsertAnnotation } from "@/server/ai-annotations";
+import { readAnnotation, upsertAnnotation } from "@/server/ai-annotations";
 import { recomputeNoteContacts, syncNoteMentions } from "@/server/note-sync";
 import { ownerTimezone } from "@/server/today-data";
 
@@ -60,6 +60,14 @@ export async function captureFollowupAction(input: {
   if (!parsed.success) return { error: "Write a line about how it went." };
   const event = db.select().from(calendarEvents).where(eq(calendarEvents.id, parsed.data.eventId)).get();
   if (!event) return { error: "Meeting not found." };
+  // Already captured (a double submit, a stale tab): the first note stands.
+  const prior = readAnnotation<{ status: string; noteId?: number; reminderIds?: number[] }>(
+    "meeting_followup",
+    event.id
+  )?.payload;
+  if (prior?.status === "captured" && prior.noteId) {
+    return { noteId: prior.noteId, reminders: prior.reminderIds?.length ?? 0 };
+  }
   const people = attendeeContacts(event.attendees);
   if (people.length === 0) return { error: "Nobody in Rolo was at this meeting." };
   const now = Date.now();
@@ -148,7 +156,9 @@ export async function captureFollowupAction(input: {
 
 export async function skipFollowupAction(input: { eventId: number }): Promise<void> {
   await requireAuth();
-  const event = db.select({ id: calendarEvents.id }).from(calendarEvents).where(eq(calendarEvents.id, input.eventId)).get();
+  const eventId = z.number().int().positive().safeParse(input.eventId);
+  if (!eventId.success) return;
+  const event = db.select({ id: calendarEvents.id }).from(calendarEvents).where(eq(calendarEvents.id, eventId.data)).get();
   if (!event) return;
   upsertAnnotation("meeting_followup", event.id, { status: "skipped", skippedAt: Date.now() }, "none", null);
   revalidatePath("/today");

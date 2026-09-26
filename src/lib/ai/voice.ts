@@ -41,7 +41,10 @@ export function buildVoicePrompt(input: VoiceInput): string {
   for (const raw of input.snippets) {
     const s = raw.replace(/\s+/g, " ").trim();
     if (!s) continue;
-    if (snippets.length >= VOICE_SNIPPETS_MAX || total + s.length > VOICE_TOTAL_CHARS) break;
+    if (snippets.length >= VOICE_SNIPPETS_MAX) break;
+    // A message too long for what is left is skipped, not the end of the
+    // list: one long newest message must not leave the guide with two samples.
+    if (total + s.length > VOICE_TOTAL_CHARS) continue;
     snippets.push(s);
     total += s.length;
   }

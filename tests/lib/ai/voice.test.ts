@@ -5,6 +5,7 @@ import {
   hasEnoughVoiceMaterial,
   parseVoiceGuide,
   VOICE_SNIPPETS_MAX,
+  VOICE_TOTAL_CHARS,
   voiceContext,
 } from "@/lib/ai/voice";
 
@@ -24,6 +25,16 @@ describe("buildVoicePrompt", () => {
     expect(prompt).toContain("2 messages they sent");
     expect(prompt).toContain("- Hi Tom, quick one");
     expect(prompt).toContain("- Salut Marc — petite question");
+  });
+
+  it("skips a message too long for the budget instead of stopping at it", () => {
+    const prompt = buildVoicePrompt({
+      ownerName: null,
+      examples: "",
+      snippets: ["x".repeat(VOICE_TOTAL_CHARS + 10), "short one", "short two"],
+    });
+    expect(prompt).toContain("2 messages they sent");
+    expect(prompt).toContain("- short two");
   });
 
   it("caps the snippet list", () => {

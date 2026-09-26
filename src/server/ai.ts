@@ -96,6 +96,9 @@ export async function compileNlFilter(
   | { ok: false; error: string; raw?: string }
 > {
   await requireAuth();
+  // Exported from a "use server" module, so callable from the client with
+  // anything: the audit feature is pinned to the two it can be.
+  if (feature !== "nl_search" && feature !== "ask_plan") feature = "nl_search";
   const cat = catalog();
   cat.customFields = (await listCustomFields()).map((f) => ({
     id: f.id,
@@ -275,9 +278,11 @@ export async function draftMessageAction(input: {
 export async function enrichContactAction(input: { contactId: number }): Promise<{ error?: string }> {
   await requireAuth();
   if (!aiEnabled()) return { error: "AI is not configured." };
-  const result = await enrichContact(input.contactId, Date.now());
+  const contactId = z.number().int().positive().safeParse(input.contactId);
+  if (!contactId.success) return { error: "Invalid request." };
+  const result = await enrichContact(contactId.data, Date.now());
   if (!result.ok) return { error: result.error };
-  revalidatePath(`/contacts/${input.contactId}`);
+  revalidatePath(`/contacts/${contactId.data}`);
   return {};
 }
 
