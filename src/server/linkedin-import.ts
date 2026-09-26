@@ -659,6 +659,7 @@ export function executeLinkedInRows(opts: {
           // Kept in the report so linking the conversation later writes
           // the same snippets a direct match would have.
           snippet: m.snippet ?? null,
+          body: m.body ?? null,
         })),
       });
       continue;
@@ -670,6 +671,7 @@ export function executeLinkedInRows(opts: {
         direction: m.direction,
         occurredAt: m.occurredAt,
         snippet: m.snippet ?? null,
+        body: m.body ?? null,
       })),
       runId
     );
