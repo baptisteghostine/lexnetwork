@@ -7,7 +7,10 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { createReminderAction } from "@/server/reminders";
+import {
+  createReminderAction,
+  updateReminderAction,
+} from "@/server/reminders";
 
 const RECURRENCE = [
   { value: "", label: "One-off" },
@@ -21,26 +24,56 @@ const RECURRENCE = [
 
 type ContactHit = { id: number; name: string };
 
+/** An existing reminder to edit in place — the form then saves instead of creating. */
+export type ReminderInitial = {
+  id: number;
+  title: string;
+  dueAt: number;
+  rrule: string | null;
+  /** Occurrences of a series cannot become rules of their own. */
+  lockRecurrence: boolean;
+  contact: ContactHit | null;
+};
+
+const pad = (n: number) => String(n).padStart(2, "0");
+function localDate(d: Date): string {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+function localTime(d: Date): string {
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export function ReminderForm({
   defaultContact,
+  initial,
+  onDone,
 }: {
   defaultContact?: ContactHit | null;
+  initial?: ReminderInitial;
+  onDone?: () => void;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(initial?.title ?? "");
   const [date, setDate] = useState(() => {
+    if (initial) return localDate(new Date(initial.dueAt));
     // Today, in the browser's local date — an empty date input renders as a
     // blank box on iPhone with no hint of what it is.
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   });
-  const [time, setTime] = useState("09:00");
-  const [recurrence, setRecurrence] = useState<string>("");
-  const [customRrule, setCustomRrule] = useState("");
+  const [time, setTime] = useState(() =>
+    initial ? localTime(new Date(initial.dueAt)) : ""
+  );
+  const [recurrence, setRecurrence] = useState<string>(() => {
+    const r = initial?.rrule ?? "";
+    if (!r) return "";
+    return RECURRENCE.some((o) => o.value === r) ? r : "custom";
+  });
+  const [customRrule, setCustomRrule] = useState(initial?.rrule ?? "");
   const [contact, setContact] = useState<ContactHit | null>(
-    defaultContact ?? null
+    initial ? initial.contact : (defaultContact ?? null)
   );
   const [contactQuery, setContactQuery] = useState("");
   const [contactHits, setContactHits] = useState<ContactHit[]>([]);
@@ -83,12 +116,19 @@ export function ReminderForm({
           })
         );
         startTransition(async () => {
-          const res = await createReminderAction({}, fd);
+          const res = initial
+            ? await updateReminderAction(initial.id, fd)
+            : await createReminderAction({}, fd);
           if (res.error) {
             setError(res.error);
             return;
           }
           setError(null);
+          if (initial) {
+            router.refresh();
+            onDone?.();
+            return;
+          }
           setTitle("");
           setContact(null);
           setContactQuery("");
@@ -127,6 +167,7 @@ export function ReminderForm({
             className="w-full sm:w-28"
           />
         </div>
+        {!initial?.lockRecurrence && (
         <div className="flex-1 space-y-1 sm:flex-none">
           <Label className="text-[11px] text-muted-foreground">Repeats</Label>
           <select
@@ -141,9 +182,15 @@ export function ReminderForm({
             ))}
           </select>
         </div>
+        )}
         <Button type="submit" size="sm" disabled={pending || !title || !date} className="basis-full sm:basis-auto">
-          {pending ? "Adding…" : "Add reminder"}
+          {initial ? (pending ? "Saving…" : "Save") : pending ? "Adding…" : "Add reminder"}
         </Button>
+        {initial && onDone ? (
+          <Button type="button" variant="ghost" size="sm" onClick={onDone} className="basis-full sm:basis-auto">
+            Cancel
+          </Button>
+        ) : null}
       </div>
 
       {recurrence === "custom" && (

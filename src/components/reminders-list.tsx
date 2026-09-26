@@ -1,9 +1,9 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Bell, Check, Repeat, Trash2 } from "lucide-react";
+import { Bell, Check, Pencil, Repeat, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -12,6 +12,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ReminderForm } from "@/components/reminder-form";
 import { DAY_MS } from "@/lib/cadence/engine";
 import {
   completeReminderAction,
@@ -43,6 +44,9 @@ export function RemindersList({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  // One row at a time turns into the reminder form (owner request
+  // 2026-09-26: reminders were create-and-delete only).
+  const [editingId, setEditingId] = useState<number | null>(null);
   const run = (fn: () => Promise<unknown>) =>
     startTransition(async () => {
       await fn();
@@ -63,7 +67,25 @@ export function RemindersList({
 
   return (
     <ul className="space-y-1">
-      {rows.map((r) => (
+      {rows.map((r) =>
+        editingId === r.id ? (
+          <li key={r.id}>
+            <ReminderForm
+              initial={{
+                id: r.id,
+                title: r.title,
+                dueAt: r.dueAt,
+                rrule: r.rrule,
+                lockRecurrence: r.isOccurrence,
+                contact:
+                  r.contactId && r.contactName
+                    ? { id: r.contactId, name: r.contactName }
+                    : null,
+              }}
+              onDone={() => setEditingId(null)}
+            />
+          </li>
+        ) : (
         <li
           key={r.id}
           className="group flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-md border border-border/60 px-3 py-2 md:flex-nowrap"
@@ -167,6 +189,14 @@ export function RemindersList({
               </>
             )}
             <button
+              aria-label="Edit reminder"
+              className="text-muted-foreground transition-opacity hover:text-foreground md:opacity-0 md:group-hover:opacity-100"
+              disabled={pending}
+              onClick={() => setEditingId(r.id)}
+            >
+              <Pencil className="size-3.5" />
+            </button>
+            <button
               aria-label="Delete reminder"
               className="text-muted-foreground transition-opacity hover:text-destructive md:opacity-0 md:group-hover:opacity-100"
               disabled={pending}
@@ -176,7 +206,8 @@ export function RemindersList({
             </button>
           </span>
         </li>
-      ))}
+        )
+      )}
     </ul>
   );
 }

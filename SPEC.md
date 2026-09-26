@@ -141,6 +141,7 @@ Conventions used below:
 
 ### Behavior
 - One-off: title, optional body, due datetime, optionally attached to a contact.
+- Editable in place from the Reminders page (owner request 2026-09-26): title, date/time, attached contact, and — on a rule — the recurrence. Editing a rule restarts its unfired occurrences from the new start; editing an occurrence moves only that occurrence and never turns it into a rule. A moved due time clears any snooze so the reminder fires again at the new time.
 - Recurring: RRULE (RFC 5545 subset: FREQ daily/weekly/monthly/yearly, INTERVAL, BYDAY, BYMONTHDAY, UNTIL/COUNT). On completion or fire, the next occurrence is materialized.
 - Firing = a `jobs`-scheduler tick marks it fired, writes a timeline interaction (non-counting), and includes it in Today + digest. Complete/snooze/dismiss from Today.
 

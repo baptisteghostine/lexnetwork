@@ -115,6 +115,81 @@ export async function snoozeReminderAction(
   revalidateReminderViews(r.contactId);
 }
 
+/**
+ * Edit a reminder in place (owner request 2026-09-26). Same payload as
+ * create. A recurring rule's edit drops its unfired occurrences and
+ * materializes the first one again from the new start; a one-off or a
+ * single occurrence keeps its series and just moves. A changed due time
+ * clears a snooze and a fired flag, so it fires again at the new time.
+ */
+export async function updateReminderAction(
+  id: number,
+  formData: FormData
+): Promise<ReminderFormState> {
+  await requireAuth();
+  const r = db.select().from(reminders).where(eq(reminders.id, id)).get();
+  if (!r || r.completedAt !== null) return { error: "Reminder not found." };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(String(formData.get("payload") ?? "{}"));
+  } catch {
+    return { error: "Malformed form payload." };
+  }
+  const parsed = createInput.safeParse(raw);
+  if (!parsed.success) {
+    const first = parsed.error.issues[0];
+    return { error: `${first.path.join(".")}: ${first.message}` };
+  }
+  const p = parsed.data;
+
+  // Only the defining row of a series carries a rule; an occurrence keeps
+  // pointing at its series and is never turned into a rule of its own.
+  let rrule: string | null = null;
+  if (r.seriesId === null && p.rrule) {
+    rrule = sanitizeRrule(p.rrule);
+    if (rrule === null) {
+      return {
+        error:
+          "Recurrence must use FREQ daily/weekly/monthly/yearly with INTERVAL, BYDAY, BYMONTHDAY, UNTIL, or COUNT.",
+      };
+    }
+  }
+
+  const now = Date.now();
+  const moved = p.dueAt !== r.dueAt;
+  db.transaction(() => {
+    db.update(reminders)
+      .set({
+        title: p.title,
+        body: p.body || r.body,
+        dueAt: p.dueAt,
+        rrule,
+        contactId: p.contactId,
+        ...(moved ? { snoozedUntil: null, firedAt: null } : {}),
+        updatedAt: now,
+      })
+      .where(eq(reminders.id, id))
+      .run();
+    if (r.rrule !== null || rrule !== null) {
+      // The rule changed (or stopped being one): unfired occurrences were
+      // computed from the old rule, so start the series over.
+      db.delete(reminders)
+        .where(
+          and(
+            eq(reminders.seriesId, id),
+            isNull(reminders.firedAt),
+            isNull(reminders.completedAt)
+          )
+        )
+        .run();
+      if (rrule !== null) materializeNext(id, p.dueAt - 1);
+    }
+  });
+  revalidateReminderViews(p.contactId);
+  if (r.contactId && r.contactId !== p.contactId) revalidatePath(`/contacts/${r.contactId}`);
+  return { created: true };
+}
+
 export async function deleteReminderAction(id: number): Promise<void> {
   await requireAuth();
   const r = db.select().from(reminders).where(eq(reminders.id, id)).get();
