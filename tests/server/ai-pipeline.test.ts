@@ -297,7 +297,7 @@ describe("network-updates email", () => {
         .prepare(
           "INSERT INTO contact_changes (contact_id, field, old_value, new_value, detected_at, source) VALUES (?, 'company', 'Stripe', 'Anthropic', ?, 'linkedin_import')"
         )
-        .run(anaId, now).lastInsertRowid
+        .run(anaId, NOW).lastInsertRowid
     );
     const sentBefore = sent.length;
     expect(await runNetworkUpdates(now)).toBe("held");
@@ -384,12 +384,21 @@ describe("digest brief", () => {
 
     quietDigest = true;
     setSetting("digest.only_when_changed", true);
-    expect(await runDigest(NOW)).toBe("skipped-quiet");
-    quietDigest = false;
+    // A fresh job change is tied to today: the model calling the morning
+    // "quiet" cannot skip it.
     expect(await runDigest(NOW)).toBe("sent");
     expect(sent).toHaveLength(1);
     const { getSetting } = await import("@/lib/settings");
     expect(getSetting<number>("digest.last_sent_at")).toBe(NOW);
+    // Two mornings on, with nothing new since that send, a quiet brief is
+    // skipped — and an ordinary one goes out.
+    const later = NOW + 2 * 24 * H;
+    expect(await runDigest(later)).toBe("skipped-quiet");
+    quietDigest = false;
+    expect(await runDigest(later)).toBe("sent");
+    expect(sent).toHaveLength(2);
+    expect(getSetting<number>("digest.last_sent_at")).toBe(later);
+    setSetting("digest.only_when_changed", false);
   });
 });
 

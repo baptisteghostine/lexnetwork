@@ -12,7 +12,7 @@ import {
   type DigestBriefInput,
 } from "@/lib/ai/digest";
 import { buildDigest, type DigestEmail, type DigestLead } from "@/lib/digest/build";
-import { sendEmail } from "@/lib/digest/send";
+import { getSmtpSettings, sendEmail } from "@/lib/digest/send";
 import { getSetting, setSetting } from "@/lib/settings";
 import { aiEnabled, callAi } from "@/server/ai-client";
 import { ownerVoiceContext } from "@/server/ai-voice";
@@ -143,7 +143,29 @@ async function writeBrief(input: DigestBriefInput): Promise<DigestBrief | null> 
   }
 }
 
-export async function buildTodayDigest(now: number): Promise<DigestEmail & { brief: DigestBrief | null }> {
+/**
+ * Anything in the brief's input that is tied to today: a reminder, a
+ * meeting, a birthday, news since the last digest. Overdue keep-in-touch
+ * contacts alone are not — they are the same list every morning, which
+ * is what "only when something changed" exists to skip. The model's
+ * `quiet` is advisory; this is the floor it cannot talk the digest under.
+ */
+export function hasTimeBoundItems(input: DigestBriefInput): boolean {
+  return (
+    input.reminders.length > 0 ||
+    input.agenda.length > 0 ||
+    input.birthdays.length > 0 ||
+    input.since.newChanges.length > 0
+  );
+}
+
+export async function buildTodayDigest(
+  now: number,
+  opts: {
+    /** false: an empty digest is returned list-only, without spending a model call. */
+    briefWhenEmpty?: boolean;
+  } = {}
+): Promise<DigestEmail & { brief: DigestBrief | null; timeBound: boolean }> {
   const data = getTodayData(now);
   const dateLabel = new Intl.DateTimeFormat("en-US", {
     timeZone: data.timezone,
@@ -152,22 +174,11 @@ export async function buildTodayDigest(now: number): Promise<DigestEmail & { bri
     day: "numeric",
   }).format(now);
   const input = briefInput(now, data, dateLabel);
-  const brief = await writeBrief(input);
-  const names = new Map<number, string>();
-  for (const list of [input.due, input.changes, input.since.newChanges, input.birthdays, input.resurface]) {
-    for (const x of list) names.set(x.contactId, x.name);
-  }
-  const lead: DigestLead | null = brief
-    ? {
-        headline: brief.headline,
-        narrative: brief.narrative,
-        picks: brief.picks.map((p) => ({ ...p, name: names.get(p.contactId) ?? `#${p.contactId}` })),
-      }
-    : null;
-  const email = buildDigest({
+  const timeBound = hasTimeBoundItems(input);
+  const appUrl = getSetting<string>("app_url") ?? "http://localhost:3000";
+  const lists = {
     dateLabel,
-    appUrl: getSetting<string>("app_url") ?? "http://localhost:3000",
-    lead,
+    appUrl,
     reminders: input.reminders,
     dueContacts: data.dueContacts.map((c) => ({
       displayName: c.displayName,
@@ -200,18 +211,37 @@ export async function buildTodayDigest(now: number): Promise<DigestEmail & { bri
           : Math.floor((now - r.lastInteractionAt) / (30 * DAY_MS)),
       interactionCount: r.interactionCount,
     })),
-  });
-  return { ...email, brief };
+  };
+  const listOnly = buildDigest({ ...lists, lead: null });
+  if (listOnly.empty && opts.briefWhenEmpty === false) return { ...listOnly, brief: null, timeBound };
+  const brief = await writeBrief(input);
+  const names = new Map<number, string>();
+  for (const list of [input.due, input.changes, input.since.newChanges, input.birthdays, input.resurface]) {
+    for (const x of list) names.set(x.contactId, x.name);
+  }
+  const lead: DigestLead | null = brief
+    ? {
+        headline: brief.headline,
+        narrative: brief.narrative,
+        picks: brief.picks.map((p) => ({ ...p, name: names.get(p.contactId) ?? `#${p.contactId}` })),
+      }
+    : null;
+  return { ...buildDigest({ ...lists, lead }), brief, timeBound };
 }
 
 export type DigestResult = "sent" | "skipped-empty" | "skipped-quiet";
 
 export async function runDigest(now: number): Promise<DigestResult> {
-  const email = await buildTodayDigest(now);
+  // Same failure sendEmail would raise, before a model call is spent on a
+  // brief that has nowhere to go.
+  if (!getSmtpSettings()) throw new Error("SMTP is not configured — set it up in Settings.");
   const sendWhenEmpty = getSetting<boolean>("digest.send_when_empty") ?? false;
   const onlyWhenChanged = getSetting<boolean>("digest.only_when_changed") ?? false;
-  if (onlyWhenChanged && email.brief?.quiet) return "skipped-quiet";
+  const email = await buildTodayDigest(now, { briefWhenEmpty: sendWhenEmpty });
   if (email.empty && !sendWhenEmpty) return "skipped-empty";
+  // The model may call a morning quiet only when nothing in it is tied to
+  // today — a due reminder or a fresh job change always goes out.
+  if (onlyWhenChanged && email.brief?.quiet && !email.timeBound) return "skipped-quiet";
   await sendEmail(email);
   setSetting("digest.last_sent_at", now);
   return "sent";
