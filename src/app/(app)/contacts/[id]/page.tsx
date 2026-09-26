@@ -20,8 +20,10 @@ import { ContactAvatar } from "@/components/contact-avatar";
 import { CustomFieldValues } from "@/components/custom-field-values";
 import { LogInteraction } from "@/components/log-interaction";
 import { DraftDialog } from "@/components/draft-dialog";
+import { ProfileCard } from "@/components/profile-card";
 import { RelationshipsCard } from "@/components/relationships-card";
 import { aiEnabled } from "@/server/ai-client";
+import { readProfileCard } from "@/server/ai-enrich";
 import { readRelationships } from "@/server/relationships";
 import { AddNoteButton, Timeline } from "@/components/timeline";
 import {
@@ -95,6 +97,7 @@ export default async function ContactPage({
   const customValues = await getCustomFieldValues(contactId);
   const relationships = await readRelationships(contactId);
   const ai = aiEnabled();
+  const profileCard = ai ? readProfileCard(contactId) : null;
 
   const birthday =
     contact.birthdayMonth && contact.birthdayDay
@@ -284,6 +287,14 @@ export default async function ContactPage({
               </Stat>
               <Stat label="Frequency">{cadenceLabel ?? "not set"}</Stat>
             </div>
+
+            {ai && (
+              <ProfileCard
+                contactId={contact.id}
+                card={profileCard?.payload ?? null}
+                updatedAt={profileCard?.payload ? profileCard.updatedAt : null}
+              />
+            )}
 
             {/* Recent interactions (Dex): the last word before the timeline */}
             {recent.length > 0 && (

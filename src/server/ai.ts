@@ -40,6 +40,7 @@ import type { ChangeTriage } from "@/lib/ai/triage";
 import { DAY_MS } from "@/lib/cadence/engine";
 import { interactionLabel } from "@/lib/prep/build";
 import { readAnnotation } from "@/server/ai-annotations";
+import { enrichContact } from "@/server/ai-enrich";
 import { ownerVoiceContext } from "@/server/ai-voice";
 import {
   VOICE_SYSTEM as VOICE_SYSTEM_PROMPT,
@@ -265,6 +266,18 @@ export async function draftMessageAction(input: {
   const primary = [...detail.emails].sort((a, b) => a.priority - b.priority)[0]?.email ?? null;
   const linkedin = detail.socials.find((s) => s.platform === "linkedin")?.url ?? null;
   return { draft, email: primary, linkedinUrl: linkedin };
+}
+
+// ---------- profile enrichment ----------
+
+/** "What I know" card for one contact, on demand (SPEC §11). */
+export async function enrichContactAction(input: { contactId: number }): Promise<{ error?: string }> {
+  await requireAuth();
+  if (!aiEnabled()) return { error: "AI is not configured." };
+  const result = await enrichContact(input.contactId, Date.now());
+  if (!result.ok) return { error: result.error };
+  revalidatePath(`/contacts/${input.contactId}`);
+  return {};
 }
 
 // ---------- note summarization ----------

@@ -232,6 +232,7 @@ Covers **both** API syncs and file imports (one lifecycle: started → stats →
 `id, kind TEXT NOT NULL ('change_triage','contact_profile','meeting_followup'), subject_id INTEGER NOT NULL, payload_json TEXT NOT NULL, model TEXT NOT NULL, ai_call_id FK SET NULL, created_at, updated_at`. `UNIQUE (kind, subject_id)`.
 - Model-written sidecars keyed by the row they describe: a job change's triage (`subject_id` = `contact_changes.id`), a contact's "what I know" profile (`contacts.id`), a meeting's follow-up ledger (`calendar_events.id`). Regenerating replaces the row. No FK to the subject because the subject table varies by kind; orphans are harmless and pruned opportunistically.
 - Payload shapes are documented next to their builders in `src/lib/ai/`. Nothing in an annotation is authoritative: contact fields, changes and events are never written from one.
+- `contact_profile` payload: `{summary, facts: [{label, value}], relationship: {strength 1–5, why}, openQuestions: [], basedOn: {notes, exchanges}}`; `null` payload = nothing to summarise yet (stamped so the job moves on). `change_triage` payload: `{kind, significance, reason, opener}`.
 - Settings keys added alongside: `ai.voice_examples` (owner-pasted messages), `ai.voice_guide` (the generated style guide, editable), `ai.voice_generated_at`, `ai.triage.hide_below` (significance under which a triaged change is folded away on Today, default 0.3), `digest.last_sent_at`, `digest.only_when_changed`.
 
 ## ai_suggestions  *(added table — approval queue)*

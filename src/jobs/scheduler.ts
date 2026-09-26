@@ -28,6 +28,7 @@ import { runGmailSync } from "@/server/sync/gmail";
 import { runLinkedInSync } from "@/server/sync/linkedin";
 import { runAiBatchTag } from "@/server/ai-batch";
 import { aiEnabled } from "@/server/ai-client";
+import { enrichEnabled, runEnrichJob } from "@/server/ai-enrich";
 import { runChangeTriage } from "@/server/ai-triage";
 import { runDedupeScan } from "@/server/dedupe-scan";
 
@@ -50,6 +51,9 @@ const HANDLERS: Record<string, Handler> = {
   },
   ai_change_triage: async () => {
     await runChangeTriage(Date.now());
+  },
+  ai_enrich: async () => {
+    await runEnrichJob(Date.now());
   },
   gmail_sync: async () => {
     const stats = await runGmailSync();
@@ -108,7 +112,8 @@ const SYNC_JOBS: {
     | "meeting_prep"
     | "geocode"
     | "backup"
-    | "ai_change_triage";
+    | "ai_change_triage"
+    | "ai_enrich";
   connected: () => boolean;
   intervalMs: number;
   /** When the integration behind the kind was (re)connected — a dead run
@@ -154,6 +159,10 @@ const SYNC_JOBS: {
   // its verdict, reason and opener. Also enqueued right after an import
   // that detected moves; the interval only mops up.
   { kind: "ai_change_triage", connected: () => aiEnabled(), intervalMs: 15 * 60 * 1000 },
+  // Profile cards (SPEC §11, 2026-09-26): rewrites the "what I know" card
+  // of up to 20 contacts whose data moved since it was written, closest
+  // circle first. Also enqueued after a profile capture.
+  { kind: "ai_enrich", connected: () => aiEnabled() && enrichEnabled(), intervalMs: 6 * 3600 * 1000 },
 ];
 
 /**

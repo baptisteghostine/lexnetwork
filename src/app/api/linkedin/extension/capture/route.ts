@@ -46,6 +46,13 @@ export async function POST(req: NextRequest) {
     return extensionJson({ error: "Rolo couldn't apply the profile — see the import report." }, 500);
   }
   const contactId = contactIdsFor([profile.publicIdentifier]).get(profile.publicIdentifier) ?? null;
+  // A capture is exactly the moment a "what I know" card goes stale
+  // (SPEC §11); the job picks it up within a tick. Lazy: the scheduler
+  // imports the import core this route uses.
+  const runAt = Date.now();
+  void import("@/jobs/scheduler").then((m) =>
+    m.enqueueJob({ kind: "ai_enrich", runAt, dedupeKey: `ai_enrich:${runAt}` })
+  );
   return extensionJson({
     ok: true,
     runId,
