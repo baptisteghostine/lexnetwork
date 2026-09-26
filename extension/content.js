@@ -387,6 +387,50 @@ function textOf(selector) {
   return t ? t : null;
 }
 
+/** A heading or title as LinkedIn prints it → just the person's name:
+ * drops a trailing degree badge ("· 2nd", "• 3rd+"), a pronouns suffix
+ * ("(He/Him)"), and LinkedIn's own decorations. */
+function cleanName(text) {
+  if (!text) return null;
+  let t = text.replace(/\s+/g, " ").trim();
+  t = t.replace(/^\(\d+\)\s*/, ""); // "(3) Name | LinkedIn" — the unread count
+  t = t.replace(/\s*\|\s*LinkedIn\s*$/i, "");
+  t = t.replace(/\s*[·•|]\s*(1st|2nd|3rd\+?)\b.*$/i, "");
+  t = t.replace(/\s*\((?:he|she|they|him|her|them)[^)]*\)\s*$/i, "");
+  t = t.trim();
+  return t && !/^linkedin$/i.test(t) ? t : null;
+}
+
+/** The name from wherever the current layout puts it. LinkedIn moves the
+ * heading between redesigns (2026-09: it left <main>), but the document
+ * title and the og:title meta have carried "Name | LinkedIn" and
+ * "Name - Headline | LinkedIn" for years — so those are the last resort. */
+function readVisibleName() {
+  const og = document.querySelector('meta[property="og:title"]')?.getAttribute("content");
+  const candidates = [
+    textOf("main h1"),
+    textOf("h1"),
+    og ? og.split(" - ")[0] : null,
+    document.title,
+  ];
+  for (const c of candidates) {
+    const name = cleanName(c);
+    if (name) return name;
+  }
+  return null;
+}
+
+/** "Name - Tech M&A, Evercore | LinkedIn" → "Tech M&A, Evercore", when the
+ * DOM headline selector no longer matches. */
+function readVisibleHeadline() {
+  const dom = textOf("main .text-body-medium.break-words") ?? textOf("main .text-body-medium");
+  if (dom) return dom;
+  const og = document.querySelector('meta[property="og:title"]')?.getAttribute("content");
+  if (!og) return null;
+  const parts = og.replace(/\s*\|\s*LinkedIn\s*$/i, "").split(" - ");
+  return parts.length > 1 ? parts.slice(1).join(" - ").trim() || null : null;
+}
+
 function readProfile() {
   const publicIdentifier = profileIdFromLocation();
   if (!publicIdentifier) return null;
@@ -405,10 +449,13 @@ function readProfile() {
   }
 
   // The visible page, for client-side navigations where the blobs
-  // describe whoever the tab was first opened on.
-  const fullName = textOf("main h1");
-  const headline = textOf("main .text-body-medium.break-words");
-  const location = textOf("main .text-body-small.inline.t-black--light.break-words");
+  // describe whoever the tab was first opened on — and for layouts the
+  // selectors above predate (the 2026-09 redesign moved the heading).
+  const fullName = readVisibleName();
+  const headline = readVisibleHeadline();
+  const location =
+    textOf("main .text-body-small.inline.t-black--light.break-words") ??
+    textOf("main .text-body-small.inline.break-words");
 
   const structuredName = record && (record.firstName || record.lastName);
   return {
