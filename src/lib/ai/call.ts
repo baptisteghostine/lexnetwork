@@ -15,7 +15,17 @@ export type AiFeature =
   | "ask_plan"
   | "ask_answer"
   // Pre-meeting brief talking points (SPEC §9e, owner request 2026-09-04).
-  | "meeting_prep";
+  | "meeting_prep"
+  // Owner request 2026-09-26: the voice guide, job-change triage, drafts
+  // in the owner's voice, the iterative Ask, profile enrichment, the
+  // digest narrative and post-meeting follow-up.
+  | "voice"
+  | "change_triage"
+  | "draft"
+  | "ask_step"
+  | "enrich"
+  | "digest"
+  | "followup";
 
 // Structural subset of @anthropic-ai/sdk's client + response — enough to
 // call and to fake in tests.

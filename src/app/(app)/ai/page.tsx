@@ -1,7 +1,8 @@
 import { AiPanel } from "@/components/ai-panel";
 import { AskPanel } from "@/components/ask-panel";
+import { VoicePanel } from "@/components/voice-panel";
 import { requireAuth } from "@/lib/auth";
-import { readAiAudit, readSuggestions } from "@/server/ai";
+import { readAiAudit, readSuggestions, readVoice } from "@/server/ai";
 import { aiEnabled } from "@/server/ai-client";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +12,7 @@ export default async function AiPage() {
   await requireAuth();
   const enabled = aiEnabled();
   const suggestions = enabled ? await readSuggestions() : [];
+  const voice = enabled ? await readVoice() : null;
   const audit = await readAiAudit();
 
   return (
@@ -45,6 +47,11 @@ export default async function AiPage() {
         </div>
       ) : null}
       {enabled && <AskPanel />}
+      {voice && (
+        <div className="max-w-2xl px-5 pb-2">
+          <VoicePanel initial={voice} />
+        </div>
+      )}
       <AiPanel enabled={enabled} suggestions={suggestions} audit={audit} />
     </div>
   );

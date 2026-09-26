@@ -134,6 +134,13 @@
       "when": 1788532495391,
       "tag": "0018_loving_richard_fisk",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1790428903938,
+      "tag": "0019_wet_cobalt_man",
+      "breakpoints": true
     }
   ]
 }

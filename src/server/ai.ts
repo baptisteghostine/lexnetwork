@@ -32,10 +32,21 @@ import {
   SUMMARIZE_SYSTEM,
   type OpenersInput,
 } from "@/lib/ai/prompts";
+import {
+  VOICE_SYSTEM as VOICE_SYSTEM_PROMPT,
+  buildVoicePrompt,
+  hasEnoughVoiceMaterial,
+  parseVoiceGuide,
+  VOICE_EXAMPLES_MAX_CHARS,
+  VOICE_GUIDE_MAX_CHARS,
+  voiceFormat,
+} from "@/lib/ai/voice";
 import { encodeFilterParam } from "@/lib/filters/encode";
+import { setSetting } from "@/lib/settings";
 import { listCustomFields } from "@/server/custom-fields";
 import { aiEnabled, callAi } from "@/server/ai-client";
 import { untaggedContactIds } from "@/server/ai-batch";
+import { outboundSnippets, readVoiceSettings, type VoiceSettings } from "@/server/ai-voice";
 import { enqueueJob } from "@/jobs/scheduler";
 import { getContactDetail, listGroups, listTags } from "@/server/queries";
 
@@ -357,6 +368,65 @@ export async function resolveSuggestionsAction(input: {
   }
   revalidatePath("/ai");
   revalidatePath("/contacts");
+}
+
+// ---------- the owner's voice ----------
+
+export type VoiceView = VoiceSettings & { sampleCount: number };
+
+export async function readVoice(): Promise<VoiceView> {
+  await requireAuth();
+  return { ...readVoiceSettings(), sampleCount: outboundSnippets().length };
+}
+
+const voiceInput = z.object({
+  ownerName: z.string().trim().max(80),
+  examples: z.string().max(VOICE_EXAMPLES_MAX_CHARS),
+  guide: z.string().max(VOICE_GUIDE_MAX_CHARS),
+});
+
+/** Save the pasted examples, the owner's name, and the guide as edited. */
+export async function saveVoiceAction(input: {
+  ownerName: string;
+  examples: string;
+  guide: string;
+}): Promise<{ error?: string }> {
+  await requireAuth();
+  const parsed = voiceInput.safeParse(input);
+  if (!parsed.success) return { error: "Too long — trim the examples or the guide." };
+  setSetting("ai.owner_name", parsed.data.ownerName || null);
+  setSetting("ai.voice_examples", parsed.data.examples);
+  setSetting("ai.voice_guide", parsed.data.guide.trim() || null);
+  revalidatePath("/ai");
+  return {};
+}
+
+/** Derive the guide from what the owner has actually sent, plus examples. */
+export async function buildVoiceGuideAction(): Promise<{ guide?: string; error?: string }> {
+  await requireAuth();
+  if (!aiEnabled()) return { error: "AI is not configured." };
+  const v = readVoiceSettings();
+  const input = { snippets: outboundSnippets(), examples: v.examples, ownerName: v.ownerName };
+  if (!hasEnoughVoiceMaterial(input)) {
+    return {
+      error:
+        "Not enough material yet: import your LinkedIn ZIP with Messages, or paste a few messages you sent below.",
+    };
+  }
+  const result = await callAi({
+    feature: "voice",
+    system: VOICE_SYSTEM_PROMPT,
+    prompt: buildVoicePrompt(input),
+    maxTokens: 1500,
+    outputFormat: voiceFormat(),
+  });
+  if (!result.ok) return { error: result.error };
+  const guide = parseVoiceGuide(result.text);
+  if (!guide) return { error: "The model returned an unusable guide — try again." };
+  setSetting("ai.voice_guide", guide);
+  setSetting("ai.voice_generated_at", Date.now());
+  revalidatePath("/ai");
+  return { guide };
 }
 
 // ---------- audit ----------

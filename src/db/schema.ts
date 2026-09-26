@@ -740,7 +740,8 @@ export const aiCalls = sqliteTable(
   {
     id: integer("id").primaryKey(),
     // 'nl_search' | 'auto_tag' | 'openers' | 'summarize' | 'ask_plan' |
-    // 'ask_answer' | 'meeting_prep'
+    // 'ask_answer' | 'meeting_prep' | 'voice' | 'change_triage' | 'draft' |
+    // 'ask_step' | 'enrich' | 'digest' | 'followup'
     feature: text("feature").notNull(),
     model: text("model").notNull(),
     prompt: text("prompt").notNull(),
@@ -759,6 +760,30 @@ export const aiCalls = sqliteTable(
 // AI suggestion queue (SCHEMA.md `ai_suggestions`, SPEC §11): output always
 // lands here for review — "AI never writes user data directly" is enforced
 // by making this the only path.
+// AI annotations (SPEC §11, owner request 2026-09-26): model-written,
+// non-authoritative sidecars keyed by what they describe — a job change's
+// triage (kind 'change_triage', subject = contact_changes.id), a
+// contact's "what I know" profile ('contact_profile', subject =
+// contacts.id), a meeting's follow-up ledger ('meeting_followup',
+// subject = calendar_events.id). Never a contact field: an annotation is
+// shown beside the data, and regenerating one replaces the row.
+export const aiAnnotations = sqliteTable(
+  "ai_annotations",
+  {
+    id: integer("id").primaryKey(),
+    kind: text("kind").notNull(),
+    subjectId: integer("subject_id").notNull(),
+    payloadJson: text("payload_json").notNull(),
+    model: text("model").notNull(),
+    aiCallId: integer("ai_call_id").references(() => aiCalls.id, {
+      onDelete: "set null",
+    }),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [uniqueIndex("uq_ai_annotations_subject").on(t.kind, t.subjectId)]
+);
+
 export const aiSuggestions = sqliteTable(
   "ai_suggestions",
   {
