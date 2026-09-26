@@ -62,14 +62,21 @@ export function askOutputFormat(): Record<string, unknown> {
       type: "object",
       properties: {
         summary: { type: "string" },
+        // Strict providers (OpenAI) require every property to be listed as
+        // required, so "optional" is spelled required-but-nullable.
         needMore: {
-          type: "object",
-          properties: {
-            contactIds: { type: "array", items: { type: "integer" } },
-            why: { type: "string" },
-          },
-          required: ["contactIds", "why"],
-          additionalProperties: false,
+          anyOf: [
+            {
+              type: "object",
+              properties: {
+                contactIds: { type: "array", items: { type: "integer" } },
+                why: { type: "string" },
+              },
+              required: ["contactIds", "why"],
+              additionalProperties: false,
+            },
+            { type: "null" },
+          ],
         },
         picks: {
           type: "array",
@@ -84,7 +91,7 @@ export function askOutputFormat(): Record<string, unknown> {
           },
         },
       },
-      required: ["summary", "picks"],
+      required: ["summary", "needMore", "picks"],
       additionalProperties: false,
     },
   };
