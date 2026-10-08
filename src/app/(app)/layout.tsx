@@ -106,7 +106,7 @@ export default async function AppLayout({
         <div className="px-4 py-3.5">
           <Link
             href="/today"
-            className="text-sm font-semibold tracking-tight text-primary"
+            className="text-sm font-semibold tracking-tight text-emerald-600 dark:text-emerald-400"
           >
             Rolo
           </Link>

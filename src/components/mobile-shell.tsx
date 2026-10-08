@@ -51,7 +51,7 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
         </button>
         <Link
           href="/today"
-          className="flex-1 text-sm font-semibold tracking-tight text-primary"
+          className="flex-1 text-sm font-semibold tracking-tight text-emerald-600 dark:text-emerald-400"
         >
           Rolo
         </Link>
@@ -67,7 +67,7 @@ export function MobileShell({ children }: { children: React.ReactNode }) {
           />
           <div className="absolute inset-y-0 left-0 flex w-64 flex-col overflow-y-auto border-r border-border bg-card shadow-xl">
             <div className="flex items-center justify-between px-4 py-3">
-              <span className="text-sm font-semibold tracking-tight text-primary">
+              <span className="text-sm font-semibold tracking-tight text-emerald-600 dark:text-emerald-400">
                 Rolo
               </span>
               <button
