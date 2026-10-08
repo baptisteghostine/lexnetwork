@@ -50,3 +50,7 @@ next-env.d.ts
 
 # local compose override (see docker-compose.windows.yml)
 /docker-compose.override.yml
+
+# Server-side auto-deploy (scripts/autodeploy.sh)
+autodeploy.log
+.autodeploy.*

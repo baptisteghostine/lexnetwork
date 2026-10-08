@@ -223,3 +223,36 @@ docker compose up -d --build
 ```
 
 Migrations are append-only and apply automatically on boot.
+
+### Automatic updates (push to deploy)
+
+The server can watch GitHub itself, so an update never needs an SSH login
+— useful when SSH isn't reachable from where you are (an office laptop,
+a network that blocks port 22). Install once, on the server:
+
+```bash
+cd ~/rolo && git pull
+(crontab -l 2>/dev/null; echo "*/5 * * * * $HOME/rolo/scripts/autodeploy.sh") | crontab -
+./scripts/autodeploy.sh        # first run by hand: deploys whatever main has that the box doesn't
+```
+
+From then on, every five minutes `scripts/autodeploy.sh` fetches
+`origin/main`; when it has moved past what is live it fast-forwards,
+rebuilds the container, prunes old images, and checks the login page
+answers. `git push` to `main` from any machine — or a Claude session — is
+the whole deploy, live within about five minutes plus the build.
+
+What it does when things go wrong, all in `autodeploy.log` next to the
+repo (`tail -f ~/rolo/autodeploy.log` to watch a deploy):
+
+- A failed build is retried on the next two ticks, then it gives up on
+  that commit with a loud line and waits for the next push (or a run by
+  hand).
+- Local edits on the server stop it: it only ever fast-forwards, never
+  forces. `git status` shows what's in the way.
+- Two ticks never overlap; a build longer than five minutes just delays
+  the next check.
+
+`ROLO_PORT` in `.env` is read for the health check, so a changed host
+port needs no edit here. Remove the crontab line to go back to manual
+updates.
