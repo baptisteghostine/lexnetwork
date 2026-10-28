@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import {
   disconnectIntegrationAction,
   saveIntegrationCredsAction,
+  setEnrichDailyCapAction,
   setEnrichEnabledAction,
   setGeocodeEnabledAction,
   setMapboxTokenAction,
@@ -19,6 +20,7 @@ import {
   type SyncRunSummary,
 } from "@/server/integrations";
 import type { ConnectNotice } from "@/lib/sync/connect-errors";
+import { MAX_DAILY_CAP } from "@/lib/linkedin/enrich";
 
 // Settings → Integrations: connect/disconnect Google + LinkedIn, view
 // sync health (cursors, last runs, errors), trigger a sync now.
@@ -397,7 +399,22 @@ function ExtensionPairing({
 function EnrichControls({ data }: { data: EnrichStatus }) {
   const [pending, start] = useTransition();
   const router = useRouter();
+  const [cap, setCap] = useState(String(data.dailyCap));
   const remaining = Math.max(0, data.linkedInContacts - data.located);
+  // The server clamps to [1, MAX_DAILY_CAP] (SPEC §9d); the input mirrors
+  // the clamped value back so the owner sees what was actually stored.
+  const saveCap = () => {
+    const next = Number(cap);
+    if (!Number.isFinite(next) || next === data.dailyCap) {
+      setCap(String(data.dailyCap));
+      return;
+    }
+    start(async () => {
+      const r = await setEnrichDailyCapAction({ cap: next });
+      setCap(String(r.cap));
+      router.refresh();
+    });
+  };
   return (
     <div className="space-y-2 border-t border-border pt-3">
       <label className="flex items-start gap-2 text-xs">
@@ -425,6 +442,30 @@ function EnrichControls({ data }: { data: EnrichStatus }) {
           </span>
         </span>
       </label>
+      <div className="flex items-center gap-2 pl-5 text-xs">
+        <label htmlFor="enrich-daily-cap" className="text-muted-foreground">
+          Profiles per day
+        </label>
+        <Input
+          id="enrich-daily-cap"
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={MAX_DAILY_CAP}
+          value={cap}
+          disabled={pending}
+          onChange={(e) => setCap(e.target.value)}
+          onBlur={saveCap}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+          }}
+          className="h-7 w-20"
+        />
+        <span className="text-muted-foreground">
+          up to {MAX_DAILY_CAP} · 4 s apart, so {MAX_DAILY_CAP} is about{" "}
+          {Math.round((MAX_DAILY_CAP * 4) / 60)} minutes of browsing
+        </span>
+      </div>
       {data.linkedInContacts > 0 && (
         <p className="text-[11px] text-muted-foreground">
           {data.located} of {data.linkedInContacts} LinkedIn contacts have a
