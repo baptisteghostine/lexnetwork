@@ -436,8 +436,46 @@ Every phase ends with the CLAUDE.md ritual: `npm run check` output pasted, summa
   (owner-side; weekly reconnect expected), an ICS feed for the LBS
   calendar (proposed), the three stale `claude/*` branches on GitHub.
 
-495 unit tests + 15 Playwright E2E tests passing as of the cleanup pass (30 cookie-sync tests retired, 15 added). Open questions from SPEC.md's decision
-list are all resolved with the owner; see that section before revisiting them.
+- ✅ **Late-September rounds** (2026-09-20 → 09-26; recorded 2026-11-19
+  from the commit log, which this status list had fallen behind).
+  - **Sync hardening after the first live Gmail backfill** (09-20): quota
+    pauses keep their place, bulk mail is not a conversation, changing "my
+    addresses" rescans, the owner is never a matched attendee, a finished
+    backup survives a later failure, late-added emails still get briefs.
+    Today puts the agenda second and caps job-change cards. Second phone
+    pass (Today, timelines, reminders, contacts, Duplicates, Settings).
+    DEPLOY.md gains "Moving from a laptop to a VPS".
+  - **Gemini** (09-20) and **OpenAI** (09-26) as third and fourth AI
+    providers through the shared OpenAI-compatible adapter.
+  - **Notes** (09-22): formatting toolbar, formatted notes in Log
+    interaction, a counting note counts for everyone it @-mentions.
+  - **AI layer, second generation** (09-26, migration 0019
+    `ai_annotations`): the owner's voice guide, drafts in the owner's
+    voice (replacing conversation starters), the iterative Ask (plan →
+    retrieve → read timelines → answer), "what I know" profile cards and
+    the `ai_enrich` job, job-change triage with reasons and openers,
+    post-meeting follow-up, the digest's written brief. LinkedIn messages
+    keep their full text (4,000 chars) in `interactions.meta`.
+  - Reminders editable in place; search reachable without a keyboard; a
+    dozen fixes behind those features (timezone/locale rendering, triage
+    loops, annotation cleanup, extension v0.3.2).
+- ✅ **October** — push-to-deploy (`scripts/autodeploy.sh`, 10-08: the
+  server follows `origin/main` from cron); the §9d location-fill daily cap
+  is editable in Settings (10-28). The wordmark was turned emerald on
+  10-08 and restored to the theme's primary colour on 11-19.
+
+589 unit tests (60 files) passing, lint and typecheck clean, as of
+2026-11-19. Playwright the same day: 20 tests, 18 passed in the full run;
+`06-quick-add` failed once on its first keypress (`q` sent before the
+page had hydrated on a cold dev compile) and its dependent test did not
+run — both pass when the spec is run alone. A test-timing flake, not a
+product bug; the spec wants a wait like the one `01-today-flow` got on
+09-22. Open questions from SPEC.md's decision list are all resolved with
+the owner; see that section before revisiting them.
+
+**Next: the agent connector (Phases 13–18)** — proposed 2026-11-19 and
+awaiting the owner's decisions; the full plan is the last section of this
+file.
 
 ---
 
@@ -551,3 +589,419 @@ list are all resolved with the owner; see that section before revisiting them.
 - Dedupe (9) deliberately follows LinkedIn (7) and Google (8): that's when duplicates actually appear.
 - Dependencies declared across the plan, per CLAUDE.md: `libphonenumber-js`, `rrule`, `nodemailer`, `@anthropic-ai/sdk`, plus scaffold-standard ones (drizzle, better-sqlite3, tailwind/shadcn deps, zod, vitest, playwright). Anything else gets justified when proposed.
 - Riskiest phases: 8 (Google API edge cases) and 3 (provenance/merge rules — everything later builds on them). Phase 3's merge rules get the heaviest unit coverage for exactly that reason.
+
+---
+
+# The agent connector (Phases 13–18) — proposed 2026-11-19
+
+**Status: a proposal. Nothing below is built, and nothing should be until
+the owner has answered the decisions in §4** — the plan touches the auth
+model, the schema, two written non-goals and a privacy invariant, all of
+which CLAUDE.md agreement 5 puts on the stop-and-ask list.
+
+## 1. The vision
+
+Rolo stays the memory and the hands; Claude becomes the brain. The owner
+states a goal in plain words ("I am recruiting for tech investment
+banking; I want conversations at the best firms") and the loop runs:
+
+```
+goal → who fits (and who is missing) → drafts in my format → I send
+     → replies are read → Rolo is updated → follow-ups surface → repeat
+```
+
+Claude reaches Rolo through a connector built for it (an MCP server), and
+reaches the owner's mail through the Gmail connector on the forwarding
+mailbox. Rolo never calls a model for this path: every judgment is
+Claude's, every write is Rolo's own deterministic code.
+
+This is the existing product loop — capture automatically, surface who is
+due, make reaching out one click — pointed at a goal instead of a cadence.
+
+## 2. What was checked before writing this (2026-11-19)
+
+Code and repository:
+
+- `npm run check` is green: lint and typecheck clean, 589 unit tests.
+- Every read and write the connector needs already exists, but behind
+  cookie-gated server actions (`runFilter`, `logInteractionAction`,
+  `createReminderAction`, …). `requireAuth()` redirects when there is no
+  session cookie, so a route handler cannot call them. The logic has to be
+  lifted into auth-free cores first.
+- A bearer-token route pattern exists (`src/server/sync/extension-http.ts`,
+  SPEC §9c). The import planner is source-generic (`ImportRow`), so one
+  person arriving from the agent can go through the same identity ladder
+  and provenance rules as a CSV row.
+- `source` columns are plain TEXT with no CHECK: a new `'agent'` source is
+  code and documentation, not a migration.
+- What Rolo holds per LinkedIn connection is thin: name, headline or
+  position, company, profile URL, sometimes location, messages. Profile
+  capture reads name, headline and location only. Education and past roles
+  are mostly empty; email addresses are rare.
+- The login action has no attempt throttle.
+
+The forwarding mailbox, read through the Gmail connector (read-only, a few
+dozen headers and snippets):
+
+- **Received mail arrives within seconds, but as a wrapper.** Each message
+  is an Outlook forward: `FW: <subject>`, From the owner's school address,
+  To the forwarding Gmail. The real sender, recipients, time and subject
+  are the first lines of the *body*.
+- **Sent mail is not forwarded automatically.** It arrives in manual
+  bursts, days late (mail sent on the 10th and 17th was forwarded on the
+  19th), in the same wrapper shape.
+- Mail copied in before mid-June (label "LBS Archive", about 3,200
+  messages) kept its original headers.
+- The mailbox has sent one message and holds no drafts: nothing is ever
+  written from it.
+- Most of the volume is newsletters and job alerts wrapped the same way.
+
+Consequence, confirmed in `src/server/sync/gmail.ts`: Rolo's own Gmail
+sync is `gmail.metadata` only, so on a wrapper it sees "from me, to me",
+finds no counterpart, and skips the message. **Rolo is structurally blind
+to the school correspondence since June. Only something that reads bodies
+can see who the owner is talking to** — which is exactly what Claude with
+the Gmail connector does.
+
+Connector requirements (researched against Anthropic's connector docs and
+the MCP spec; re-verify at build time, they move):
+
+- Claude calls a custom connector from Anthropic's cloud, over public
+  HTTPS on port 443, IPv4. A Tailscale-only address is rejected.
+- Transport is Streamable HTTP. Claude's hosted client still opens with
+  the 2025-era `initialize` handshake although the spec has a 2026-07-28
+  revision; the server must answer both.
+- Sign-in is OAuth 2.1 with PKCE. A static bearer header exists but is
+  beta-gated, and auth settings cannot be changed after adding the
+  connector. The official TypeScript SDK no longer ships an authorization
+  server; those endpoints are ours either way.
+- One connector added in claude.ai is available on web, desktop, mobile,
+  in Claude Code, and in scheduled cloud tasks that run unattended.
+- Limits: about 150,000 characters and 240 s per tool call on claude.ai,
+  25,000 tokens in Claude Code. Tools marked read-only can run without a
+  prompt; the owner sets "always allow / needs approval / blocked" per
+  tool.
+- The Gmail connector can now send, reply and forward as well as read and
+  draft (with approval by default).
+
+## 3. The gaps
+
+| # | Gap | Closed in |
+|---|---|---|
+| A1 | No agent-facing interface; logic sits behind cookie-gated actions | 13, 14 |
+| A2 | Auth is a cookie; a connector needs OAuth and revocable tokens | 14 |
+| A3 | The server must be on public HTTPS; no login throttle today | 13 (owner-side + fix) |
+| B1 | Rolo cannot see school mail: counterparts live in wrapper bodies | 15 (agent logs it) |
+| B2 | Sent mail reaches the mailbox days late, by hand | 16 (Outbox "Sent"), owner-side |
+| B3 | Claude cannot send from the school account; Gmail drafts land in the wrong mailbox | 16 (Outbox + compose link) |
+| B4 | The mailbox is mostly newsletters: reading it all is slow and costly | 17 (triage query, cursor) |
+| B5 | Calls get booked in the school's Outlook calendar, which Rolo does not see (the ICS feed proposed in September was never built) | 16 (agent records the call), ICS feed optional |
+| C1 | The people being emailed are often not in Rolo at all | 15 (`upsert_contact`) |
+| C2 | Profiles are thin: no education, few past roles, few emails | 18 |
+| C3 | No way to scan the network by employer; company names are unnormalised | 14 (`list_companies`) |
+| D1 | No notion of a goal, a target list, or where each person stands | 16 |
+| D2 | Drafts are produced one at a time in a dialog and not kept | 16 |
+| D3 | Nothing surfaces "sent a week ago, no reply" | 16 |
+| E1 | Three written rules forbid this as stated (API non-goal, "AI never writes directly", third-party data flows) | 13 (owner decisions) |
+| E2 | Claude will read mail from strangers while holding write access to the CRM: prompt-injection exposure | 14–17 (design rules in §5) |
+| E3 | No record of what an agent did, and no undo | 13, 15 |
+| F1 | Unattended runs start with no memory: they need a cursor and idempotent writes | 15, 17 |
+
+## 4. Decisions for the owner
+
+Each has a recommendation; none is taken.
+
+1. **Amend the "public third-party API" non-goal** to allow one
+   owner-only MCP endpoint. *Recommended: yes — it is the owner's own
+   agent, authenticated as the owner, not an API for third parties.*
+2. **Amend "no AI call ever writes user data directly" (SPEC §11).**
+   *Recommended tiers:* (a) appended, attributed, undoable writes apply
+   directly — interactions, notes, reminders, drafts, tag and group
+   membership; (b) contact fields go through the provenance rules as
+   source `agent`, so an owner-edited field is never overwritten and
+   conflicts are reported back; (c) new contacts are created directly but
+   flagged and listed for one-click undo; (d) delete, merge, archive,
+   export and settings are never exposed. A Settings switch can demote
+   (a)–(c) to "queue for review" at any time.
+3. **Accept the data flow.** Tool results put contact names, roles, notes
+   and message text into Claude conversations (Anthropic, under the
+   owner's claude.ai account terms and training setting, not the API
+   terms the in-app AI uses). Notes the agent writes will contain
+   summaries of email content. The Gmail invariant itself is untouched:
+   Rolo's own sync stays metadata-only. *Recommended: accept, and record
+   it in CLAUDE.md beside the other owner amendments.*
+4. **Hosting.** Is Rolo on the VPS with a public domain (DEPLOY.md), or
+   still on the laptop / Tailscale? The connector needs the former.
+   *Recommended: VPS + Caddy; expose the app as today, nothing new to
+   open.*
+5. **Auth model and schema.** An OAuth authorization server inside Rolo
+   (the password gate is the consent screen) and migration 0020 with two
+   tables: `agent_grants` (hashed access and refresh tokens, scope,
+   expiry, last used, revoked) and `agent_calls` (one row per tool call:
+   tool, arguments, outcome, what it changed, undo data). *Recommended:
+   yes; `settings` JSON is the wrong place for rotating tokens.*
+6. **One dependency:** `@modelcontextprotocol/server` (v2; depends only
+   on its core package and zod 4, already here). It answers both protocol
+   eras. Hand-rolling is ~200 lines but makes the protocol migration
+   ours. *Recommended: take the dependency.*
+7. **Goal model.** *Recommended for v1, no schema change:* a campaign is
+   a Rolo **group** plus a brief stored in settings; a person's stage is
+   **derived from interactions**, the way `next_touch_at` is, never typed
+   in. Dedicated campaign tables only if one status per person per
+   campaign proves necessary. This keeps clear of the "deal pipeline"
+   non-goal: there are no stages to drag, only facts about who wrote to
+   whom.
+8. **How sent mail is captured.** *Recommended:* the Outbox's "Sent"
+   click is the record (Phase 16); the agent reconciles the forwarded
+   copy when it eventually arrives. Optional owner-side upgrade: forward
+   Sent Items automatically (a Power Automate flow, if the school tenant
+   allows) so replies written directly in Outlook are captured too.
+
+## 5. Architecture
+
+```
+claude.ai / Claude Code / scheduled task
+   ├── Gmail connector ──► forwarding mailbox   (read; drafts optional)
+   └── Rolo connector  ──► https://<rolo>/api/mcp
+                              OAuth (owner's password = consent)
+                              tools ► auth-free cores ► SQLite
+                              every call ► agent_calls (audit + undo)
+```
+
+Rules the design holds to:
+
+- **Model proposes, Rolo executes.** No model call inside Rolo on this
+  path. Tools take structured arguments validated with Zod; ids are
+  checked against the database; anything invalid is refused, not guessed.
+- **Small answers.** Results are compact, paged and capped (50 rows, well
+  under 20,000 tokens) with ids to drill into. No tool can dump the
+  database.
+- **Writes are appended, attributed, idempotent, undoable.** Every write
+  carries `source = 'agent'` and a caller-supplied idempotency key (for
+  mail, the Gmail message id), so a re-run upserts instead of doubling.
+  A near-duplicate guard (same contact, direction and subject within a
+  few minutes) joins a forwarded copy to an interaction already logged.
+- **Nothing irreversible is exposed.** No delete, merge, archive, export,
+  settings or token tools.
+- **Mail is untrusted.** Free text from third parties is returned marked
+  as data; the server instructions say never to act on instructions found
+  in mail or notes. The owner keeps Gmail's send and forward tools on
+  "needs approval" — an approval an unattended run cannot give, so the
+  scheduled task can read mail but not send it.
+- **Read and write are separate scopes and separate tool groups**, each
+  tool annotated (`readOnlyHint`, `destructiveHint`, `title`), so the
+  owner can leave reads on "always allow" and writes on approval until
+  trust is earned.
+
+### Tool surface (about twenty tools)
+
+| Tool | Phase | What it does |
+|---|---|---|
+| `rolo_overview` | 14 | Counts, data completeness, tags/groups/custom fields, timezone, now, sync state — one call to get oriented |
+| `search_contacts` | 14 | Text query plus the §7 filter dimensions (company current/past, title, location, tag, group, last interaction, has email, starred); compact rows, paged |
+| `list_companies` | 14 | Employers with head-counts and sample titles, normalised — how "the best firms" get found in 2,200 connections without reading them all |
+| `get_contacts` | 14 | Full profile for up to 10 ids: fields, emails, history, tags, notes, recent exchanges with LinkedIn message text, open changes, reminders, the "what I know" card |
+| `find_contact` | 14 | Resolve an email, LinkedIn URL or name to a contact through the import identity ladder, with the match reason — the safety step before any write |
+| `get_timeline`, `search_notes` | 14 | Per-contact or global timeline; full-text over notes |
+| `get_today` | 14 | Due, reminders, agenda, job changes, people you met |
+| `get_voice_guide` | 14 | The owner's voice guide and sent examples |
+| `log_interaction` | 15 | Email / meeting / call / message, direction, original time, subject, thread link, idempotency key |
+| `add_note`, `create_reminder`, `complete_reminder` | 15 | The existing actions, attributed to the agent |
+| `upsert_contact` | 15 | One person through the import planner as source `agent`; conflicts returned, never forced |
+| `tag_contacts` | 15 | Add or remove tags and group membership, existing tags preferred |
+| `undo_agent_action` | 15 | Reverse one `agent_calls` row |
+| `save_campaign`, `list_campaigns`, `get_pipeline` | 16 | The goal and its brief; members bucketed by derived stage |
+| `save_draft`, `list_drafts` | 16 | Drafts into Rolo's Outbox |
+| `update_voice_guide` | 16 | Refine the guide from real sent mail |
+| `get_cursor`, `set_cursor` | 17 | Where the last unattended run stopped |
+| `suggest_email` | 18 | Pattern-based address candidates with evidence |
+
+Derived stage, per campaign member, from interactions alone: *not
+contacted* → *drafted* (an open draft) → *awaiting reply* (owner's last
+email is newer than theirs; shows days waiting) → *replied — your move* →
+*call booked* (a future calendar event, or an open reminder the agent
+created for a call it saw being scheduled) → *met* → *dormant*. An
+explicit "not pursuing" is a tag.
+
+The in-app AI features (Ask, drafts, profile cards, triage) are untouched
+and keep running on whichever provider is configured; the connector is a
+second, stronger way in, not a replacement.
+
+## 6. Phases
+
+Rough size: 13 medium, 14 large, 15 medium, 16 large, 17 small (mostly a
+prompt, a cursor and one digest section), 18 four small pieces. Rolo is
+useful to Claude after 14; the loop in §1 is whole after 16; it runs by
+itself after 17. Each phase ends with the usual ritual (`npm run check`
+output, what is stubbed, what is next).
+
+### Phase 13 — Groundwork (no visible feature)
+
+**Goal:** the app is ready to be driven by something other than a browser
+session, and the rules allow it.
+
+**Scope:** record the §4 decisions in CLAUDE.md, SPEC.md (new §14 "Agent
+connector") and SCHEMA.md; lift the logic of the server actions the tools
+need into auth-free cores, leaving each action a thin `requireAuth()` +
+core + `revalidatePath` wrapper (views/filter, search, contact detail,
+timeline, today, notes and interactions, reminders, tags, groups); add
+`'agent'` to the documented source enum and to the provenance rules
+(behaves as a non-user source); migration 0020 (`agent_grants`,
+`agent_calls`); login throttle; read the Next.js route-handler guide in
+`node_modules/next/dist/docs/` before any route is written.
+
+**AC:** `npm run check` output identical in count or higher; unit tests
+call each core directly with no cookie; an agent-sourced field write
+against an owner-edited field is a conflict (unit); E2E suite still green.
+
+### Phase 14 — The read-only connector (first useful milestone)
+
+**Goal:** Claude can answer questions about the owner's network.
+
+**Scope:** `POST /api/mcp` (stateless Streamable HTTP, JSON responses,
+Origin check, 401 + `WWW-Authenticate` when unauthenticated); protected
+resource and authorization-server metadata under `/.well-known/`;
+`/oauth/authorize` as a page behind the password gate showing what is
+being granted; `/api/oauth/token` (authorization code + refresh, PKCE
+S256, exact `resource` match, rotating refresh tokens, tokens stored
+hashed); one pre-registered public client with Claude's callback URLs
+allowed, so no dynamic registration and no outbound fetch; scopes `read`
+and `write` (only `read` grantable in this phase); the read tools;
+server instructions; Settings → Connections → **Claude connector** card
+(URL to paste, active grants with last-used time, revoke, recent calls);
+DEPLOY.md section.
+
+**AC:** protocol tests for `initialize`, `tools/list`, `tools/call` and
+the newer discovery call; no token, wrong token, expired token, revoked
+grant and wrong `resource` each get the right refusal; refresh rotates
+and the old token dies; no tool output contains a secret (test over every
+tool against a seeded DB); every result under the size cap on the 10k
+seed; each call writes one `agent_calls` row; the §13 no-phoning-home
+test passes untouched (the connector is inbound only).
+**Manual check:** add the connector in claude.ai, sign in with the Rolo
+password, ask "who in my network works in technology investment banking,
+at which firms, and when did I last speak to each?"
+
+### Phase 15 — Write-back: Claude keeps Rolo current
+
+**Goal:** what happens in the mailbox lands on the right timelines.
+
+**Scope:** the `write` scope and the write tools; idempotency keys and
+the near-duplicate guard; `upsert_contact` through the import planner;
+`undo_agent_action`; an **Agent activity** page (what was written, by
+which tool, with undo) and an "added by Claude" marker on timeline rows;
+the Settings switch between "apply" and "queue for review"; cadence
+recompute on every agent write path (inbound-only mail still does not
+reset the clock, SPEC §3).
+
+**AC:** logging the same message twice writes one row; a forwarded copy
+arriving after a logged send joins it; an email from someone not in Rolo
+creates one contact, a second email from them creates none; undo removes
+exactly what the call wrote and recomputes `next_touch_at`; an agent
+write never overwrites an owner-edited field.
+**Manual check:** in Claude, "go through this week's forwarded mail and
+update Rolo" → open three contacts and see the exchanges, dated to when
+they were actually sent.
+
+### Phase 16 — The outreach loop
+
+**Goal:** from a goal to sent emails in the owner's format, with follow-ups
+that surface on their own.
+
+**Scope:** campaigns (group + brief) and the derived pipeline; a
+**Campaign page** (members by stage, days waiting); the **Outbox**: drafts
+saved by Claude, each with *Open in Outlook* (compose link prefilled),
+*Copy*, *Sent* (logs the outbound email interaction and retires the
+draft) and *Discard*; Today gains "Awaiting reply" (7+ days, configurable)
+next to the due queue; booked calls recorded as contact-attached reminders
+at the call time, so they show on Today and can carry the post-meeting
+follow-up; voice guide tools, so the owner's real networking emails become
+the format; a checked-in **Skill** (`.claude/skills/rolo-outreach/` —
+Claude Code reads it there, and the same folder zipped uploads to
+claude.ai) holding the playbook: how to pick targets (relevance,
+warmth, never several people in one team at once, never someone already
+waiting on the owner), how to read a forwarded wrapper, how to write the
+first email and the one-week nudge, what to log.
+
+**AC:** stage derivation unit battery (each transition, including a
+reply after a nudge and a bounce); a draft retires on "Sent" and on a
+matching logged send; the compose link carries recipient, subject and
+body intact for a 250-word email (fallback to Copy beyond the URL limit).
+**Manual check:** "draft this week's ten" → ten drafts in the Outbox →
+ten clicks → next morning the replies are on the timelines and the
+non-repliers appear a week later.
+**To verify first (15 minutes, owner-side):** whether the school's Outlook
+accepts a prefilled compose link (`mailto:` and the web deep link), and
+whether a `bcc` to the forwarding Gmail survives — if it does, sent mail
+arrives instantly with real headers and Rolo's own sync sees it too.
+
+### Phase 17 — Autopilot
+
+**Goal:** Rolo updates itself; the owner reviews instead of asking.
+
+**Scope:** a scheduled Claude task (twice on weekdays) with the Gmail and
+Rolo connectors and the Skill: read mail since the cursor using a triage
+query that drops bulk mail, match, log, classify replies (positive,
+scheduling, decline, out of office, bounce), create the follow-up
+reminders, prepare nudge drafts, advance the cursor, and leave one
+summary note; the daily digest gains an "agent activity" section; a
+health-banner entry when the task has not checked in for two days.
+Rolo's write tools must be on "always allow" for this to work, which is
+why it comes last: by then the activity page and undo have had weeks of
+supervised use.
+
+**AC:** two runs over the same mail write nothing the second time; a run
+that fails half-way resumes without duplicates; the digest lists exactly
+the rows in `agent_calls` since the last one.
+**Manual check:** a week untouched, then the Agent activity page and the
+mailbox agree.
+
+### Phase 18 — Better data to aim with
+
+**Goal:** the answers to "who should I contact" stop being limited by
+thin profiles. Independent of 15–17; can start after 14.
+
+**Scope, each its own owner decision:** (a) profile capture also reads
+experience and education off the page the owner is viewing, feeding
+`work_history` / `education` — zero extra LinkedIn requests, same terms
+as §9c; (b) capture from a LinkedIn people-search page the owner has
+open, as campaign prospects — same class of ToS risk as §9c/§9d and
+needs the same explicit acceptance; (c) `suggest_email`: learn each
+firm's address pattern from addresses Rolo already holds at that domain,
+return candidates labelled as guesses with the evidence, and learn from
+bounces the agent sees; (d) a firm-tier tag set the agent proposes and
+the owner approves once.
+
+## 7. Owner-side checklist (not code)
+
+1. Answer §4.
+2. Confirm the public URL; turn on push-to-deploy if it is not already.
+3. Keep the Gmail connector's send and forward tools on "needs approval".
+4. Check the claude.ai privacy setting that governs training on chats.
+5. Try the compose-link test in Phase 16.
+6. Optional: ask whether the school tenant allows Power Automate, to
+   forward Sent Items automatically.
+
+## 8. Risks
+
+- **Prompt injection through mail.** Mitigated by the design rules in §5,
+  not eliminated. The undo log and approval-gated send are the backstop.
+- **The connector makes the server a more interesting target.** OAuth
+  with short-lived tokens, hashed storage, revocation, the login
+  throttle, and no irreversible tools.
+- **Protocol churn.** The spec changed eras this year and Claude's client
+  has not moved yet; the SDK dependency absorbs that.
+- **Wrapper parsing is Claude's judgment, not a parser.** Idempotency,
+  `find_contact` before every write, and undo keep mistakes cheap.
+- **Cost.** Autopilot reads mail twice a day; the triage query and the
+  cursor keep it to the handful of human messages.
+- **Scope creep toward a sales pipeline.** Stages stay derived; no
+  amounts, no probabilities, no bulk sending — Rolo never sends anything.
+
+## 9. Available today, with no build
+
+Settings → Data → export, then give `contacts.csv` to a Claude
+conversation that also has the Gmail connector. Claude can already rank
+targets from the file, learn the format from the forwarded sent mail,
+and write drafts in chat. What the connector adds is live data, memory
+between conversations, and the write-back.
