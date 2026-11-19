@@ -43,6 +43,21 @@ describe("mentionMarkdown", () => {
     );
   });
 });
+describe("mentionMarkdown with a hostile name", () => {
+  it("a name cannot close the mention and open a link or an image of its own", () => {
+    const image = mentionMarkdown({ kind: "contact", id: 12, label: "Priya ![.](https://evil.test/p.png) Nair" });
+    expect(image).toBe("[@Priya !(.)(https://evil.test/p.png) Nair](mention://contact/12)");
+    const link = mentionMarkdown({ kind: "contact", id: 12, label: "x](https://evil.test/phish) [y" });
+    expect(link).toBe("[@x)(https://evil.test/phish) (y](mention://contact/12)");
+    // Still exactly one mention, pointing where it should.
+    for (const md of [image, link]) {
+      expect(parseMentions(md).map((m) => [m.kind, m.id])).toEqual([["contact", 12]]);
+      expect(md.match(/\]\(/g)).toHaveLength(1);
+    }
+    expect(mentionMarkdown({ kind: "group", id: 3, label: "NYC\nFounders" })).toBe("[#NYC Founders](mention://group/3)");
+  });
+});
+
 
 describe("activeTrigger", () => {
   it("detects @ at start of text", () => {

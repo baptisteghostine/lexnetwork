@@ -31,9 +31,11 @@ export function parseMentions(bodyMd: string): Mention[] {
 /** Builds the markdown snippet inserted by the autocomplete. */
 export function mentionMarkdown(mention: Mention): string {
   const sigil = mention.kind === "contact" ? "@" : "#";
-  const label = mention.label.startsWith(sigil)
-    ? mention.label
-    : `${sigil}${mention.label}`;
+  // The label sits inside a markdown link, so a name carrying brackets
+  // could close it and open a link or an image of its own — names come
+  // from imports and from the agent connector, not only from the owner.
+  const safe = mention.label.replace(/\[/g, "(").replace(/\]/g, ")").replace(/\s+/g, " ").trim();
+  const label = safe.startsWith(sigil) ? safe : `${sigil}${safe}`;
   return `[${label}](mention://${mention.kind}/${mention.id})`;
 }
 
