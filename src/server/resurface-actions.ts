@@ -4,9 +4,9 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { db } from "@/db/client";
-import { contacts, interactions } from "@/db/schema";
+import { contacts } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
-import { recomputeContact } from "@/lib/cadence/recompute";
+import { recordInteraction } from "@/server/interaction-core";
 
 // The two things you can do with a "Worth reconnecting" pick (SPEC §3):
 // say you reached out (a counting interaction — the clock resets and the
@@ -15,19 +15,14 @@ import { recomputeContact } from "@/lib/cadence/recompute";
 
 export async function reachedOutAction(contactId: number): Promise<void> {
   await requireAuth();
-  const now = Date.now();
-  db.insert(interactions)
-    .values({
-      contactId,
-      kind: "manual",
-      occurredAt: now,
-      title: "Reached out — reconnecting",
-      source: "user",
-      countsForTouch: true,
-      createdAt: now,
-    })
-    .run();
-  recomputeContact(contactId);
+  const logged = recordInteraction({
+    contactId,
+    kind: "manual",
+    occurredAt: Date.now(),
+    title: "Reached out — reconnecting",
+    source: "user",
+  });
+  if (!logged.ok) return;
   revalidatePath("/today");
   revalidatePath(`/contacts/${contactId}`);
 }

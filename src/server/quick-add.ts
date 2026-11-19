@@ -5,10 +5,10 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { db } from "@/db/client";
-import { contactFieldSources, contacts, interactions } from "@/db/schema";
+import { contactFieldSources, contacts } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
-import { recomputeContact } from "@/lib/cadence/recompute";
 import { deriveDisplayName } from "@/lib/contacts/normalize";
+import { recordInteraction } from "@/server/interaction-core";
 
 // "Who did you meet?" quick log (SPEC §2 amendment): one modal, anywhere
 // in the app — find or create the person, one line of what happened,
@@ -80,21 +80,19 @@ export async function quickLogAction(
       if (!exists) throw new Error("Contact not found.");
     }
 
-    db.insert(interactions)
-      .values({
-        contactId: id,
-        kind: "manual",
-        occurredAt: parsed.data.occurredAt,
-        title: parsed.data.title,
-        source: "user",
-        countsForTouch: true, // you met them — the clock resets (SPEC §3)
-        createdAt: now,
-      })
-      .run();
+    // The same core every logged interaction goes through (SPEC §14) —
+    // nested here so a new contact and their first entry land together.
+    const logged = recordInteraction({
+      contactId: id,
+      kind: "manual", // you met them — the clock resets (SPEC §3)
+      occurredAt: parsed.data.occurredAt,
+      title: parsed.data.title,
+      source: "user",
+    });
+    if (!logged.ok) throw new Error(logged.error);
     return id;
   });
 
-  recomputeContact(contactId);
   revalidatePath("/today");
   revalidatePath("/contacts");
   revalidatePath(`/contacts/${contactId}`);

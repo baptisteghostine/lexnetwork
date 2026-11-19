@@ -12,23 +12,23 @@ import { attachments, interactions, notes } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
 import { recomputeContact } from "@/lib/cadence/recompute";
 import {
-  mentionedContactIds,
-  recomputeNoteContacts,
-  syncNoteMentions,
-} from "@/server/note-sync";
+  addNote,
+  INTERACTION_KINDS,
+  INTERACTION_TITLE_MAX,
+  NOTE_BODY_MAX,
+  recordInteraction,
+} from "@/server/interaction-core";
+import { mentionedContactIds, recomputeNoteContacts } from "@/server/note-sync";
 
 export async function createNoteAction(
   contactId: number | null
 ): Promise<{ id: number }> {
   await requireAuth();
-  const now = Date.now();
-  const row = db
-    .insert(notes)
-    .values({ contactId, bodyMd: "", createdAt: now, updatedAt: now })
-    .returning({ id: notes.id })
-    .get();
+  // An empty note the editor then autosaves into (SPEC §2).
+  const res = addNote({ contactId, bodyMd: "" });
+  if (!res.ok) throw new Error(res.error);
   if (contactId) revalidatePath(`/contacts/${contactId}`);
-  return { id: row.id };
+  return { id: res.noteId };
 }
 
 export async function deleteNoteAction(noteId: number): Promise<void> {
@@ -68,11 +68,11 @@ export async function setNoteCountsForTouchAction(
 }
 
 const logInteractionInput = z.object({
-  kind: z.enum(["manual", "meeting", "message", "email"]),
-  title: z.string().trim().max(500),
+  kind: z.enum(INTERACTION_KINDS),
+  title: z.string().trim().max(INTERACTION_TITLE_MAX),
   occurredAt: z.number().int().positive(),
   /** Optional markdown notes → a note row dated to the interaction (SPEC §2). */
-  noteMd: z.string().max(200_000).optional(),
+  noteMd: z.string().max(NOTE_BODY_MAX).optional(),
 });
 
 export async function logInteractionAction(
@@ -82,40 +82,18 @@ export async function logInteractionAction(
   await requireAuth();
   const parsed = logInteractionInput.safeParse(input);
   if (!parsed.success) return { error: "Invalid interaction." };
-  const now = Date.now();
-  const noteMd = parsed.data.noteMd?.trim() ?? "";
-  db.transaction(() => {
-    db.insert(interactions)
-      .values({
-        contactId,
-        kind: parsed.data.kind,
-        occurredAt: parsed.data.occurredAt,
-        title: parsed.data.title || null,
-        // A manually logged email is by definition you reaching out.
-        direction: parsed.data.kind === "email" ? "outbound" : null,
-        source: "user",
-        countsForTouch: true, // manually logged = you touched base (SPEC §3)
-        createdAt: now,
-      })
-      .run();
-    if (noteMd) {
-      // The interaction already counts; the note is dated to it so the two
-      // sit together on the timeline instead of the note landing at "now".
-      const note = db
-        .insert(notes)
-        .values({
-          contactId,
-          bodyMd: noteMd,
-          countsForTouch: false,
-          createdAt: parsed.data.occurredAt,
-          updatedAt: now,
-        })
-        .returning({ id: notes.id })
-        .get();
-      syncNoteMentions(note.id, noteMd);
-    }
+  const res = recordInteraction({
+    contactId,
+    kind: parsed.data.kind,
+    occurredAt: parsed.data.occurredAt,
+    title: parsed.data.title,
+    // A manually logged email is by definition you reaching out, so it
+    // counts like every other manual log (SPEC §3).
+    direction: parsed.data.kind === "email" ? "outbound" : null,
+    source: "user",
+    noteMd: parsed.data.noteMd,
   });
-  recomputeContact(contactId);
+  if (!res.ok) return { error: res.error };
   revalidatePath(`/contacts/${contactId}`);
   return {};
 }
