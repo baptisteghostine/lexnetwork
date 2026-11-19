@@ -20,6 +20,11 @@ const UI_LINK_HOSTS = new Set([
   "www.linkedin.com", // "Get a copy of your data" export-page link
   "account.mapbox.com", // "where to find your token" link in Settings
   "localhost", // app_url default
+  // The agent connector's sign-in (SPEC §14): the only addresses an
+  // authorization code may be sent to. The owner's browser is redirected
+  // there after consent — Rolo's server never requests them.
+  "claude.ai",
+  "claude.com",
 ]);
 
 function* walk(dir: string): Generator<string> {

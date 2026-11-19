@@ -10,11 +10,21 @@ import type { NextRequest } from "next/server";
  * absolute URL built for an OAuth round trip goes through this instead of
  * `req.url` directly.
  */
-export function publicOrigin(req: NextRequest): string {
-  const proto = req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+export function publicOrigin(req: NextRequest | Request): string {
+  return publicOriginFromHeaders(req.headers, req.url);
+}
+
+/**
+ * The same, from bare headers — for server components and actions, which
+ * have `headers()` but no request object. `fallbackUrl` is the request's
+ * own URL when there is one.
+ */
+export function publicOriginFromHeaders(headers: Headers, fallbackUrl?: string): string {
+  const proto = headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
   const host =
-    req.headers.get("x-forwarded-host")?.split(",")[0]?.trim() ??
-    req.headers.get("host");
+    headers.get("x-forwarded-host")?.split(",")[0]?.trim() ?? headers.get("host");
   if (proto && host) return `${proto}://${host}`;
-  return new URL(req.url).origin;
+  if (fallbackUrl) return new URL(fallbackUrl).origin;
+  // No proxy announced a scheme: a direct connection, which is plain http.
+  return host ? `http://${host}` : "http://localhost:3000";
 }

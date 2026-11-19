@@ -35,6 +35,20 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "**": ["./node_modules/better-sqlite3/prebuilds/**"],
   },
+  // The connector's consent screen (SPEC §14) asks for the password; it
+  // must never render inside another site's frame.
+  async headers() {
+    return [
+      {
+        source: "/oauth/authorize",
+        headers: [
+          { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Referrer-Policy", value: "no-referrer" },
+        ],
+      },
+    ];
+  },
   experimental: {
     serverActions: {
       allowedOrigins: [...devProxyOrigins, ...configuredOrigins],
