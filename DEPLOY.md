@@ -257,7 +257,8 @@ Rolo asking Claude to sign in, and it is the healthy answer.
 3. Claude opens Rolo's consent page. It names the app, says what it may
    do, and asks for your Rolo password. Leave "Also let it add to Rolo"
    ticked to let Claude log exchanges, write notes, set reminders, add
-   people and tag them; untick it for a read-only connection. Allow it.
+   people, tag them and set how often to keep in touch; untick it for a
+   read-only connection. Allow it.
 4. Ask Claude something only Rolo knows — "who do I know at …".
 
 **A connection made before write-back existed is read-only** and stays

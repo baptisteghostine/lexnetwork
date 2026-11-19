@@ -28,6 +28,7 @@ import { recomputeContact } from "@/lib/cadence/recompute";
 import { SCALAR_FIELDS, type ScalarField } from "@/lib/imports/types";
 import { pruneOrphanAnnotations } from "@/server/ai-annotations";
 import { noteSignature, parseWrites, reminderSignature, type WriteRecord } from "@/server/agent/ledger";
+import { restoreCadence } from "@/server/cadence-core";
 import { applyScalarWrite, syncDisplayName, upsertProvenance } from "@/server/import-engine";
 import { setGroupMembership, setTagMembership } from "@/server/membership-core";
 import { mentionedContactIds } from "@/server/note-sync";
@@ -120,18 +121,6 @@ function whyContactMustStay(contactId: number, callId: number): string | null {
     count(db.select({ n: N }).from(workHistory).where(eq(workHistory.contactId, contactId))) +
     count(db.select({ n: N }).from(education).where(eq(education.contactId, contactId)));
   if (details > 0) return "has details that did not come from Claude";
-  if (
-    c.cadenceDays !== null ||
-    c.cadenceReviewedAt !== null ||
-    c.starred ||
-    c.snoozedUntil !== null ||
-    c.archivedAt !== null ||
-    c.photoPath !== null ||
-    c.descriptionMd ||
-    c.birthdayMonth !== null
-  ) {
-    return "has been set up by you since being added";
-  }
   // Something a later agent call wrote about them: undo that first.
   const later = count(
     db
@@ -148,6 +137,18 @@ function whyContactMustStay(contactId: number, callId: number): string | null {
       )
   );
   if (later > 0) return "has later changes by Claude that have not been undone";
+  if (
+    c.cadenceDays !== null ||
+    c.cadenceReviewedAt !== null ||
+    c.starred ||
+    c.snoozedUntil !== null ||
+    c.archivedAt !== null ||
+    c.photoPath !== null ||
+    c.descriptionMd ||
+    c.birthdayMonth !== null
+  ) {
+    return "has been set up by you since being added";
+  }
   return null;
 }
 
@@ -242,6 +243,21 @@ function reverse(
         pruneOrphanAnnotations("contact_profile");
         pruneOrphanAnnotations("change_triage");
         out.reversed.push(`removed the contact ${row.displayName}`);
+        return;
+      }
+      if (write.op === "cadence") {
+        // Still the rhythm this call set, set when it set it: a cadence
+        // the owner has since picked on the board is theirs.
+        if (
+          row.cadenceDays !== write.after.cadenceDays ||
+          row.cadenceAssignedAt !== write.after.cadenceAssignedAt ||
+          row.cadenceReviewedAt !== write.after.cadenceReviewedAt
+        ) {
+          out.skipped.push(`${row.displayName}'s keep-in-touch rhythm has been changed since, so it was left as it is`);
+          return;
+        }
+        restoreCadence(write.id, write.before, now);
+        out.reversed.push(`put ${row.displayName}'s keep-in-touch rhythm back`);
         return;
       }
       const sources = new Map(

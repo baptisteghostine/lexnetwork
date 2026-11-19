@@ -42,8 +42,9 @@ export function ConsentForm({
           <span>
             <span className="font-medium">Also let it add to Rolo</span>
             <span className="mt-0.5 block text-muted-foreground">
-              Log exchanges, write notes, set reminders, add people and tag them. Every change is
-              listed in Rolo and can be undone. Untick to connect read-only.
+              Log exchanges, write notes, set reminders, add people, tag them and set how often to
+              keep in touch. Every change is listed in Rolo and can be undone. Untick to connect
+              read-only.
             </span>
           </span>
         </label>

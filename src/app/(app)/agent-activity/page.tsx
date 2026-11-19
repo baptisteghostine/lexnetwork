@@ -83,7 +83,11 @@ export default async function AgentActivityPage({
                 ? r.status === "queued"
                   ? [{ label: "Would undo", value: r.summary ?? "an earlier action" }]
                   : []
-                : describeArgs(r.argsJson),
+                : [
+                    // What it comes to, in words — ids alone do not say who.
+                    ...(r.status === "queued" && r.summary ? [{ label: "In short", value: r.summary }] : []),
+                    ...describeArgs(r.argsJson),
+                  ],
           }))}
         />
       )}

@@ -125,7 +125,8 @@ export default async function AuthorizePage({
             {offerWrite ? (
               <li>
                 If you leave the box below ticked: log exchanges, write notes, set reminders, add
-                people and tag them — each change listed in Rolo and undoable.
+                people, tag them and set how often to keep in touch — each change listed in Rolo
+                and undoable.
               </li>
             ) : null}
           </ul>

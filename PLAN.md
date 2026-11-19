@@ -635,6 +635,12 @@ the owner; see that section before revisiting them.
   - **Not verifiable here:** the live flow from claude.ai — reconnect with
     the box ticked, then "go through this week's forwarded mail and update
     Rolo".
+  - **Added after first use, the same day:** `set_cadence`. "Put Chris in
+    the CRM to reconnect every 3 months" had nowhere to land — cadence had
+    been left out as the owner's to set, and the owner asked for it. It
+    shares the Keep-in-touch page's rule (`cadence-core.ts`), takes up to
+    50 contacts, records the state it replaced and is undone like any
+    other write. Eight write tools, seventeen in all.
   - **Known stubs:** none.
 
 **Next: Phase 16 — the outreach loop.** Worth doing first: a week of real

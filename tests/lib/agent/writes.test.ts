@@ -192,6 +192,17 @@ describe("describeArgs", () => {
     ]);
   });
 
+  it("shows a keep-in-touch change, including the instruction to stop", () => {
+    expect(describeArgs(JSON.stringify({ contactIds: [1059], everyDays: 91 }))).toEqual([
+      { label: "Contacts", value: "1059" },
+      { label: "Keep in touch every (days)", value: "91" },
+    ]);
+    expect(describeArgs(JSON.stringify({ contactIds: [4, 5], everyDays: null }))).toEqual([
+      { label: "Contacts", value: "4, 5" },
+      { label: "Keep in touch", value: "stop" },
+    ]);
+  });
+
   it("survives anything stored in the column", () => {
     expect(describeArgs("not json")).toEqual([]);
     expect(describeArgs("[1,2]")).toEqual([]);

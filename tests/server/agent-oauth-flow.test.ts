@@ -963,11 +963,11 @@ describe("the protocol, through the gate", () => {
 
     const list = await mcp(tokens.access_token, { jsonrpc: "2.0", id: 3, method: "tools/list" }, LEGACY);
     const tools = (list.message!.result as { tools: { name: string; annotations: Record<string, unknown>; inputSchema: Record<string, unknown> }[] }).tools;
-    expect(tools).toHaveLength(16);
+    expect(tools).toHaveLength(17);
     const writers = tools.filter((t) => t.annotations.readOnlyHint === false);
     expect(writers.map((t) => t.name)).toEqual([
       "log_interaction", "add_note", "create_reminder", "complete_reminder", "upsert_contact",
-      "tag_contacts", "undo_agent_action",
+      "tag_contacts", "set_cadence", "undo_agent_action",
     ]);
     expect(writers.filter((t) => t.annotations.destructiveHint).map((t) => t.name)).toEqual(["undo_agent_action"]);
     for (const tool of tools) {

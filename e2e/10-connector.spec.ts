@@ -327,7 +327,7 @@ test("asked for write, the consent screen makes it the owner's choice", async ({
   expect(full.scope).toBe("read write");
   writer.accessToken = full.access_token;
   const list = await mcp(request, writer.accessToken, { jsonrpc: "2.0", id: 2, method: "tools/list" });
-  expect((list.message!.result as { tools: unknown[] }).tools).toHaveLength(16);
+  expect((list.message!.result as { tools: unknown[] }).tools).toHaveLength(17);
 
   await page.goto("/settings?tab=connector");
   await expect(page.getByText(/Read and add · connected/)).toBeVisible();

@@ -6,6 +6,7 @@ import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import { agentCalls, contacts, notes, reminders } from "@/db/schema";
+import type { CadenceState } from "@/server/cadence-core";
 
 // One row per tool call the connector serves (SCHEMA.md `agent_calls`,
 // SPEC §14) — the agent's audit trail, and from Phase 15 the source of
@@ -69,6 +70,15 @@ export type WriteRecord =
       emails: string[];
       socialUrls: string[];
       changeIds: number[];
+    }
+  | {
+      table: "contacts";
+      op: "cadence";
+      id: number;
+      createdAt: number;
+      /** The keep-in-touch state the call replaced, and the one it set. */
+      before: CadenceState;
+      after: CadenceState;
     }
   | { table: "tags"; op: "insert"; id: number; name: string }
   // `at` is when the memberships were written: undo only takes back rows

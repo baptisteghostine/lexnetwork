@@ -172,6 +172,7 @@ const ARG_LABELS: Record<string, string> = {
   linkedinUrl: "LinkedIn",
   confirmNew: "New person even if the name exists",
   contactIds: "Contacts",
+  everyDays: "Keep in touch every (days)",
   addTags: "Add tags",
   removeTags: "Remove tags",
   addToGroupIds: "Add to groups",
@@ -195,6 +196,11 @@ export function describeArgs(argsJson: string): { label: string; value: string }
   const out: { label: string; value: string }[] = [];
   for (const [key, label] of Object.entries(ARG_LABELS)) {
     const value = record[key];
+    // The one argument where "nothing" is the instruction.
+    if (key === "everyDays" && value === null) {
+      out.push({ label: "Keep in touch", value: "stop" });
+      continue;
+    }
     if (value === undefined || value === null) continue;
     // On a contact, `title` is their job; on a reminder, its name.
     const shown = key === "title" && ("firstName" in record || "lastName" in record || "company" in record) ? "Job title" : label;

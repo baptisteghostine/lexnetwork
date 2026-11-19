@@ -25,7 +25,8 @@ const READ_ONLY_NOTE =
   "This connection is read-only: nothing you do here changes Rolo.";
 
 const WRITE_INSTRUCTIONS = [
-  "You may also add to Rolo: log exchanges, write notes, set reminders, add or update people, and tag them. Every change is recorded as yours and the owner can undo it. You cannot delete, merge or archive anything, and you cannot overwrite what the owner typed.",
+  "You may also add to Rolo: log exchanges, write notes, set reminders, add or update people, tag them, and set how often the owner wants to keep in touch with someone. Every change is recorded as yours and the owner can undo it. You cannot delete, merge or archive anything, and you cannot overwrite what the owner typed.",
+  "\"Keep in touch with X every 3 months\" is set_cadence, not a reminder: it puts the person on a repeating rhythm that Rolo tracks from the last real contact. A reminder is for one dated thing to do. Set or change a rhythm only when the owner asks.",
   "Log an exchange only when a person actually wrote or took part: a reply, an introduction, a scheduling message, a decline, the owner's own outreach. Newsletters, job alerts, application-system mail, automatic replies and bounces are not exchanges and must not be logged. When unsure whether something is worth recording, leave it out and say so — a clean timeline matters more than a complete one.",
   "Resolve the person before writing about them: find_contact by email or LinkedIn URL first. If they are in Rolo, use their id; add a newly learned email with upsert_contact and that id. Create a new contact only for someone the owner has really been in touch with.",
   "Date things when they happened, not when you read them: for a forwarded email use the original Sent time shown in its body. Give every log_interaction an idempotencyKey that identifies the message (gmail:<message id>), so reading the same mail again changes nothing.",

@@ -120,7 +120,7 @@ export function ConnectorPanel({
           In Claude, open Settings → Connectors → Add custom connector, paste this address, and
           sign in with your Rolo password when asked. Claude can then search and read your
           contacts, notes and timelines — and, if you tick the box when signing in, log exchanges,
-          write notes, set reminders, add people and tag them. It can never delete, merge or
+          write notes, set reminders, add people, tag them and set how often to keep in touch. It can never delete, merge or
           overwrite what you typed. A connection made before this option existed is read-only:
           disconnect it and connect again to change that.
         </p>

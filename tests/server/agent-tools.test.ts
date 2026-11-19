@@ -830,12 +830,12 @@ describe("nothing secret leaves, nothing is changed", () => {
     expect(readable.every((t) => !t.mutates && !t.destructive)).toBe(true);
     expect(tools.AGENT_TOOLS.filter((t) => t.scope === "write").map((t) => t.name)).toEqual([
       "log_interaction", "add_note", "create_reminder", "complete_reminder", "upsert_contact",
-      "tag_contacts", "undo_agent_action",
+      "tag_contacts", "set_cadence", "undo_agent_action",
     ]);
     expect(tools.AGENT_TOOLS.filter((t) => t.scope === "write").every((t) => t.mutates)).toBe(true);
     for (const forbidden of [
       "delete_contact", "merge_contacts", "export", "update_settings", "archive_contact",
-      "send_email", "delete_note", "delete_interaction", "revoke", "set_cadence",
+      "send_email", "delete_note", "delete_interaction", "revoke", "snooze_all",
     ]) {
       expect(call(forbidden, {}, ["read", "write"]).isError, forbidden).toBe(true);
     }

@@ -1104,3 +1104,119 @@ describe("what the ledger keeps of a refused call", () => {
     expect(stored).not.toMatch(/MARKER/);
   });
 });
+
+// ---------- set_cadence (owner request, 2026-11-19) ----------
+
+describe("set_cadence", () => {
+  const clock = (cid: number) =>
+    one<{ cadence_days: number | null; cadence_assigned_at: number | null; cadence_reviewed_at: number | null; snoozed_until: number | null; next_touch_at: number | null }>(
+      "SELECT cadence_days, cadence_assigned_at, cadence_reviewed_at, snoozed_until, next_touch_at FROM contacts WHERE id = ?",
+      cid
+    );
+
+  it("\"reconnect with Ben every 3 months\": on the rhythm, due three months from now, off the untriaged pile", () => {
+    const out = ok("set_cadence", { contactIds: [id.ben], everyDays: 91 });
+    expect(out).toMatchObject({ changed: 1 });
+    expect(out.contacts).toEqual([
+      { contactId: id.ben, name: "Ben Okafor", changed: true, keepInTouch: "every 3 months", was: "no keep-in-touch rhythm", nextDue: new Date(NOW + 91 * DAY).toISOString() },
+    ]);
+    // Never in touch, so the clock starts now.
+    expect(clock(id.ben)).toEqual({ cadence_days: 91, cadence_assigned_at: NOW, cadence_reviewed_at: NOW, snoozed_until: null, next_touch_at: NOW + 91 * DAY });
+    expect(ledger()[0]).toMatchObject({ tool: "set_cadence", status: "success", contact_id: id.ben, summary: "Set Ben Okafor to keep in touch every 3 months" });
+  });
+
+  it("the clock runs from the last real contact, so someone long unseen is due at once", () => {
+    const out = ok("set_cadence", { contactIds: [id.ana], everyDays: 14 });
+    // Ana was last spoken to 40 days ago: a fortnightly rhythm is already overdue.
+    expect(clock(id.ana).next_touch_at).toBe(NOW - 40 * DAY + 14 * DAY);
+    expect((out.contacts as { was: string }[])[0].was).toBe("every month");
+  });
+
+  it("several people at once, an odd number of days, and a repeat that changes nothing", () => {
+    const out = ok("set_cadence", { contactIds: [id.ana, id.ben, id.ana, 99_999], everyDays: 45 });
+    expect(out).toMatchObject({ changed: 2, unknownContactIds: [99_999] });
+    expect((out.contacts as { keepInTouch: string }[]).map((c) => c.keepInTouch)).toEqual(["every 45 days", "every 45 days"]);
+    expect(ledger()[0]).toMatchObject({ contact_id: null, summary: "Set 2 contacts to keep in touch every 45 days" });
+    const before = fingerprint();
+    const again = ok("set_cadence", { contactIds: [id.ana, id.ben], everyDays: 45 });
+    expect(again).toMatchObject({ changed: 0 });
+    expect(fingerprint()).toBe(before);
+    expect(ledger()[1].writes_json).toBe("[]");
+  });
+
+  it("null takes someone off, and clears their due date", () => {
+    const out = ok("set_cadence", { contactIds: [id.ana], everyDays: null });
+    expect(out.contacts).toEqual([
+      { contactId: id.ana, name: "Ana Silva", changed: true, keepInTouch: "no keep-in-touch rhythm", was: "every month", nextDue: null },
+    ]);
+    expect(clock(id.ana)).toMatchObject({ cadence_days: null, cadence_assigned_at: null, next_touch_at: null });
+    expect(ledger()[0].summary).toBe("Took Ana Silva off keep-in-touch");
+  });
+
+  it("refuses what makes no sense, and changes nothing", () => {
+    const archived = contact("Old Friend", { archived_at: NOW - DAY });
+    const before = fingerprint();
+    expect(refused("set_cadence", { contactIds: [id.ben], everyDays: 0 })).toMatch(/everyDays/);
+    expect(refused("set_cadence", { contactIds: [id.ben], everyDays: 4000 })).toMatch(/everyDays/);
+    expect(refused("set_cadence", { contactIds: [id.ben], everyDays: 30.5 })).toMatch(/everyDays/);
+    expect(refused("set_cadence", { contactIds: [id.ben], everyDays: "quarterly" })).toMatch(/everyDays/);
+    expect(refused("set_cadence", { contactIds: [id.ben] })).toMatch(/everyDays/);
+    expect(refused("set_cadence", { contactIds: [], everyDays: 30 })).toMatch(/contactIds/);
+    expect(refused("set_cadence", { contactIds: [777_777], everyDays: 30 })).toMatch(/None of those contact ids exist/);
+    expect(refused("set_cadence", { contactIds: [id.ben, archived], everyDays: 30 })).toMatch(/Old Friend is archived.*Nothing was changed/);
+    // Nothing else about a contact can be set through it.
+    expect(refused("set_cadence", { contactIds: [id.ben], everyDays: 30, starred: true })).toMatch(/starred/);
+    expect(fingerprint()).toBe(before);
+    expect(call("set_cadence", { contactIds: [id.ben], everyDays: 30 }, ["read"]).isError).toBe(true);
+    expect(fingerprint()).toBe(before);
+  });
+
+  it("undo puts the old rhythm back exactly — including a snooze still running", () => {
+    rawDb.prepare("UPDATE contacts SET snoozed_until = ?, cadence_assigned_at = ?, cadence_reviewed_at = ? WHERE id = ?").run(NOW + 9 * DAY, NOW - 60 * DAY, NOW - 60 * DAY, id.ana);
+    const before = clock(id.ana);
+    const out = ok("set_cadence", { contactIds: [id.ana, id.ben], everyDays: 182 });
+    expect(clock(id.ana)).toMatchObject({ cadence_days: 182, snoozed_until: null });
+    const undone = ok("undo_agent_action", { actionId: out.actionId });
+    expect(undone.reversed).toEqual(["put Ben Okafor's keep-in-touch rhythm back", "put Ana Silva's keep-in-touch rhythm back"]);
+    expect(clock(id.ana)).toEqual({ ...before, next_touch_at: NOW + 9 * DAY });
+    expect(clock(id.ben)).toEqual({ cadence_days: null, cadence_assigned_at: null, cadence_reviewed_at: null, snoozed_until: null, next_touch_at: null });
+  });
+
+  it("undo leaves a rhythm the owner has since picked themselves", () => {
+    const out = ok("set_cadence", { contactIds: [id.ben], everyDays: 91 });
+    // The owner drags Ben to "monthly" on the board.
+    rawDb.prepare("UPDATE contacts SET cadence_days = 30, cadence_assigned_at = ?, cadence_reviewed_at = ? WHERE id = ?").run(NOW + 5000, NOW + 5000, id.ben);
+    expect(refused("undo_agent_action", { actionId: out.actionId })).toBe("Nothing was undone: Ben Okafor's keep-in-touch rhythm has been changed since, so it was left as it is.");
+    expect(clock(id.ben).cadence_days).toBe(30);
+    // Even back to the same number: it is their decision now.
+    const again = ok("set_cadence", { contactIds: [id.ana], everyDays: 91 });
+    rawDb.prepare("UPDATE contacts SET cadence_assigned_at = ?, cadence_reviewed_at = ? WHERE id = ?").run(NOW + 9000, NOW + 9000, id.ana);
+    expect(refused("undo_agent_action", { actionId: again.actionId })).toMatch(/changed since/);
+  });
+
+  it("a person Claude added and put on a rhythm can be taken back in order", () => {
+    const made = ok("upsert_contact", { firstName: "Chris", lastName: "Newman", company: "MCD Capital" });
+    const set = ok("set_cadence", { contactIds: [made.contactId], everyDays: 91 });
+    expect(refused("undo_agent_action", { actionId: made.actionId })).toMatch(/later changes by Claude that have not been undone/);
+    ok("undo_agent_action", { actionId: set.actionId });
+    expect(ok("undo_agent_action", { actionId: made.actionId }).reversed).toEqual(["removed the contact Chris Newman"]);
+  });
+
+  it("in 'ask me first' it waits, says in words what it would do, and applies on approval", () => {
+    ins("settings", { key: "agent.write_mode", value: JSON.stringify("review") });
+    const before = fingerprint();
+    const proposal = ok("set_cadence", { contactIds: [id.ben], everyDays: 91 });
+    expect(proposal.queued).toBe(true);
+    expect(fingerprint()).toBe(before);
+    expect(ledger()[0]).toMatchObject({ status: "queued", summary: "Set Ben Okafor to keep in touch every 3 months", contact_id: id.ben });
+    expect(tools.approveQueuedCall(proposal.actionId!)).toEqual({ ok: true, summary: "Set Ben Okafor to keep in touch every 3 months" });
+    expect(clock(id.ben).cadence_days).toBe(91);
+  });
+
+  it("the Keep-in-touch page's own action still works through the shared rule", async () => {
+    const { setCadence } = await import("@/server/cadence-core");
+    expect(setCadence(id.ben, 7)).toMatchObject({ ok: true, before: { cadenceDays: null }, after: { cadenceDays: 7 } });
+    expect(setCadence(id.ben, 0)).toEqual({ ok: false, error: "Cadence must be 1–3650 days." });
+    expect(setCadence(123_456, 30)).toEqual({ ok: false, error: "Contact not found." });
+  });
+});

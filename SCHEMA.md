@@ -257,6 +257,7 @@ Covers **both** API syncs and file imports (one lifecycle: started → stats →
   - `{table:"reminders", op:"complete", id, completedAt, nextOccurrenceId, nextSig?}`
   - `{table:"contacts", op:"insert", id, createdAt}`
   - `{table:"contacts", op:"update", id, createdAt, fields:[{field, before, beforeSource, after}], emails, socialUrls, changeIds}` — each field's previous value and who had set it; the normalized addresses and profile URLs the call added; the `contact_changes` rows it produced.
+  - `{table:"contacts", op:"cadence", id, createdAt, before, after}` — the keep-in-touch state replaced and the one set, each `{cadenceDays, cadenceAssignedAt, cadenceReviewedAt, snoozedUntil}`; undo restores `before` only while the row still holds `after`.
   - `{table:"tags", op:"insert", id, name}`
   - `{table:"contact_tags", op:"add"|"remove", tagId, tagName, contactIds, at}` and `{table:"group_members", op:"add"|"remove", groupId, groupName, contactIds, at}` — only the contacts whose membership actually flipped; `at` is when, which is how undo tells its own memberships from ones the owner re-added.
 - `undone_at` marks a reversed call; the row itself is never deleted, so the log stays honest about what happened. An `undo_agent_action` call is its own row (`writes_json = '[]'`).

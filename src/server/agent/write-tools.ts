@@ -44,6 +44,7 @@ import {
   type AgentTool,
 } from "@/server/agent/tool-kit";
 import { undoAgentCall } from "@/server/agent/undo";
+import { CADENCE_DAYS_MAX, CADENCE_DAYS_MIN, setCadence } from "@/server/cadence-core";
 import { applyImportRow, matchContact } from "@/server/import-engine";
 import { addNote, recordInteraction } from "@/server/interaction-core";
 import { findOrCreateTag, setGroupMembership, setTagMembership } from "@/server/membership-core";
@@ -57,7 +58,9 @@ import { findContactsPrecisely } from "@/server/search";
 //     reminder), attributed to the agent and reversible;
 //   - add a person, or fill in fields on one — through the import rules,
 //     so nothing the owner typed is ever overwritten;
-//   - put a tag on, take a tag off.
+//   - put a tag on, take a tag off;
+//   - set how often to keep in touch with someone (owner request,
+//     2026-11-19: "put Chris in the CRM to reconnect every 3 months").
 //
 // Nothing here deletes, merges, archives, exports or touches settings,
 // and the only thing that removes anything is undoing the agent's own
@@ -839,6 +842,101 @@ const tagContactsTool = defineTool({
   },
 });
 
+// ---------- set_cadence ----------
+
+const RHYTHMS: Record<number, string> = {
+  7: "every week",
+  14: "every 2 weeks",
+  30: "every month",
+  42: "every 6 weeks",
+  91: "every 3 months",
+  182: "every 6 months",
+  365: "every year",
+};
+
+function rhythm(days: number | null): string {
+  return days === null ? "no keep-in-touch rhythm" : (RHYTHMS[days] ?? `every ${days} days`);
+}
+
+const setCadenceTool = defineTool({
+  name: "set_cadence",
+  title: "Set how often to keep in touch",
+  description:
+    "Put contacts on a keep-in-touch rhythm, or take them off one — when the owner asks for it (\"reconnect with Chris every 3 months\"), never on your own judgment. `everyDays` is the gap in days. Use Rolo's standard rhythms where one fits, so the person lands in the matching column of the Keep-in-touch board: 7 (weekly), 14 (every 2 weeks), 30 (monthly), 42 (every 6 weeks), 91 (every 3 months), 182 (every 6 months), 365 (yearly). `null` takes them off: they stop coming up as due. The clock runs from the last time the owner was in touch, or from now if they never were; the answer says when each person next comes due on Rolo's Today page. Up to 50 contacts per call. Resolve people first with find_contact — if a name matches two contacts, ask the owner which one, or tell them the two look like duplicates.",
+  scope: "write",
+  mutates: true,
+  input: z.strictObject({
+    contactIds: idList(50),
+    everyDays: z
+      .number()
+      .int()
+      .min(CADENCE_DAYS_MIN)
+      .max(CADENCE_DAYS_MAX)
+      .nullable()
+      .describe("Days between touches, or null to stop keeping in touch."),
+    idempotencyKey: idempotencyKeyArg.optional(),
+  }),
+  run: (args, ctx) => {
+    const ids = [...new Set(args.contactIds)];
+    const people = db
+      .select({
+        id: contacts.id,
+        name: contacts.displayName,
+        createdAt: contacts.createdAt,
+        cadenceDays: contacts.cadenceDays,
+        archivedAt: contacts.archivedAt,
+      })
+      .from(contacts)
+      .where(inArray(contacts.id, ids))
+      .all();
+    if (people.length === 0) throw new ToolRefusal("None of those contact ids exist.");
+    const known = new Set(people.map((p) => p.id));
+    const unknown = ids.filter((id) => !known.has(id));
+    const archived = people.filter((p) => p.archivedAt !== null);
+    if (archived.length > 0 && args.everyDays !== null) {
+      throw new ToolRefusal(
+        `${archived.map((p) => p.name).join(", ")} ${archived.length === 1 ? "is" : "are"} archived, and an archived contact is not kept in touch with. Nothing was changed. The owner can unarchive them in Rolo.`
+      );
+    }
+    const writes: WriteRecord[] = [];
+    const results: Record<string, unknown>[] = [];
+    for (const p of people) {
+      if (p.cadenceDays === args.everyDays) {
+        results.push({ contactId: p.id, name: p.name, changed: false, keepInTouch: rhythm(p.cadenceDays) });
+        continue;
+      }
+      const res = setCadence(p.id, args.everyDays, ctx.now);
+      if (!res.ok) throw new ToolRefusal(res.error);
+      writes.push({ table: "contacts", op: "cadence", id: p.id, createdAt: p.createdAt, before: res.before, after: res.after });
+      results.push({
+        contactId: p.id,
+        name: p.name,
+        changed: true,
+        keepInTouch: rhythm(args.everyDays),
+        was: rhythm(res.before.cadenceDays),
+        nextDue: iso(res.nextTouchAt),
+      });
+    }
+    const changed = results.filter((r) => r.changed);
+    const who = changed.length === 1 ? String(changed[0].name) : `${changed.length} contacts`;
+    return {
+      summary:
+        changed.length === 0
+          ? `Keep-in-touch rhythm already ${rhythm(args.everyDays)} — nothing changed`
+          : args.everyDays === null
+            ? `Took ${who} off keep-in-touch`
+            : `Set ${who} to keep in touch ${rhythm(args.everyDays)}`,
+      contactId: people.length === 1 ? people[0].id : null,
+      writes,
+      data: {
+        changed: changed.length,
+        contacts: results,
+        ...(unknown.length ? { unknownContactIds: unknown } : {}),
+      },
+    };
+  },
+});
+
 // ---------- undo_agent_action ----------
 
 const undoTool = defineTool({
@@ -874,5 +972,6 @@ export const WRITE_TOOLS: AgentTool[] = [
   completeReminderTool,
   upsertContactTool,
   tagContactsTool,
+  setCadenceTool,
   undoTool,
 ];
