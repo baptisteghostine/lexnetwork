@@ -12,6 +12,33 @@ export function normalizeForSearch(s: string): string {
     .trim();
 }
 
+/** A query as the words to look for: normalized, split on whitespace. */
+export function queryWords(query: string): string[] {
+  return normalizeForSearch(query).split(/\s+/).filter(Boolean);
+}
+
+/**
+ * Does `word` begin a word somewhere in `text`? Both already normalized.
+ * "ana" is in "ana silva" and "senior analyst" but not in "managing";
+ * "m&a" is in "tmt m&a" — the boundary is "not preceded by a letter or
+ * digit", so punctuation inside a term is kept.
+ */
+export function startsAWord(text: string, word: string): boolean {
+  if (!word) return true;
+  let at = text.indexOf(word);
+  while (at !== -1) {
+    if (at === 0 || !/[\p{L}\p{N}]/u.test(text[at - 1])) return true;
+    at = text.indexOf(word, at + 1);
+  }
+  return false;
+}
+
+/** Every word of the query begins a word in the text. */
+export function matchesEveryWord(text: string, words: string[]): boolean {
+  const haystack = normalizeForSearch(text);
+  return words.every((w) => startsAWord(haystack, w));
+}
+
 /**
  * How well `query` matches a person's name: best Jaro-Winkler across name
  * tokens and the full name, with a floor of 0.93 for nickname-equivalent

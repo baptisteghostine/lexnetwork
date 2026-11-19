@@ -5,8 +5,10 @@ import { contacts, noteMentions, notes } from "@/db/schema";
 import {
   ftsQueryForContacts,
   ftsQueryForNotes,
+  matchesEveryWord,
   nameScore,
   normalizeForSearch,
+  queryWords,
 } from "@/lib/search/rank";
 
 // Search flow (SCHEMA.md): FTS candidates → Jaro-Winkler + nickname
@@ -118,6 +120,128 @@ export function searchContacts(
     hasPhoto: c.photoPath !== null,
     starred: c.starred,
   }));
+}
+
+/** How close a spelling has to be to count as "probably meant this name". */
+const NEAR_NAME_SCORE = 0.84;
+
+export type PreciseSearch = {
+  /** Every match, best first. */
+  ids: number[];
+  /** True when nothing matched exactly and these are near spellings of a name. */
+  approximate: boolean;
+};
+
+/**
+ * Search for the agent connector (SPEC §14). The palette search above is
+ * built for a person typing: it forgives typos, probes on three letters,
+ * and shows ten. An agent asking "who is in investment banking" needs the
+ * opposite — every match, and nothing that merely shares a trigram — so
+ * here every word of the query must begin a word in the contact's name,
+ * company, title, location or bio (in any of them, any order), and the
+ * result is the complete list. A query with an "@" also matches email
+ * addresses containing it.
+ *
+ * Order: people whose *name* matches first, then starred, then most
+ * recently in touch — warm before cold. When nothing matches exactly the
+ * palette search stands in for names only, flagged `approximate`, so a
+ * misspelled name still finds its person.
+ */
+export function findContactsPrecisely(
+  query: string,
+  opts: { includeArchived?: boolean; nameOnly?: boolean } = {}
+): PreciseSearch {
+  const words = queryWords(query);
+  if (words.length === 0) return { ids: [], approximate: false };
+  const archivedCond = opts.includeArchived ? sql`1 = 1` : sql`c.archived_at IS NULL`;
+  type Row = {
+    id: number;
+    display_name: string;
+    company: string | null;
+    title: string | null;
+    location: string | null;
+    bio: string | null;
+    starred: number;
+    last_interaction_at: number | null;
+  };
+  const columns = sql`c.id, c.display_name, c.company, c.title, c.location, c.bio, c.starred, c.last_interaction_at`;
+
+  // The trigram index narrows the candidates for words of three letters or
+  // more (a substring test, case- and accent-insensitive); the word-start
+  // test below is what decides. Shorter words, or a query the index
+  // refuses, scan the table — a few thousand short rows.
+  const indexed = words.filter((w) => w.length >= 3);
+  let candidates: Row[] | null = null;
+  if (indexed.length > 0) {
+    const match = indexed.map((w) => `"${w.replaceAll('"', '""')}"`).join(" AND ");
+    try {
+      candidates = db.all<Row>(
+        sql`SELECT ${columns} FROM contacts c
+            WHERE ${archivedCond}
+              AND c.id IN (SELECT rowid FROM contacts_fts WHERE contacts_fts MATCH ${match})`
+      );
+    } catch {
+      candidates = null;
+    }
+  }
+  if (candidates === null) {
+    candidates = db.all<Row>(sql`SELECT ${columns} FROM contacts c WHERE ${archivedCond}`);
+  }
+
+  const tier = new Map<number, 0 | 1>();
+  const byId = new Map<number, Row>();
+  for (const row of candidates) {
+    const inName = matchesEveryWord(row.display_name, words);
+    if (inName) {
+      tier.set(row.id, 0);
+    } else if (
+      !opts.nameOnly &&
+      matchesEveryWord(
+        [row.display_name, row.company, row.title, row.location, row.bio].filter(Boolean).join(" | "),
+        words
+      )
+    ) {
+      tier.set(row.id, 1);
+    } else {
+      continue;
+    }
+    byId.set(row.id, row);
+  }
+
+  const compact = normalizeForSearch(query);
+  if (!opts.nameOnly && compact.includes("@") && !/\s/.test(compact) && compact.length >= 3) {
+    const pattern = `%${compact.replaceAll(/[%_\\]/g, (ch) => `\\${ch}`)}%`;
+    const rows = db.all<Row>(
+      sql`SELECT ${columns} FROM contacts c
+          WHERE ${archivedCond}
+            AND c.id IN (SELECT contact_id FROM contact_emails
+                         WHERE email_normalized LIKE ${pattern} ESCAPE '\\'
+                            OR LOWER(email) LIKE ${pattern} ESCAPE '\\')`
+    );
+    for (const row of rows) {
+      tier.set(row.id, 0);
+      byId.set(row.id, row);
+    }
+  }
+
+  if (byId.size > 0) {
+    const ids = [...byId.values()]
+      .sort(
+        (a, b) =>
+          (tier.get(a.id) ?? 1) - (tier.get(b.id) ?? 1) ||
+          b.starred - a.starred ||
+          (b.last_interaction_at ?? -1) - (a.last_interaction_at ?? -1) ||
+          (a.display_name < b.display_name ? -1 : a.display_name > b.display_name ? 1 : 0) ||
+          a.id - b.id
+      )
+      .map((r) => r.id);
+    return { ids, approximate: false };
+  }
+
+  const near = searchContacts(query, 20, opts.includeArchived ?? false)
+    .filter((hit) => nameScore(query, hit.name) >= NEAR_NAME_SCORE)
+    .map((hit) => hit.id);
+  return { ids: near, approximate: near.length > 0 };
 }
 
 export function searchNotes(

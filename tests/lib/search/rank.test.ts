@@ -5,7 +5,10 @@ import { jaroWinkler } from "@/lib/search/jaro";
 import {
   ftsQueryForContacts,
   ftsQueryForNotes,
+  matchesEveryWord,
   nameScore,
+  queryWords,
+  startsAWord,
 } from "@/lib/search/rank";
 
 describe("jaroWinkler", () => {
@@ -77,5 +80,37 @@ describe("FTS query builders (SPEC §7: special characters never 500)", () => {
     expect(ftsQueryForNotes("pitch dec")).toBe('"pitch" "dec"*');
     // Embedded quotes are doubled, never left to break the MATCH grammar.
     expect(ftsQueryForNotes('say "hi"')).toBe('"say" """hi"""*');
+  });
+});
+
+// SPEC §14: the connector's text search matches the beginnings of words.
+describe("word-start matching (agent search)", () => {
+  it("splits a query into normalized words", () => {
+    expect(queryWords("  Chloé   DUBOIS ")).toEqual(["chloe", "dubois"]);
+    expect(queryWords("")).toEqual([]);
+    expect(queryWords("   ")).toEqual([]);
+    expect(queryWords("M&A tech")).toEqual(["m&a", "tech"]);
+  });
+
+  it("a word matches where a word begins, not inside one", () => {
+    expect(startsAWord("ana silva", "ana")).toBe(true);
+    expect(startsAWord("senior analyst", "ana")).toBe(true);
+    expect(startsAWord("managing director", "ana")).toBe(false);
+    expect(startsAWord("svp", "vp")).toBe(false);
+    expect(startsAWord("svp / vp", "vp")).toBe(true);
+    expect(startsAWord("tmt m&a", "m&a")).toBe(true);
+    expect(startsAWord("x(tech)", "tech")).toBe(true);
+    expect(startsAWord("o'brien", "brien")).toBe(true);
+    expect(startsAWord("2024 intern", "2024")).toBe(true);
+    expect(startsAWord("a2024", "2024")).toBe(false);
+    expect(startsAWord("", "a")).toBe(false);
+    expect(startsAWord("anything", "")).toBe(true);
+  });
+
+  it("every word must be found, in any order, accents and case aside", () => {
+    expect(matchesEveryWord("Chloé Dubois | Moelis & Company | Managing Director", ["dubois", "chloe"])).toBe(true);
+    expect(matchesEveryWord("Chloé Dubois | Moelis & Company | Managing Director", ["chloe", "goldman"])).toBe(false);
+    expect(matchesEveryWord("Technology Investment Banking", ["bank", "tech"])).toBe(true);
+    expect(matchesEveryWord("anything", [])).toBe(true);
   });
 });

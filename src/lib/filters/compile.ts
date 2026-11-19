@@ -294,11 +294,13 @@ function orderBy(sort: SortSpec): string {
 
 /**
  * Compile to `SELECT c.* FROM contacts c WHERE … ORDER BY …`. Unless the
- * filter explicitly asks about archived contacts, results are active-only.
+ * filter explicitly asks about archived contacts, results are active-only
+ * — or `includeArchived` asks for both together, which no single clause
+ * can say (the agent connector's "include archived", SPEC §14).
  */
 export function compileFilter(
   filter: FilterSet,
-  opts: { now: number; sort?: SortSpec; catalog?: Catalog }
+  opts: { now: number; sort?: SortSpec; catalog?: Catalog; includeArchived?: boolean }
 ): Compiled {
   const warnings: string[] = [];
   const catalog = opts.catalog ?? {};
@@ -315,7 +317,7 @@ export function compileFilter(
       radius = { lat: clause.lat, lng: clause.lng, km: clause.km };
     }
   }
-  if (!filter.clauses.some((cl) => cl.dim === "archived")) {
+  if (!opts.includeArchived && !filter.clauses.some((cl) => cl.dim === "archived")) {
     conds.push("c.archived_at IS NULL");
   }
 

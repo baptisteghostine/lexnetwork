@@ -243,3 +243,17 @@ describe("lastInteraction before + includeNever", () => {
     expect(withNever).not.toContain(2);
   });
 });
+
+describe("includeArchived (agent connector, SPEC §14)", () => {
+  it("is active-only by default, both when asked, and an explicit clause still wins", () => {
+    const base = { now: 0 };
+    expect(compileFilter({ v: 1, clauses: [] }, base).sql).toContain("c.archived_at IS NULL");
+    expect(compileFilter({ v: 1, clauses: [] }, { ...base, includeArchived: true }).sql).not.toContain("archived_at");
+    const onlyArchived = compileFilter(
+      { v: 1, clauses: [{ dim: "archived", value: true }] },
+      { ...base, includeArchived: true }
+    ).sql;
+    expect(onlyArchived).toContain("c.archived_at IS NOT NULL");
+    expect(onlyArchived).not.toContain("c.archived_at IS NULL");
+  });
+});

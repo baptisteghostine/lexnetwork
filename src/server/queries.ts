@@ -44,14 +44,16 @@ type RawFilterRow = {
 };
 
 /**
- * Compile + run a filter set against the live DB (geocoder: not yet).
+ * Compile + run a filter set and return the matching ids in order — every
+ * one of them, without loading the rows. What the pager and the agent
+ * connector's search build on (a total, then a page).
  * No session check: callers are the `runFilter` action (which gates on
  * the cookie) and the agent connector (which gates on its token).
  */
-export function executeFilter(
+export function filterContactIds(
   filter: FilterSet,
-  opts: { now: number; sort?: SortSpec; limit?: number; offset?: number }
-): FilterRunResult {
+  opts: { now: number; sort?: SortSpec; includeArchived?: boolean }
+): { ids: number[]; warnings: string[] } {
   const catalog = {
     tagIds: new Set(db.select({ id: tags.id }).from(tags).all().map((t) => t.id)),
     groupIds: new Set(
@@ -62,7 +64,12 @@ export function executeFilter(
     ),
     geocoderConfigured: false,
   };
-  const compiled = compileFilter(filter, { now: opts.now, sort: opts.sort, catalog });
+  const compiled = compileFilter(filter, {
+    now: opts.now,
+    sort: opts.sort,
+    catalog,
+    includeArchived: opts.includeArchived,
+  });
   let rows = rawDb
     .prepare(compiled.sql)
     .all(...(compiled.params as unknown[])) as unknown as RawFilterRow[];
@@ -75,17 +82,25 @@ export function executeFilter(
         haversineKm(lat, lng, c.location_lat, c.location_lng) <= km
     );
   }
-  const total = rows.length;
+  return { ids: rows.map((r) => r.id), warnings: compiled.warnings };
+}
+
+/** Compile + run a filter set and load the page asked for (geocoder: not yet). */
+export function executeFilter(
+  filter: FilterSet,
+  opts: { now: number; sort?: SortSpec; limit?: number; offset?: number }
+): FilterRunResult {
+  const all = filterContactIds(filter, opts);
+  const total = all.ids.length;
   // Hydrate only the rows the caller will render: cap before the drizzle
   // re-select (raw rows are snake_case; the re-select yields camelCase)
   // so a 5k-row import can't balloon the page render. `offset` is the
   // contacts page's pager — the full ordered id list is already in memory,
   // so paging is a slice, not a second query.
   const offset = opts.offset ?? 0;
-  const ids = (
-    opts.limit !== undefined ? rows.slice(offset, offset + opts.limit) : rows
-  ).map((r) => r.id);
-  if (ids.length === 0) return { contacts: [], total, warnings: compiled.warnings };
+  const ids =
+    opts.limit !== undefined ? all.ids.slice(offset, offset + opts.limit) : all.ids;
+  if (ids.length === 0) return { contacts: [], total, warnings: all.warnings };
   const byId = new Map(
     db
       .select()
@@ -99,7 +114,7 @@ export function executeFilter(
       .map((id) => byId.get(id))
       .filter((c): c is FilteredContact => c !== undefined),
     total,
-    warnings: compiled.warnings,
+    warnings: all.warnings,
   };
 }
 
