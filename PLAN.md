@@ -938,7 +938,11 @@ at which firms, and when did I last speak to each?"
 
 **Goal:** what happens in the mailbox lands on the right timelines.
 
-**Scope:** the `write` scope and the write tools; idempotency keys and
+**Scope:** the `write` scope and the write tools; the owner's
+signal-not-volume rule (SPEC §14): `log_interaction` takes the kind of
+message — reply, introduction, scheduling, decline, other-personal — and
+refuses automatic kinds (bulk, alert, auto-reply, bounce), and the server
+instructions say to leave out anything doubtful; idempotency keys and
 the near-duplicate guard; `upsert_contact` through the import planner;
 `undo_agent_action`; an **Agent activity** page (what was written, by
 which tool, with undo) and an "added by Claude" marker on timeline rows;
