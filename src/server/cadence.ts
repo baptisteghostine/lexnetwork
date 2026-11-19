@@ -13,6 +13,7 @@ import {
   type SnoozePreset,
 } from "@/lib/cadence/engine";
 import { recomputeContact } from "@/lib/cadence/recompute";
+import { setCadence } from "@/server/cadence-core";
 import { ownerTimezone } from "@/server/today-data";
 import { getSetting } from "@/lib/settings";
 
@@ -31,22 +32,8 @@ export async function setCadenceAction(
   await requireAuth();
   const parsed = cadenceDaysSchema.safeParse(days);
   if (!parsed.success) return { error: "Cadence must be 1–3650 days." };
-  const now = Date.now();
-  db.update(contacts)
-    .set({
-      cadenceDays: parsed.data,
-      // Re-assigning restarts the no-interaction baseline; clearing wipes it.
-      cadenceAssignedAt: parsed.data === null ? null : now,
-      // Any deliberate pick here — including "no cadence" — is a triage
-      // decision, so it leaves the board's Uncategorized column. Only the
-      // board itself can put someone back to never-triaged (SPEC §3a).
-      cadenceReviewedAt: now,
-      snoozedUntil: null,
-      updatedAt: now,
-    })
-    .where(eq(contacts.id, contactId))
-    .run();
-  recomputeContact(contactId);
+  // The rule itself lives in cadence-core, shared with the agent connector.
+  setCadence(contactId, parsed.data);
   revalidateCadenceViews(contactId);
   return {};
 }
@@ -61,19 +48,7 @@ export async function bulkSetCadenceAction(
   if (!parsed.success || !parsedDays.success) return { error: "Invalid input." };
   const now = Date.now();
   db.transaction(() => {
-    for (const id of parsed.data) {
-      db.update(contacts)
-        .set({
-          cadenceDays: parsedDays.data,
-          cadenceAssignedAt: parsedDays.data === null ? null : now,
-          cadenceReviewedAt: now,
-          snoozedUntil: null,
-          updatedAt: now,
-        })
-        .where(eq(contacts.id, id))
-        .run();
-      recomputeContact(id);
-    }
+    for (const id of parsed.data) setCadence(id, parsedDays.data, now);
   });
   revalidateCadenceViews();
   return {};
