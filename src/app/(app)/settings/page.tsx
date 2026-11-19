@@ -1,5 +1,7 @@
+import { headers } from "next/headers";
 import Link from "next/link";
 
+import { ConnectorPanel } from "@/components/connector-panel";
 import { CustomFieldsManager } from "@/components/custom-fields-manager";
 import { DataPanel } from "@/components/data-panel";
 import { IntegrationsPanel } from "@/components/integrations-panel";
@@ -9,12 +11,18 @@ import {
   KeepInTouchSettings,
   NotificationSettings,
 } from "@/components/settings-form";
+import { MCP_PATH, STATIC_CLIENT_ID } from "@/lib/agent/oauth";
 import { requireAuth } from "@/lib/auth";
+import { ownerTimezone } from "@/lib/settings";
+import { formatInZone } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { listActiveGrants } from "@/server/agent/grants";
+import { listRecentAgentCalls } from "@/server/agent/ledger";
 import { listCustomFields } from "@/server/custom-fields";
 import { readDataStatus } from "@/server/data";
 import { readIntegrations } from "@/server/integrations";
 import { readAppSettings } from "@/server/settings";
+import { publicOriginFromHeaders } from "@/server/sync/request-origin";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +51,7 @@ const SECTIONS: { group: string; items: SectionItem[] }[] = [
     group: "Connections",
     items: [
       { id: "integrations", label: "Integrations", title: "Integrations", subtitle: "Google, LinkedIn, the browser extension, city placement, and map rendering." },
+      { id: "connector", label: "Claude connector", title: "Claude connector", subtitle: "Let your own Claude search and read Rolo. Read-only; you can disconnect it here at any time." },
     ],
   },
   {
@@ -71,6 +80,38 @@ export default async function SettingsPage({
   const fields = tab === "custom-fields" ? await listCustomFields() : [];
   const integrations = tab === "integrations" ? await readIntegrations() : null;
   const dataStatus = tab === "data" ? await readDataStatus() : null;
+  // The connector address is the one the owner is looking at Rolo through.
+  const connector =
+    tab === "connector"
+      ? (() => {
+          const zone = ownerTimezone();
+          const when = (ms: number) =>
+            formatInZone(zone, ms, {
+              day: "numeric",
+              month: "short",
+              hour: "2-digit",
+              minute: "2-digit",
+            });
+          return {
+            grants: listActiveGrants().map((g) => ({
+              id: g.id,
+              clientName: g.clientName,
+              scope: g.scope,
+              connectedAt: when(g.createdAt),
+              lastUsed: g.lastUsedAt === null ? null : when(g.lastUsedAt),
+            })),
+            calls: listRecentAgentCalls(15).map((c) => ({
+              id: c.id,
+              tool: c.tool,
+              status: c.status,
+              summary: c.summary,
+              error: c.error,
+              at: when(c.createdAt),
+            })),
+          };
+        })()
+      : null;
+  const origin = tab === "connector" ? publicOriginFromHeaders(await headers()) : "";
 
   return (
     <div className="flex min-h-screen flex-col md:h-screen md:min-h-0 md:flex-row">
@@ -144,6 +185,15 @@ export default async function SettingsPage({
               enrich={integrations.enrich}
               geocode={integrations.geocode}
               mapboxConfigured={integrations.mapboxConfigured}
+            />
+          )}
+          {tab === "connector" && connector && (
+            <ConnectorPanel
+              url={`${origin}${MCP_PATH}`}
+              isHttps={origin.startsWith("https://")}
+              staticClientId={STATIC_CLIENT_ID}
+              grants={connector.grants}
+              calls={connector.calls}
             />
           )}
           {tab === "data" && dataStatus && <DataPanel status={dataStatus} />}
