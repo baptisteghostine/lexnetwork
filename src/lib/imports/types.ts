@@ -1,6 +1,12 @@
 // Shared shapes for the import pipeline. Pure types — no DB, no React.
 
-export type ImportSource = "csv" | "vcard" | "linkedin" | "google_contacts";
+/**
+ * Who wrote a value. `agent` is the owner's Claude through the connector
+ * (SPEC §14): to the planner it is a source like any other — it fills
+ * empty fields, overwrites only what it set itself, and conflicts with
+ * what the owner or another source set.
+ */
+export type ImportSource = "csv" | "vcard" | "linkedin" | "google_contacts" | "agent";
 
 /** One person as extracted from an import file, source-agnostic. */
 export type ImportRow = {

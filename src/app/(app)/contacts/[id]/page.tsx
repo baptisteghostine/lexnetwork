@@ -58,6 +58,8 @@ const SOURCE_LABEL: Record<string, string> = {
   linkedin: "From LinkedIn import",
   gmail: "From Gmail sync",
   calendar: "From Calendar sync",
+  // The owner's Claude through the connector (SPEC §14).
+  agent: "Added by Claude",
 };
 
 export default async function ContactPage({

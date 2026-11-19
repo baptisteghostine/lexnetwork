@@ -257,3 +257,55 @@ describe("planRow", () => {
     expect(plan.status).toBe("unchanged");
   });
 });
+
+// SPEC §14: the owner's Claude writes contact fields as source `agent`,
+// and the planner needs no special case for it — the §8 rules already say
+// what a non-user source may do.
+describe("planRow as source 'agent'", () => {
+  it("never overwrites a field the owner edited", () => {
+    const plan = planRow(
+      row({ firstName: "Jane", lastName: "Doe", title: "Managing Director" }),
+      stored({
+        values: { ...stored({}).values, title: "VP" },
+        provenance: { title: "user" },
+      }),
+      "agent",
+      noE164
+    );
+    expect(plan.status).toBe("conflict");
+    expect(plan.writes).toEqual([]);
+    expect(plan.conflicts).toEqual([
+      { field: "title", incoming: "Managing Director", stored: "VP", storedSource: "user" },
+    ]);
+  });
+
+  it("does not overwrite what another source set, but fills what is empty", () => {
+    const plan = planRow(
+      row({ firstName: "Jane", lastName: "Doe", company: "Evercore", location: "London" }),
+      stored({
+        values: { ...stored({}).values, company: "Lazard" },
+        provenance: { company: "linkedin" },
+      }),
+      "agent",
+      noE164
+    );
+    expect(plan.conflicts.map((c) => [c.field, c.storedSource])).toEqual([
+      ["company", "linkedin"],
+    ]);
+    expect(plan.writes).toEqual([{ field: "location", incoming: "London", previous: null }]);
+  });
+
+  it("overwrites a value it set itself", () => {
+    const plan = planRow(
+      row({ firstName: "Jane", lastName: "Doe", title: "Associate" }),
+      stored({
+        values: { ...stored({}).values, title: "Analyst" },
+        provenance: { title: "agent" },
+      }),
+      "agent",
+      noE164
+    );
+    expect(plan.status).toBe("updated");
+    expect(plan.writes).toEqual([{ field: "title", incoming: "Associate", previous: "Analyst" }]);
+  });
+});

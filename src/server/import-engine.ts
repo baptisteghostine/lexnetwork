@@ -45,10 +45,16 @@ function phoneRegion(): string | undefined {
 
 // ---------- identity ladder (SPEC §8) ----------
 
-function matchContact(
+export type ContactMatch = {
+  contactId: number;
+  matchedBy: "url" | "email" | "phone" | "name";
+};
+
+/** Resolve a row to an existing contact, or null — never creates. */
+export function matchContact(
   row: ImportRow,
-  e164: (raw: string) => string | null
-): { contactId: number; matchedBy: "url" | "email" | "phone" | "name" } | null {
+  e164: (raw: string) => string | null = (raw) => toE164(raw, phoneRegion())
+): ContactMatch | null {
   // Rung 1 of the SPEC §8 ladder: a source-stable external id. For file
   // imports that is a profile URL the row carries — matching it first
   // keeps a re-import from duplicating a name-only contact whose URL we
@@ -229,12 +235,11 @@ export function upsertProvenance(
 function applyPlan(
   plan: RowPlan,
   row: ImportRow,
-  kind: ImportKind,
-  runId: number,
+  source: string,
+  runId: number | null,
   e164: (raw: string) => string | null
 ): number {
   const now = Date.now();
-  const source = sourceOf(kind);
 
   let contactId: number;
   if (plan.contactId === null) {
@@ -393,6 +398,49 @@ function applyPlan(
   return contactId;
 }
 
+// ---------- one row, any source ----------
+
+export type ApplyImportRowResult =
+  | {
+      ok: true;
+      /** What was (or, on a dry run, would be) written, and what conflicted. */
+      plan: RowPlan;
+      /** The matched or newly created contact; null only for a dry-run "new". */
+      contactId: number | null;
+    }
+  | { ok: false; error: string };
+
+/**
+ * One person through the identity ladder and the field-conflict rules
+ * (SPEC §8), as `source` — the single-row door the agent connector uses
+ * (SPEC §14) and the same code path a CSV row takes. Conflicts are
+ * reported in the plan and never forced: a field the owner edited, or
+ * another source set, keeps its stored value while the row's other
+ * fields still apply. No sync run is created; `runId` only stamps
+ * provenance when the caller has one.
+ */
+export function applyImportRow(
+  row: ImportRow,
+  opts: { source: string; runId?: number | null; dryRun?: boolean }
+): ApplyImportRowResult {
+  if (!opts.source) return { ok: false, error: "source is required." };
+  if (!isImportableRow(row)) {
+    return { ok: false, error: "A person needs at least a name, an email or a phone." };
+  }
+  const region = phoneRegion();
+  const e164 = (raw: string) => toE164(raw, region);
+  const match = matchContact(row, e164);
+  const snapshot = match ? loadSnapshot(match.contactId) : null;
+  const plan = planRow(row, snapshot, opts.source, e164);
+  plan.matchedBy = match?.matchedBy ?? null;
+  if (opts.dryRun) return { ok: true, plan, contactId: plan.contactId };
+  const contactId = db.transaction(() =>
+    applyPlan(plan, row, opts.source, opts.runId ?? null, e164)
+  );
+  plan.contactId = contactId;
+  return { ok: true, plan, contactId };
+}
+
 // ---------- orchestration ----------
 
 // A run older than this still marked 'running' means the process died
@@ -513,7 +561,7 @@ export function executeImport(opts: {
       if (!opts.dryRun && plan.status !== "error") {
         db.transaction(() => {
           // Backfill the id so the stored report can link new contacts.
-          plan.contactId = applyPlan(plan, row, opts.kind, runId as number, e164);
+          plan.contactId = applyPlan(plan, row, sourceOf(opts.kind), runId, e164);
         });
       }
       plans.push(plan);
