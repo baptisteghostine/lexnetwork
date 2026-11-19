@@ -17,7 +17,8 @@ import { ownerTimezone } from "@/lib/settings";
 import { formatInZone } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { listActiveGrants } from "@/server/agent/grants";
-import { listRecentAgentCalls } from "@/server/agent/ledger";
+import { countQueuedAgentCalls, listRecentAgentCalls } from "@/server/agent/ledger";
+import { agentWriteMode } from "@/server/agent/tools";
 import { listCustomFields } from "@/server/custom-fields";
 import { readDataStatus } from "@/server/data";
 import { readIntegrations } from "@/server/integrations";
@@ -51,7 +52,7 @@ const SECTIONS: { group: string; items: SectionItem[] }[] = [
     group: "Connections",
     items: [
       { id: "integrations", label: "Integrations", title: "Integrations", subtitle: "Google, LinkedIn, the browser extension, city placement, and map rendering." },
-      { id: "connector", label: "Claude connector", title: "Claude connector", subtitle: "Let your own Claude search and read Rolo. Read-only; you can disconnect it here at any time." },
+      { id: "connector", label: "Claude connector", title: "Claude connector", subtitle: "Let your own Claude search Rolo and keep it up to date. You choose what it may change, and can disconnect it here at any time." },
     ],
   },
   {
@@ -100,6 +101,8 @@ export default async function SettingsPage({
               connectedAt: when(g.createdAt),
               lastUsed: g.lastUsedAt === null ? null : when(g.lastUsedAt),
             })),
+            writeMode: agentWriteMode(),
+            queued: countQueuedAgentCalls(),
             calls: listRecentAgentCalls(15).map((c) => ({
               id: c.id,
               tool: c.tool,
@@ -194,6 +197,8 @@ export default async function SettingsPage({
               staticClientId={STATIC_CLIENT_ID}
               grants={connector.grants}
               calls={connector.calls}
+              writeMode={connector.writeMode}
+              queued={connector.queued}
             />
           )}
           {tab === "data" && dataStatus && <DataPanel status={dataStatus} />}

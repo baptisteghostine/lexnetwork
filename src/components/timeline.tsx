@@ -67,6 +67,18 @@ const KIND_LABEL: Record<string, string> = {
   reminder_fired: "Reminder",
 };
 
+/** Marks what the owner's Claude wrote through the connector (SPEC §14). */
+function ByClaude() {
+  return (
+    <span
+      title="Added by Claude through the connector. Undo it from Settings → Claude connector."
+      className="whitespace-nowrap rounded-full bg-primary/10 px-1.5 py-px text-[10px] font-medium text-primary"
+    >
+      Claude
+    </span>
+  );
+}
+
 function When({ at }: { at: number }) {
   const fmt = useFormatDate();
   // Phones get "22 Aug"; the full date and time would wrap to five lines
@@ -95,14 +107,18 @@ export function Timeline({
   newestNoteId,
   aiEnabled = false,
   summarizeThreshold = 1500,
+  agentNoteIds = [],
 }: {
   items: TimelineItem[];
   newestNoteId: number | null;
   aiEnabled?: boolean;
   summarizeThreshold?: number;
+  /** Notes written by the agent — notes carry no source column of their own. */
+  agentNoteIds?: number[];
 }) {
   const [pending, startTransition] = useTransition();
   const [filter, setFilter] = useState<FilterKey>("all");
+  const byAgent = new Set(agentNoteIds);
   if (items.length === 0) {
     return (
       <p className="py-6 text-center text-xs text-muted-foreground">
@@ -186,6 +202,11 @@ export function Timeline({
               </div>
             ) : (
               <>
+                {byAgent.has(item.note.id) && (
+                  <p className="mb-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <ByClaude /> wrote this note
+                  </p>
+                )}
                 {aiEnabled && (
                   <AiNoteSummary
                     noteId={item.note.id}
@@ -248,9 +269,10 @@ export function Timeline({
                   Open in Gmail
                 </a>
               )}
+            {item.interaction.source === "agent" && <ByClaude />}
             <span className="flex-1" />
             <When at={item.at} />
-            {item.interaction.source === "user" && (
+            {(item.interaction.source === "user" || item.interaction.source === "agent") && (
               <button
                 aria-label="Delete interaction"
                 className="text-muted-foreground transition-opacity hover:text-destructive md:opacity-0 md:group-hover:opacity-100"

@@ -31,6 +31,7 @@ import {
   listCustomFields,
 } from "@/server/custom-fields";
 import { requireAuth } from "@/lib/auth";
+import { agentNoteIds } from "@/server/agent/ledger";
 import { CADENCE_PRESETS, DAY_MS } from "@/lib/cadence/engine";
 import { changeAge } from "@/lib/digest/network-updates";
 import { noteSnippet } from "@/lib/notes/format";
@@ -389,6 +390,7 @@ export default async function ContactPage({
                 items={timeline}
                 newestNoteId={newestEmptyNoteId}
                 aiEnabled={ai}
+                agentNoteIds={agentNoteIds(contactId)}
               />
             </div>
           </div>

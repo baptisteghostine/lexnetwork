@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 
 import { Button } from "@/components/ui/button";
 import { revokeGrantAction } from "@/server/agent/consent";
+import { setAgentWriteModeAction } from "@/server/agent/owner-actions";
 
 // Settings → Claude connector (SPEC §14): the address to paste into
 // Claude, which apps the owner has let in, a way to shut each out, and
@@ -59,7 +61,8 @@ function GrantRow({ grant }: { grant: ConnectorGrant }) {
       <div className="min-w-0">
         <p className="truncate text-[13px] font-medium">{grant.clientName}</p>
         <p className="text-[11px] text-muted-foreground">
-          {grant.scope === "read" ? "Read-only" : grant.scope} · connected {grant.connectedAt}
+          {grant.scope.split(" ").includes("write") ? "Read and add" : "Read-only"} · connected{" "}
+          {grant.connectedAt}
           {grant.lastUsed ? ` · last used ${grant.lastUsed}` : " · not used yet"}
         </p>
       </div>
@@ -92,24 +95,34 @@ export function ConnectorPanel({
   staticClientId,
   grants,
   calls,
+  writeMode,
+  queued,
 }: {
   url: string;
   isHttps: boolean;
   staticClientId: string;
   grants: ConnectorGrant[];
   calls: ConnectorCall[];
+  writeMode: "apply" | "review";
+  /** Proposals waiting for the owner on the activity page. */
+  queued: number;
 }) {
+  const [modePending, startMode] = useTransition();
+  // Shown as chosen the moment it is clicked; the server catches up.
+  const [mode, setMode] = useState(writeMode);
   return (
     <div className="space-y-4">
       <div className="space-y-3 rounded-md border border-border p-3">
         <div className="flex items-baseline justify-between">
           <h3 className="text-[13px] font-medium">Connect Claude</h3>
-          <span className="text-[11px] text-muted-foreground">read-only</span>
         </div>
         <p className="text-xs text-muted-foreground">
           In Claude, open Settings → Connectors → Add custom connector, paste this address, and
           sign in with your Rolo password when asked. Claude can then search and read your
-          contacts, notes and timelines. It cannot change anything.
+          contacts, notes and timelines — and, if you tick the box when signing in, log exchanges,
+          write notes, set reminders, add people and tag them. It can never delete, merge or
+          overwrite what you typed. A connection made before this option existed is read-only:
+          disconnect it and connect again to change that.
         </p>
         <CopyRow label="Connector address" value={url} />
         {isHttps ? null : (
@@ -144,8 +157,47 @@ export function ConnectorPanel({
         )}
       </div>
 
+      <div className="space-y-2 rounded-md border border-border p-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h3 className="text-[13px] font-medium">What Claude changes</h3>
+          <Link
+            href="/agent-activity"
+            className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
+            {queued > 0 ? `Review ${queued} waiting →` : "See and undo changes →"}
+          </Link>
+        </div>
+        <fieldset className="space-y-1.5 text-xs" aria-busy={modePending}>
+          <legend className="sr-only">How Claude&apos;s changes are applied</legend>
+          {(
+            [
+              ["apply", "Apply straight away", "Each change is listed and can be undone."],
+              ["review", "Ask me first", "Changes wait on the activity page until you approve them."],
+            ] as const
+          ).map(([value, label, hint]) => (
+            <label key={value} className="flex items-start gap-2">
+              <input
+                type="radio"
+                name="agent-write-mode"
+                value={value}
+                checked={mode === value}
+                onChange={() => {
+                  setMode(value);
+                  startMode(() => setAgentWriteModeAction(value));
+                }}
+                className="mt-0.5 size-3.5 accent-primary"
+              />
+              <span>
+                <span className="font-medium">{label}</span>
+                <span className="text-muted-foreground"> — {hint}</span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+      </div>
+
       <div className="rounded-md border border-border p-3">
-        <h3 className="text-[13px] font-medium">Recent activity</h3>
+        <h3 className="text-[13px] font-medium">Recent requests</h3>
         {calls.length === 0 ? (
           <p className="mt-1 text-xs text-muted-foreground">No requests yet.</p>
         ) : (
@@ -156,7 +208,7 @@ export function ConnectorPanel({
                   className={
                     c.status === "success"
                       ? "text-emerald-600 dark:text-emerald-400"
-                      : c.status === "refused"
+                      : c.status === "refused" || c.status === "queued" || c.status === "rejected"
                         ? "text-amber-600 dark:text-amber-400"
                         : "text-red-600 dark:text-red-400"
                   }

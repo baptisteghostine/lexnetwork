@@ -254,3 +254,215 @@ test("Settings shows the connection and its activity, and Disconnect shuts it ou
   });
   expect(await refresh.json()).toMatchObject({ error: "invalid_grant" });
 });
+
+// ---------- Phase 15: write-back ----------
+
+const writer: { accessToken: string; contactId: number } = { accessToken: "", contactId: 0 };
+
+/** Walk the consent screen and exchange the code; returns the tokens. */
+async function connectThroughConsent(
+  page: import("playwright/test").Page,
+  request: APIRequestContext,
+  opts: { scope: string; untickWrite?: boolean }
+): Promise<{ access_token: string; scope: string }> {
+  let callback: URL | null = null;
+  await page.route("http://localhost:59999/**", async (route) => {
+    callback = new URL(route.request().url());
+    await route.fulfill({ status: 200, contentType: "text/plain", body: "connected" });
+  });
+  await page.goto(authorizeUrl({ scope: opts.scope }));
+  if (opts.untickWrite) await page.getByLabel(/Also let it add to Rolo/).uncheck();
+  await page.getByLabel("Your Rolo password").fill(E2E_PASSWORD);
+  await page.getByRole("button", { name: "Allow" }).click();
+  await expect.poll(() => callback?.searchParams.get("code") ?? null).not.toBeNull();
+  const res = await request.post("/api/oauth/token", {
+    form: {
+      grant_type: "authorization_code",
+      code: callback!.searchParams.get("code")!,
+      client_id: shared.clientId,
+      redirect_uri: CALLBACK,
+      resource: `${ORIGIN}/api/mcp`,
+      code_verifier: verifier,
+    },
+  });
+  expect(res.status()).toBe(200);
+  await page.unroute("http://localhost:59999/**");
+  return (await res.json()) as { access_token: string; scope: string };
+}
+
+async function callTool(request: APIRequestContext, token: string, name: string, args: unknown) {
+  const res = await mcp(request, token, {
+    jsonrpc: "2.0",
+    id: Math.floor(Math.random() * 1e6),
+    method: "tools/call",
+    params: { name, arguments: args },
+  });
+  const result = res.message!.result as { isError: boolean; content: { text: string }[] };
+  return { isError: result.isError, data: JSON.parse(result.content[0].text) as Record<string, unknown> };
+}
+
+test("asked for write, the consent screen makes it the owner's choice", async ({ page, request }) => {
+  await page.goto(authorizeUrl({ scope: "read write" }));
+  await expect(page.getByLabel(/Also let it add to Rolo/)).toBeChecked();
+  await expect(page.getByText(/Delete, merge or archive anything, or overwrite what you typed/)).toBeVisible();
+  await expect(page.getByText("Change, add or delete anything.")).toHaveCount(0);
+
+  // Unticked: connected, and unable to change a thing.
+  const readOnly = await connectThroughConsent(page, request, { scope: "read write", untickWrite: true });
+  expect(readOnly.scope).toBe("read");
+  // A read-only connection is not even shown the write tools; calling one
+  // anyway is a protocol error, never a write.
+  const readList = await mcp(request, readOnly.access_token, { jsonrpc: "2.0", id: 1, method: "tools/list" });
+  expect((readList.message!.result as { tools: unknown[] }).tools).toHaveLength(9);
+  const refused = await mcp(request, readOnly.access_token, {
+    jsonrpc: "2.0",
+    id: 2,
+    method: "tools/call",
+    params: { name: "add_note", arguments: { contactId: 1, text: "E2E should not land" } },
+  });
+  const refusal = refused.message as { error?: unknown; result?: { isError?: boolean } };
+  expect(refusal.error !== undefined || refusal.result?.isError === true).toBe(true);
+
+  const full = await connectThroughConsent(page, request, { scope: "read write" });
+  expect(full.scope).toBe("read write");
+  writer.accessToken = full.access_token;
+  const list = await mcp(request, writer.accessToken, { jsonrpc: "2.0", id: 2, method: "tools/list" });
+  expect((list.message!.result as { tools: unknown[] }).tools).toHaveLength(16);
+
+  await page.goto("/settings?tab=connector");
+  await expect(page.getByText(/Read and add · connected/)).toBeVisible();
+  await expect(page.getByText(/Read-only · connected/)).toBeVisible();
+});
+
+test("what Claude logs is on the timeline, marked as Claude's, and Undo takes exactly that back", async ({
+  page,
+  request,
+}) => {
+  const found = await callTool(request, writer.accessToken, "find_contact", { name: "Zara Quicklog" });
+  writer.contactId = (found.data.matches as { id: number }[])[0].id;
+
+  const logged = await callTool(request, writer.accessToken, "log_interaction", {
+    contactId: writer.contactId,
+    kind: "email",
+    direction: "outbound",
+    occurredAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    subject: "E2E coffee next week?",
+    category: "outreach",
+    note: "Asked Zara for coffee ![x](http://localhost:59999/leak.png)",
+    idempotencyKey: "gmail:e2e-1",
+  });
+  expect(logged).toMatchObject({ isError: false, data: { logged: true } });
+  // The same message read again: one row, not two.
+  const again = await callTool(request, writer.accessToken, "log_interaction", {
+    contactId: writer.contactId,
+    kind: "email",
+    direction: "outbound",
+    occurredAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    subject: "E2E coffee next week?",
+    category: "outreach",
+    idempotencyKey: "gmail:e2e-1",
+  });
+  expect(again.data).toMatchObject({ alreadyDone: true, actionId: logged.data.actionId });
+  const junk = await callTool(request, writer.accessToken, "log_interaction", {
+    contactId: writer.contactId,
+    kind: "email",
+    direction: "inbound",
+    occurredAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+    subject: "Your weekly digest",
+    category: "newsletter",
+    idempotencyKey: "gmail:e2e-junk",
+  });
+  expect(junk.isError).toBe(true);
+
+  // No image request may leave the page when the note is shown.
+  let leaked = false;
+  await page.route("http://localhost:59999/**", async (route) => {
+    leaked = true;
+    await route.abort();
+  });
+  await page.goto(`/contacts/${writer.contactId}`);
+  // Once on the timeline (the page's "recent" strip repeats it as "You: …").
+  await expect(page.getByText("E2E coffee next week?", { exact: true })).toHaveCount(1);
+  await expect(page.getByText("Your weekly digest")).toHaveCount(0);
+  await expect(page.getByText("Claude", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("wrote this note")).toBeVisible();
+  await expect(page.getByText(/Asked Zara for coffee/)).toBeVisible();
+  expect(leaked).toBe(false);
+  await page.unroute("http://localhost:59999/**");
+
+  await page.goto("/settings?tab=connector");
+  await page.getByRole("link", { name: /See and undo changes/ }).click();
+  await expect(page.getByRole("heading", { name: "Claude's activity" })).toBeVisible();
+  const row = page.getByTestId("agent-activity-row").filter({ hasText: "E2E coffee next week?" });
+  await expect(row).toHaveCount(1);
+  await expect(row.getByRole("link", { name: "Zara Quicklog" })).toBeVisible();
+  await row.getByRole("button", { name: "Undo" }).click();
+  await expect(row.getByRole("status")).toContainText("Undone — removed the note; removed the interaction.");
+  await expect(row.getByText("Undone", { exact: true })).toBeVisible();
+  await expect(row.getByRole("button", { name: "Undo" })).toHaveCount(0);
+
+  await page.goto(`/contacts/${writer.contactId}`);
+  await expect(page.getByText("E2E coffee next week?")).toHaveCount(0);
+  await expect(page.getByText(/Asked Zara for coffee/)).toHaveCount(0);
+  // What the owner logged by hand in the quick-log spec is untouched.
+  await expect(page.getByText("Met at demo day").first()).toBeVisible();
+});
+
+test("with 'Ask me first', nothing changes until the owner approves; a rejection stays rejected", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/settings?tab=connector");
+  await page.getByLabel(/Ask me first/).check();
+  await expect(page.getByLabel(/Ask me first/)).toBeChecked();
+  await page.reload();
+  await expect(page.getByLabel(/Ask me first/)).toBeChecked();
+
+  const keep = await callTool(request, writer.accessToken, "add_note", {
+    contactId: writer.contactId,
+    text: "E2E approved note: prefers mornings.",
+    idempotencyKey: "note:e2e-keep",
+  });
+  expect(keep.data).toMatchObject({ queued: true });
+  const drop = await callTool(request, writer.accessToken, "create_reminder", {
+    title: "E2E rejected reminder",
+    dueAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    contactId: writer.contactId,
+    idempotencyKey: "rem:e2e-drop",
+  });
+  expect(drop.data).toMatchObject({ queued: true });
+
+  await page.goto(`/contacts/${writer.contactId}`);
+  await expect(page.getByText(/E2E approved note/)).toHaveCount(0);
+
+  await page.goto("/settings?tab=connector");
+  await page.getByRole("link", { name: "Review 2 waiting →" }).click();
+  await expect(page.getByTestId("agent-queued-count")).toHaveText("2 waiting for you");
+  const note = page.getByTestId("agent-activity-row").filter({ hasText: "E2E approved note" });
+  await expect(note.getByText("What it wants to write")).toBeVisible();
+  await note.getByRole("button", { name: "Approve" }).click();
+  await expect(page.getByTestId("agent-queued-count")).toHaveText("1 waiting for you");
+  const reminder = page.getByTestId("agent-activity-row").filter({ hasText: "E2E rejected reminder" });
+  await reminder.getByRole("button", { name: "Reject" }).click();
+  await expect(page.getByTestId("agent-queued-count")).toHaveCount(0);
+  await expect(reminder.getByText("Rejected", { exact: true })).toBeVisible();
+
+  await page.goto(`/contacts/${writer.contactId}`);
+  await expect(page.getByText(/E2E approved note: prefers mornings/).first()).toBeVisible();
+  await expect(page.getByText("wrote this note")).toBeVisible();
+  await expect(page.getByText("E2E rejected reminder")).toHaveCount(0);
+
+  // The agent's next pass does not bring the rejected one back.
+  const retry = await callTool(request, writer.accessToken, "create_reminder", {
+    title: "E2E rejected reminder",
+    dueAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    contactId: writer.contactId,
+    idempotencyKey: "rem:e2e-drop",
+  });
+  expect(retry.data).toMatchObject({ rejected: true });
+
+  // Leave the instance as later runs expect it.
+  await page.goto("/settings?tab=connector");
+  await page.getByLabel(/Apply straight away/).check();
+  await expect(page.getByLabel(/Apply straight away/)).toBeChecked();
+});

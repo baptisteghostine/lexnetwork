@@ -207,8 +207,9 @@ a flattened `contacts.csv`, per-table JSON, and all attachments.
 
 ## Connecting Claude (the agent connector)
 
-Rolo can let your own Claude search and read it (SPEC §14). It is
-read-only, and off until you connect something.
+Rolo can let your own Claude search and read it and — if you allow it
+when connecting — keep it up to date (SPEC §14). It is off until you
+connect something.
 
 **What it needs from the deployment.** Claude calls the connector from
 Anthropic's servers, not from your computer, so the address has to be:
@@ -254,8 +255,15 @@ Rolo asking Claude to sign in, and it is the healthy answer.
 2. In Claude, open Settings → Connectors → Add custom connector, paste
    the address, and leave the advanced settings alone.
 3. Claude opens Rolo's consent page. It names the app, says what it may
-   do, and asks for your Rolo password. Allow it.
+   do, and asks for your Rolo password. Leave "Also let it add to Rolo"
+   ticked to let Claude log exchanges, write notes, set reminders, add
+   people and tag them; untick it for a read-only connection. Allow it.
 4. Ask Claude something only Rolo knows — "who do I know at …".
+
+**A connection made before write-back existed is read-only** and stays
+so. To let it write: Settings → Claude connector → Disconnect, remove the
+connector in Claude, and add it again (steps 1–3). The card shows "Read
+and add" next to a connection that can write.
 
 The same connector then works in Claude on the web, desktop and phone,
 and in Claude Code. If Claude's dialog insists on an OAuth client ID, the
@@ -266,6 +274,14 @@ Settings card shows one to paste; the secret stays empty.
 - Settings → Claude connector lists every connected app with when it was
   last used, the last fifteen things it asked for, and a Disconnect
   button that takes effect at once.
+- Everything Claude changes is listed under "See and undo changes" on
+  that card, each with an Undo. Undo takes back exactly what that one
+  action wrote, and keeps anything you have edited since.
+- The same card chooses how changes land: "Apply straight away" (the
+  default) or "Ask me first", where each change waits on that page for
+  your Approve or Reject.
+- Claude cannot delete, merge or archive anything, overwrite a field you
+  typed, or send a message — there are no tools for those.
 - A connection stays alive as long as it is used at least once in 90
   days.
 - The consent password shares the login's lockout: five wrong attempts
