@@ -67,6 +67,38 @@ function json(body: unknown, status = 200, extra: Record<string, string> = {}): 
   });
 }
 
+/**
+ * Read a request body as text, refusing anything over `maxBytes` — by its
+ * declared length when there is one, and by counting as it streams in
+ * either case. These endpoints answer anyone, so nothing they are sent may
+ * be buffered whole before it is known to be small. Null = too large.
+ */
+async function readBodyLimited(req: Request, maxBytes: number): Promise<string | null> {
+  const declared = req.headers.get("content-length");
+  if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > maxBytes)) return null;
+  if (!req.body) return "";
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > maxBytes) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const joined = new Uint8Array(size);
+  let at = 0;
+  for (const chunk of chunks) {
+    joined.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return new TextDecoder().decode(joined);
+}
+
 export function preflight(): Response {
   return new Response(null, { status: 204, headers: CORS });
 }
@@ -86,8 +118,10 @@ export function authorizationServerResponse(req: Request): Response {
 /**
  * Browsers attach an Origin; Claude's servers and command-line clients do
  * not. A browser page may only reach the endpoint from the app's own
- * host, Claude's, or the owner's own machine — which stops any other
- * site a logged-in browser visits from driving it (DNS rebinding, CSRF).
+ * host, Claude's, or the owner's own machine (matched by hostname).
+ * Defence in depth, not the lock: the lock is the bearer token, which no
+ * browser attaches by itself, so there is no ambient credential for
+ * another site to ride on.
  */
 function allowedOriginHosts(publicHost: string): string[] {
   return [publicHost, "claude.ai", "claude.com", "localhost", "127.0.0.1", "[::1]"];
@@ -135,9 +169,9 @@ const REGISTRATION_BODY_MAX = 20_000;
 
 export async function handleRegister(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") return preflight();
-  const raw = await req.text();
-  if (raw.length > REGISTRATION_BODY_MAX) {
-    return json({ error: "invalid_client_metadata", error_description: "The registration is too large." }, 400);
+  const raw = await readBodyLimited(req, REGISTRATION_BODY_MAX);
+  if (raw === null) {
+    return json({ error: "invalid_client_metadata", error_description: "The registration is too large." }, 413);
   }
   let body: unknown;
   try {
@@ -186,8 +220,8 @@ export async function handleToken(req: Request): Promise<Response> {
   if (!contentType.startsWith("application/x-www-form-urlencoded")) {
     return tokenError("invalid_request", "Send the request as application/x-www-form-urlencoded.");
   }
-  const raw = await req.text();
-  if (raw.length > TOKEN_BODY_MAX) return tokenError("invalid_request", "The request is too large.");
+  const raw = await readBodyLimited(req, TOKEN_BODY_MAX);
+  if (raw === null) return tokenError("invalid_request", "The request is too large.", 413);
   const form = new URLSearchParams(raw);
   const field = (name: string): string | null => {
     const values = form.getAll(name);

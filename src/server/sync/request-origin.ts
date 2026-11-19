@@ -20,11 +20,24 @@ export function publicOrigin(req: NextRequest | Request): string {
  * own URL when there is one.
  */
 export function publicOriginFromHeaders(headers: Headers, fallbackUrl?: string): string {
-  const proto = headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
-  const host =
+  const forwardedProto = headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+  const proto = forwardedProto === "https" || forwardedProto === "http" ? forwardedProto : null;
+  const rawHost =
     headers.get("x-forwarded-host")?.split(",")[0]?.trim() ?? headers.get("host");
+  // A header is whatever the sender typed. Only something that is plainly
+  // a host (name or bracketed IPv6, optional port) becomes part of an
+  // origin; anything else falls through to the request's own address.
+  const host = rawHost && HOST_RE.test(rawHost) ? rawHost.toLowerCase() : null;
   if (proto && host) return `${proto}://${host}`;
-  if (fallbackUrl) return new URL(fallbackUrl).origin;
+  if (fallbackUrl) {
+    try {
+      return new URL(fallbackUrl).origin;
+    } catch {
+      // fall through
+    }
+  }
   // No proxy announced a scheme: a direct connection, which is plain http.
   return host ? `http://${host}` : "http://localhost:3000";
 }
+
+const HOST_RE = /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*|\[[0-9a-f:.]+\])(?::\d{1,5})?$/i;

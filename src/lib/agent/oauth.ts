@@ -22,10 +22,12 @@ export const AUTH_CODE_TTL_MS = 5 * 60 * 1000;
 /**
  * How long the refresh token that was just replaced still answers — with
  * the same new pair, not another one. A lost response or two workers
- * refreshing at once is ordinary; after this window the old token coming
- * back means it was copied, and the grant is revoked.
+ * refreshing at once is ordinary and happens within moments; after this
+ * window the old token coming back means it was copied, and the grant is
+ * revoked. Kept short on purpose: for as long as it is open, someone
+ * holding a copied token could follow a rotation unnoticed.
  */
-export const REFRESH_GRACE_MS = 60 * 1000;
+export const REFRESH_GRACE_MS = 10 * 1000;
 
 /** What a grant may carry. Phase 15 adds "write". */
 export const GRANTABLE_SCOPES = ["read"] as const;
@@ -59,22 +61,67 @@ export function randomToken(prefix: "ra" | "rr" | "rc"): string {
 }
 
 /**
- * The token a refresh produces, as a keyed function of the refresh token
- * that was presented. Deterministic on purpose: a retry of the same
- * refresh inside the grace window gets the same pair back without the
- * server ever storing a token in clear.
+ * The access token a refresh produces, as a keyed function of the refresh
+ * token that was presented. Deterministic on purpose: a retry of the same
+ * refresh inside the grace window gets the same token back without the
+ * server ever storing one in clear.
  */
-export function deriveToken(
+export function deriveAccessToken(
   secret: string,
-  kind: "access" | "refresh",
   grantId: number,
   presentedRefreshToken: string
 ): string {
   const mac = crypto
     .createHmac("sha256", secret)
-    .update(`rolo-connector:${kind}:${grantId}:${presentedRefreshToken}`)
+    .update(`rolo-connector:access:${grantId}:${presentedRefreshToken}`)
     .digest("base64url");
-  return `${kind === "access" ? "ra" : "rr"}_${mac}`;
+  return `ra_${mac}`;
+}
+
+// A refresh token names the grant it belongs to and proves Rolo issued it:
+//
+//   rr_<grant id>.<nonce>.<HMAC(secret, grant id, nonce)>
+//
+// That is what makes replay detection complete without keeping every
+// retired token: any token that verifies but is no longer the current one
+// is, by construction, a retired token of that grant — so it ends the
+// grant. A string that does not verify is just noise, and revokes nothing
+// (otherwise a grant id, a small integer, would be a kill switch).
+
+function refreshMac(secret: string, grantId: number, nonce: string): string {
+  return crypto
+    .createHmac("sha256", secret)
+    .update(`rolo-connector:refresh:${grantId}:${nonce}`)
+    .digest("base64url");
+}
+
+/** The first refresh token of a grant: 192 random bits, bound to the grant. */
+export function mintRefreshToken(secret: string, grantId: number, nonce?: string): string {
+  const n = nonce ?? crypto.randomBytes(24).toString("base64url");
+  return `rr_${grantId}.${n}.${refreshMac(secret, grantId, n)}`;
+}
+
+/**
+ * The refresh token that replaces `presented`. A keyed function of it, so
+ * a repeat inside the grace window returns the same successor.
+ */
+export function nextRefreshToken(secret: string, grantId: number, presented: string): string {
+  const nonce = crypto
+    .createHmac("sha256", secret)
+    .update(`rolo-connector:rotate:${grantId}:${presented}`)
+    .digest("base64url");
+  return mintRefreshToken(secret, grantId, nonce);
+}
+
+/** The grant a refresh token was issued for, or null when Rolo never issued it. */
+export function refreshTokenGrantId(secret: string, token: string): number | null {
+  if (token.length > 300 || !token.startsWith("rr_")) return null;
+  const parts = token.slice(3).split(".");
+  if (parts.length !== 3) return null;
+  const [id, nonce, mac] = parts;
+  if (!/^[1-9]\d{0,14}$/.test(id) || !nonce) return null;
+  const grantId = Number(id);
+  return safeEqual(mac, refreshMac(secret, grantId, nonce)) ? grantId : null;
 }
 
 function safeEqual(a: string, b: string): boolean {
@@ -199,6 +246,9 @@ export type ClientInfo = {
 };
 
 const CLIENT_NAME_MAX = 80;
+/** Keeps the signed id — its own registration — well inside CLIENT_ID_MAX. */
+const REDIRECT_URIS_TOTAL_MAX = 1500;
+const CLIENT_ID_MAX = 4000;
 const DEFAULT_CLIENT_NAME = "MCP client";
 
 /** Control characters, zero-width marks and bidi overrides: nothing a name needs. */
@@ -246,7 +296,7 @@ export function parseClientId(secret: string, clientId: string): ClientInfo | nu
   if (clientId === STATIC_CLIENT_ID) {
     return { clientId, kind: "static", name: "Claude", redirectUris: [] };
   }
-  if (clientId.length > 4000) return null;
+  if (clientId.length > CLIENT_ID_MAX) return null;
   const parts = clientId.split(".");
   if (parts.length !== 3 || parts[0] !== "dyn") return null;
   const [, payload, mac] = parts;
@@ -288,6 +338,10 @@ export function validateRegistration(body: unknown): RegistrationResult {
     return { ok: false, error: "invalid_redirect_uri", description: "redirect_uris must list between 1 and 10 addresses." };
   }
   const redirectUris: string[] = [];
+  // The client id carries these, so together they must fit in one.
+  if (uris.reduce((n: number, u) => n + (typeof u === "string" ? u.length : 0), 0) > REDIRECT_URIS_TOTAL_MAX) {
+    return { ok: false, error: "invalid_redirect_uri", description: "The redirect addresses are too long." };
+  }
   for (const uri of uris) {
     if (typeof uri !== "string" || !isAllowedRedirectUri(uri)) {
       return {

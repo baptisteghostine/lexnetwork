@@ -5,18 +5,21 @@ import {
   canonicalResource,
   cleanClientName,
   clientMayRedirectTo,
-  deriveToken,
+  deriveAccessToken,
   grantedScope,
   HOSTED_CALLBACKS,
   isAllowedRedirectUri,
   isLoopbackRedirect,
   isValidCodeChallenge,
+  mintRefreshToken,
+  nextRefreshToken,
   parseClientId,
   protectedResourceMetadata,
   randomToken,
   redirectHost,
   redirectMatches,
   redirectWith,
+  refreshTokenGrantId,
   resourceForOrigin,
   sameResource,
   sha256Hex,
@@ -50,18 +53,60 @@ describe("tokens", () => {
     expect(sha256Hex(a)).not.toContain(a.slice(3, 20));
   });
 
-  it("a derived token is a pure function of secret, kind, grant and the token presented", () => {
-    const base = deriveToken(SECRET, "refresh", 7, "rr_old");
-    expect(deriveToken(SECRET, "refresh", 7, "rr_old")).toBe(base);
-    expect(base).toMatch(/^rr_[A-Za-z0-9_-]{43}$/);
-    expect(deriveToken(SECRET, "access", 7, "rr_old")).toMatch(/^ra_/);
+  it("a derived access token is a pure function of secret, grant and the token presented", () => {
+    const base = deriveAccessToken(SECRET, 7, "rr_old");
+    expect(deriveAccessToken(SECRET, 7, "rr_old")).toBe(base);
+    expect(base).toMatch(/^ra_[A-Za-z0-9_-]{43}$/);
     for (const other of [
-      deriveToken("another-secret", "refresh", 7, "rr_old"),
-      deriveToken(SECRET, "access", 7, "rr_old").replace(/^ra_/, "rr_"),
-      deriveToken(SECRET, "refresh", 8, "rr_old"),
-      deriveToken(SECRET, "refresh", 7, "rr_older"),
+      deriveAccessToken("another-secret", 7, "rr_old"),
+      deriveAccessToken(SECRET, 8, "rr_old"),
+      deriveAccessToken(SECRET, 7, "rr_older"),
     ]) {
       expect(other).not.toBe(base);
+    }
+  });
+});
+
+describe("refresh tokens name their grant and prove where they came from", () => {
+  it("a minted token verifies for its grant, and only under the secret that made it", () => {
+    const token = mintRefreshToken(SECRET, 42);
+    expect(token).toMatch(/^rr_42\.[A-Za-z0-9_-]{32}\.[A-Za-z0-9_-]{43}$/);
+    expect(refreshTokenGrantId(SECRET, token)).toBe(42);
+    expect(refreshTokenGrantId("another-secret", token)).toBeNull();
+    expect(mintRefreshToken(SECRET, 42)).not.toBe(token);
+  });
+
+  it("a successor is the same every time for the same predecessor, and verifies too", () => {
+    const first = mintRefreshToken(SECRET, 42);
+    const next = nextRefreshToken(SECRET, 42, first);
+    expect(nextRefreshToken(SECRET, 42, first)).toBe(next);
+    expect(next).not.toBe(first);
+    expect(refreshTokenGrantId(SECRET, next)).toBe(42);
+    expect(nextRefreshToken(SECRET, 43, first)).not.toBe(next);
+    expect(nextRefreshToken(SECRET, 42, next)).not.toBe(next);
+  });
+
+  it("nothing forged verifies — a grant id is not a kill switch", () => {
+    const token = mintRefreshToken(SECRET, 42);
+    const [, nonce, mac] = token.slice(3).split(".");
+    for (const forged of [
+      `rr_43.${nonce}.${mac}`, // another grant's id on a real signature
+      `rr_42.${nonce}x.${mac}`,
+      `rr_42.${nonce}.${mac.slice(0, -2)}AA`,
+      `rr_42.${nonce}`,
+      `rr_42..${mac}`,
+      `rr_0.${nonce}.${mac}`,
+      `rr_-1.${nonce}.${mac}`,
+      `rr_4e1.${nonce}.${mac}`,
+      `rr_42.${nonce}.${mac}.extra`,
+      `ra_42.${nonce}.${mac}`,
+      "rr_42",
+      "rr_",
+      "",
+      "garbage",
+      `rr_42.${"a".repeat(400)}.${mac}`,
+    ]) {
+      expect(refreshTokenGrantId(SECRET, forged), forged.slice(0, 24)).toBeNull();
     }
   });
 });
@@ -280,6 +325,8 @@ describe("validateRegistration (RFC 7591)", () => {
       { redirect_uris: "http://localhost/callback" },
       { redirect_uris: [42] },
       { redirect_uris: Array.from({ length: 11 }, (_, i) => `http://localhost:${3000 + i}/cb`) },
+      // Individually allowed, together too long to carry in a client id.
+      { redirect_uris: Array.from({ length: 5 }, (_, i) => `http://localhost:${3000 + i}/${"a".repeat(360)}`) },
       {},
     ]) {
       expect(validateRegistration(body)).toMatchObject({ ok: false, error: "invalid_redirect_uri" });
@@ -287,6 +334,18 @@ describe("validateRegistration (RFC 7591)", () => {
     for (const body of [null, "text", 42, [CLAUDE]]) {
       expect(validateRegistration(body)).toMatchObject({ ok: false, error: "invalid_client_metadata" });
     }
+  });
+});
+
+describe("a registration always fits in the id that carries it", () => {
+  it("the largest registration Rolo accepts yields an id it can read back", () => {
+    const uris = Array.from({ length: 4 }, (_, i) => `http://localhost:${3000 + i}/${"a".repeat(340)}`);
+    const reg = validateRegistration({ redirect_uris: uris, client_name: "n".repeat(500) });
+    expect(reg.ok).toBe(true);
+    if (!reg.ok) return;
+    const id = signClientId(SECRET, { redirectUris: reg.redirectUris, name: reg.name, issuedAt: Date.now() });
+    expect(id.length).toBeLessThan(4000);
+    expect(parseClientId(SECRET, id)).toMatchObject({ kind: "dynamic", redirectUris: uris });
   });
 });
 

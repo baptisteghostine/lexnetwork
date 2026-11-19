@@ -273,7 +273,7 @@ describe("registration", () => {
     expect(garbage.status).toBe(400);
     expect(await garbage.json()).toMatchObject({ error: "invalid_client_metadata" });
     const huge = await post(JSON.stringify({ redirect_uris: [CLAUDE], client_name: "x".repeat(30_000) }));
-    expect(huge.status).toBe(400);
+    expect(huge.status).toBe(413);
   });
 });
 
@@ -446,7 +446,8 @@ describe("the token endpoint: exchanging a code", () => {
     expect(res.headers.get("cache-control")).toBe("no-store");
     expect(res.body).toMatchObject({ token_type: "Bearer", expires_in: 3600, scope: "read" });
     expect(String(res.body.access_token)).toMatch(/^ra_/);
-    expect(String(res.body.refresh_token)).toMatch(/^rr_/);
+    // The refresh token names its grant and carries Rolo's signature.
+    expect(String(res.body.refresh_token)).toMatch(new RegExp(`^rr_${grantRows()[0].id}\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]{43}$`));
     const dump = JSON.stringify(grantRows());
     expect(dump).not.toContain(String(res.body.access_token));
     expect(dump).not.toContain(String(res.body.refresh_token));
@@ -538,6 +539,22 @@ describe("the token endpoint: exchanging a code", () => {
     expect((await exchange(p)).body.error).toBe("invalid_grant");
   });
 
+  it("an old, used code cannot be dug up later to disconnect the owner", async () => {
+    const p = await pending();
+    const first = await exchange(p);
+    expect(first.status).toBe(200);
+    // Past the code's lifetime a replay is just a dead code — from a
+    // browser history or a log, with whatever else attached.
+    vi.setSystemTime(T0 + 5 * MINUTE + 1);
+    expect((await exchange(p)).body.error).toBe("invalid_grant");
+    expect((await exchange(p, { client_id: "rolo-connector", code_verifier: "x".repeat(43) })).body.error).toBe("invalid_grant");
+    vi.setSystemTime(T0 + 30 * DAY);
+    expect((await exchange(p)).body.error).toBe("invalid_grant");
+    expect(grantRows()[0].revoked_at).toBeNull();
+    const refreshed = await token({ grant_type: "refresh_token", refresh_token: String(first.body.refresh_token) });
+    expect(refreshed.status).toBe(200);
+  });
+
   it("a code used twice revokes what the first use bought", async () => {
     const p = await pending();
     const first = await exchange(p);
@@ -574,16 +591,16 @@ describe("the token endpoint: refreshing", () => {
     expect(dump).not.toContain(String(res.body.refresh_token));
   });
 
-  it("a repeat of the same refresh inside a minute gets the same pair — a lost response, or a race", async () => {
+  it("a repeat of the same refresh within ten seconds gets the same pair — a lost response, or a race", async () => {
     const { tokens } = await connect();
     vi.setSystemTime(T0 + 30 * MINUTE);
     const first = await refresh(tokens.refresh_token);
-    vi.setSystemTime(T0 + 30 * MINUTE + 20_000);
+    vi.setSystemTime(T0 + 30 * MINUTE + 5_000);
     const again = await refresh(tokens.refresh_token);
     expect(again.status).toBe(200);
     expect(again.body.access_token).toBe(first.body.access_token);
     expect(again.body.refresh_token).toBe(first.body.refresh_token);
-    expect(Number(again.body.expires_in)).toBe(3600 - 20);
+    expect(Number(again.body.expires_in)).toBe(3600 - 5);
     // The chain did not fork: the new pair is still the current one.
     expect((await mcp(String(first.body.access_token), INIT)).status).toBe(200);
     expect((await refresh(String(first.body.refresh_token))).status).toBe(200);
@@ -593,25 +610,58 @@ describe("the token endpoint: refreshing", () => {
     const { tokens } = await connect();
     vi.setSystemTime(T0 + 30 * MINUTE);
     const first = await refresh(tokens.refresh_token);
-    vi.setSystemTime(T0 + 30 * MINUTE + 61_000);
+    vi.setSystemTime(T0 + 30 * MINUTE + 11_000);
     const replay = await refresh(tokens.refresh_token);
     expect(replay.status).toBe(400);
     expect(replay.body.error).toBe("invalid_grant");
     // Whoever holds the current pair is out as well — nobody can tell them apart.
     expect((await mcp(String(first.body.access_token), INIT)).status).toBe(401);
     expect((await refresh(String(first.body.refresh_token))).body.error).toBe("invalid_grant");
-    expect(grantRows()[0].revoked_at).toBe(T0 + 30 * MINUTE + 61_000);
+    expect(grantRows()[0].revoked_at).toBe(T0 + 30 * MINUTE + 11_000);
   });
 
-  it("a token from two rotations ago is simply unknown", async () => {
+  it("a thief who rotates twice does not outrun detection: the owner's next refresh ends the grant", async () => {
     const { tokens } = await connect();
-    const r1 = await refresh(tokens.refresh_token);
+    // Someone with a copy of the refresh token uses it, then uses its successor.
+    const stolen1 = await refresh(tokens.refresh_token);
     vi.setSystemTime(T0 + 2 * MINUTE);
-    const r2 = await refresh(String(r1.body.refresh_token));
-    expect(r2.status).toBe(200);
+    const stolen2 = await refresh(String(stolen1.body.refresh_token));
+    expect(stolen2.status).toBe(200);
+    expect((await mcp(String(stolen2.body.access_token), INIT)).status).toBe(200);
+    // Claude, still holding the original, refreshes an hour later. Its token
+    // is two generations old — but it is a real token of this grant.
+    vi.setSystemTime(T0 + 55 * MINUTE);
     expect((await refresh(tokens.refresh_token)).body.error).toBe("invalid_grant");
-    // That did not revoke the live grant.
-    expect((await mcp(String(r2.body.access_token), INIT)).status).toBe(200);
+    expect(grantRows()[0].revoked_at).toBe(T0 + 55 * MINUTE);
+    expect((await mcp(String(stolen2.body.access_token), INIT)).status).toBe(401);
+    expect((await refresh(String(stolen2.body.refresh_token))).body.error).toBe("invalid_grant");
+  });
+
+  it("a forged token naming a grant ends nothing", async () => {
+    const { tokens } = await connect();
+    const grantId = grantRows()[0].id as number;
+    const [, nonce, mac] = tokens.refresh_token.slice(3).split(".");
+    for (const forged of [
+      `rr_${grantId}.${nonce}.${mac.slice(0, -2)}AA`,
+      `rr_${grantId}.forged.forged`,
+      `rr_${grantId + 1}.${nonce}.${mac}`,
+      `rr_${grantId}`,
+      "rr_unknown",
+    ]) {
+      expect((await refresh(forged)).body.error, forged.slice(0, 20)).toBe("invalid_grant");
+    }
+    expect(grantRows()[0].revoked_at).toBeNull();
+    expect((await refresh(tokens.refresh_token)).status).toBe(200);
+  });
+
+  it("one grant's token cannot touch another grant", async () => {
+    const a = await connect();
+    const b = await connect({ redirect: "http://localhost:3118/callback" });
+    const [, nonceA, macA] = a.tokens.refresh_token.slice(3).split(".");
+    const idB = grantRows()[1].id as number;
+    expect((await refresh(`rr_${idB}.${nonceA}.${macA}`)).body.error).toBe("invalid_grant");
+    expect(grantRows().map((g) => g.revoked_at)).toEqual([null, null]);
+    expect((await refresh(b.tokens.refresh_token)).status).toBe(200);
   });
 
   it("refuses an unknown token, another client's, another resource, and a missing one", async () => {
@@ -619,6 +669,7 @@ describe("the token endpoint: refreshing", () => {
     const other = await register(["http://localhost/callback"]);
     expect((await refresh("rr_unknown")).body.error).toBe("invalid_grant");
     expect((await refresh(tokens.access_token)).body.error).toBe("invalid_grant");
+    expect((await refresh("")).body.error).toBe("invalid_request");
     expect((await refresh(tokens.refresh_token, { client_id: other })).body.error).toBe("invalid_grant");
     expect((await refresh(tokens.refresh_token, { resource: "https://another.test/api/mcp" })).body.error).toBe("invalid_target");
     expect((await token({ grant_type: "refresh_token" })).body.error).toBe("invalid_request");
@@ -637,6 +688,88 @@ describe("the token endpoint: refreshing", () => {
     const b = await connect();
     vi.setSystemTime(T0 + 89 * DAY + 89 * DAY + 90 * DAY + 1000);
     expect((await refresh(b.tokens.refresh_token)).body.error).toBe("invalid_grant");
+  });
+});
+
+describe("requests from strangers are kept small and cannot break the address", () => {
+  it("an oversized token or registration body is refused before it is read", async () => {
+    const big = "x".repeat(50_000);
+    const declared = await http.handleToken(
+      req("/api/oauth/token", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded", "content-length": String(big.length + 30) },
+        body: `grant_type=refresh_token&refresh_token=${big}`,
+      })
+    );
+    expect(declared.status).toBe(413);
+    // No declared length (a chunked upload): counted as it streams, and cut off.
+    let pulled = 0;
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 1;
+        controller.enqueue(new TextEncoder().encode("y".repeat(8192)));
+      },
+    });
+    const streamed = await http.handleToken(
+      new Request("http://internal:3000/api/oauth/token", {
+        method: "POST",
+        headers: { ...FORWARDED, "content-type": "application/x-www-form-urlencoded" },
+        body: endless,
+        // @ts-expect-error -- Node's fetch needs this for a streamed body; not in the DOM typings.
+        duplex: "half",
+      })
+    );
+    expect(streamed.status).toBe(413);
+    expect(pulled).toBeLessThan(10);
+    const lying = await http.handleToken(
+      req("/api/oauth/token", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded", "content-length": "not-a-number" },
+        body: "grant_type=refresh_token",
+      })
+    );
+    expect(lying.status).toBe(413);
+    const registration = await http.handleRegister(
+      req("/api/oauth/register", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ redirect_uris: [CLAUDE], client_name: big }),
+      })
+    );
+    expect(registration.status).toBe(413);
+  });
+
+  it("a malformed forwarded host never becomes part of an address, or an error", async () => {
+    for (const host of ["evil test", "a/b", "<script>", "host:99999999", "", "..", "user@host", "h\\x"]) {
+      const res = http.protectedResourceResponse(
+        new Request("http://internal:3000/.well-known/oauth-protected-resource", {
+          headers: { "x-forwarded-proto": "https", "x-forwarded-host": host },
+        })
+      );
+      expect(res.status, host).toBe(200);
+      const body = (await res.json()) as { resource: string };
+      expect(body.resource, host).toBe("http://internal:3000/api/mcp");
+      const gate = await http.handleMcp(
+        new Request("http://internal:3000/api/mcp", {
+          method: "POST",
+          headers: { "x-forwarded-proto": "https", "x-forwarded-host": host, "content-type": "application/json" },
+          body: "{}",
+        })
+      );
+      expect(gate.status, host).toBe(401);
+    }
+    // A scheme that is not http(s) is ignored too.
+    const odd = http.protectedResourceResponse(
+      new Request("http://internal:3000/x", { headers: { "x-forwarded-proto": "javascript", "x-forwarded-host": "rolo.test" } })
+    );
+    expect(((await odd.json()) as { resource: string }).resource).toBe("http://internal:3000/api/mcp");
+    // Real hosts, including a port and IPv6, still work.
+    for (const [host, origin] of [["rolo.test:8443", "https://rolo.test:8443"], ["[::1]:3000", "https://[::1]:3000"], ["ROLO.Test", "https://rolo.test"]]) {
+      const ok = http.protectedResourceResponse(
+        new Request("http://internal:3000/x", { headers: { "x-forwarded-proto": "https", "x-forwarded-host": host } })
+      );
+      expect(((await ok.json()) as { authorization_servers: string[] }).authorization_servers).toEqual([origin]);
+    }
   });
 });
 

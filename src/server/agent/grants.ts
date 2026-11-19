@@ -8,9 +8,12 @@ import { getSessionSecret } from "@/lib/auth/secret";
 import {
   ACCESS_TOKEN_TTL_MS,
   AUTH_CODE_TTL_MS,
-  deriveToken,
+  deriveAccessToken,
+  mintRefreshToken,
+  nextRefreshToken,
   randomToken,
   REFRESH_GRACE_MS,
+  refreshTokenGrantId,
   REFRESH_TOKEN_TTL_MS,
   sameResource,
   scopeList,
@@ -117,9 +120,11 @@ export function exchangeCode(input: {
     .get();
   if (!row || row.revokedAt !== null) return fail("invalid_grant", BAD_CODE);
   if (row.accessTokenHash !== null) {
-    // A code presented twice (RFC 6749 §4.1.2): someone else has it. The
-    // tokens it already bought stop working.
-    revoke(row.id, now);
+    // A code presented twice (RFC 6749 §4.1.2): someone else has it, and
+    // the tokens it bought stop working. Only while the code could still
+    // have been live, though — past that, a code dug out of a browser
+    // history or a log must not be a way to disconnect the owner.
+    if (row.codeExpiresAt !== null && now <= row.codeExpiresAt) revoke(row.id, now);
     return fail("invalid_grant", BAD_CODE);
   }
   if (row.codeExpiresAt === null || now > row.codeExpiresAt) {
@@ -139,7 +144,7 @@ export function exchangeCode(input: {
   }
 
   const accessToken = randomToken("ra");
-  const refreshToken = randomToken("rr");
+  const refreshToken = mintRefreshToken(getSessionSecret(), row.id);
   db.update(agentGrants)
     .set({
       // The code's hash stays as the "already used" marker above; the
@@ -166,12 +171,22 @@ export function exchangeCode(input: {
 }
 
 /**
- * refresh_token grant. The pair it returns is a keyed function of the
- * token presented (`deriveToken`), which is what lets a repeat inside the
- * grace window be answered with the *same* pair: a lost response, or two
- * workers refreshing at once, converge instead of forking the chain. The
- * replaced token coming back after the window is a replay, and ends the
- * grant.
+ * refresh_token grant.
+ *
+ * A refresh token names its grant and proves Rolo issued it
+ * (`refreshTokenGrantId`), so there are exactly four cases:
+ *
+ *   - not one of ours             → refused; nothing to revoke
+ *   - the grant's current token   → rotate
+ *   - the one it just replaced,
+ *     within the grace window     → the same new pair again
+ *   - any other token of the grant→ a retired token came back: it was
+ *                                   copied, or kept too long. The grant
+ *                                   ends, for whoever holds its tokens.
+ *
+ * The new pair is a keyed function of the token presented, which is what
+ * lets the grace case return the *same* pair: a lost response, or two
+ * workers refreshing at once, converge instead of forking the chain.
  */
 export function refreshGrant(input: {
   refreshToken: string;
@@ -180,73 +195,71 @@ export function refreshGrant(input: {
   now?: number;
 }): TokenResult {
   const now = input.now ?? Date.now();
-  const presented = sha256Hex(input.refreshToken);
   const secret = getSessionSecret();
-
-  const current = db
-    .select()
-    .from(agentGrants)
-    .where(eq(agentGrants.refreshTokenHash, presented))
-    .get();
-  const row =
-    current ??
-    db
-      .select()
-      .from(agentGrants)
-      .where(eq(agentGrants.previousRefreshHash, presented))
-      .orderBy(desc(agentGrants.id))
-      .get();
-  if (!row || row.revokedAt !== null) return fail("invalid_grant", BAD_REFRESH);
+  const grantId = refreshTokenGrantId(secret, input.refreshToken);
+  if (grantId === null) return fail("invalid_grant", BAD_REFRESH);
+  const row = db.select().from(agentGrants).where(eq(agentGrants.id, grantId)).get();
+  if (!row || row.revokedAt !== null || row.refreshTokenHash === null) {
+    return fail("invalid_grant", BAD_REFRESH);
+  }
+  // The client id is checked when it is sent. It is not demanded: it is
+  // public, so it proves nothing the token does not, and a client that
+  // leaves it out on a refresh should not be signed out every hour.
   if (input.clientId && input.clientId !== row.clientId) return fail("invalid_grant", BAD_REFRESH);
   if (input.resource && !sameResource(input.resource, row.resource)) {
     return fail("invalid_target", "The requested resource is not the one this grant is for.");
   }
 
-  const accessToken = deriveToken(secret, "access", row.id, input.refreshToken);
-  const refreshToken = deriveToken(secret, "refresh", row.id, input.refreshToken);
+  const presented = sha256Hex(input.refreshToken);
+  const accessToken = deriveAccessToken(secret, row.id, input.refreshToken);
+  const refreshToken = nextRefreshToken(secret, row.id, input.refreshToken);
 
-  if (!current) {
-    // The token that was just replaced. Its rotation time is the current
-    // access token's birth.
-    const rotatedAt = (row.accessExpiresAt ?? 0) - ACCESS_TOKEN_TTL_MS;
-    const stillCurrent = row.refreshTokenHash === sha256Hex(refreshToken);
-    if (!stillCurrent || now - rotatedAt > REFRESH_GRACE_MS || now >= (row.accessExpiresAt ?? 0)) {
+  if (presented === row.refreshTokenHash) {
+    if (row.refreshExpiresAt === null || now > row.refreshExpiresAt) {
       revoke(row.id, now);
       return fail("invalid_grant", BAD_REFRESH);
     }
+    db.update(agentGrants)
+      .set({
+        previousRefreshHash: presented,
+        refreshTokenHash: sha256Hex(refreshToken),
+        refreshExpiresAt: now + REFRESH_TOKEN_TTL_MS,
+        accessTokenHash: sha256Hex(accessToken),
+        accessExpiresAt: now + ACCESS_TOKEN_TTL_MS,
+        lastUsedAt: now,
+      })
+      .where(eq(agentGrants.id, row.id))
+      .run();
     return {
       ok: true,
       tokens: {
         access_token: accessToken,
         token_type: "Bearer",
-        expires_in: Math.max(1, Math.floor(((row.accessExpiresAt ?? now) - now) / 1000)),
+        expires_in: Math.floor(ACCESS_TOKEN_TTL_MS / 1000),
         refresh_token: refreshToken,
         scope: row.scope,
       },
     };
   }
 
-  if (row.refreshExpiresAt === null || now > row.refreshExpiresAt) {
+  // Not the current token. The rotation time is the current access
+  // token's birth (SCHEMA.md: it is not stored separately).
+  const rotatedAt = (row.accessExpiresAt ?? 0) - ACCESS_TOKEN_TTL_MS;
+  const justReplaced =
+    presented === row.previousRefreshHash &&
+    now - rotatedAt <= REFRESH_GRACE_MS &&
+    now >= rotatedAt &&
+    row.refreshTokenHash === sha256Hex(refreshToken);
+  if (!justReplaced) {
     revoke(row.id, now);
     return fail("invalid_grant", BAD_REFRESH);
   }
-  db.update(agentGrants)
-    .set({
-      previousRefreshHash: presented,
-      refreshTokenHash: sha256Hex(refreshToken),
-      refreshExpiresAt: now + REFRESH_TOKEN_TTL_MS,
-      accessTokenHash: sha256Hex(accessToken),
-      accessExpiresAt: now + ACCESS_TOKEN_TTL_MS,
-      lastUsedAt: now,
-    })
-    .where(eq(agentGrants.id, row.id))
-    .run();
   return {
     ok: true,
     tokens: {
       access_token: accessToken,
       token_type: "Bearer",
-      expires_in: Math.floor(ACCESS_TOKEN_TTL_MS / 1000),
+      expires_in: Math.max(1, Math.floor(((row.accessExpiresAt ?? now) - now) / 1000)),
       refresh_token: refreshToken,
       scope: row.scope,
     },
