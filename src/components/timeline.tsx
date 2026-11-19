@@ -235,23 +235,31 @@ export function Timeline({
         ) : (
           <li
             key={`i${item.interaction.id}`}
-            className="group flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-md border border-border/60 px-3 py-2 md:flex-nowrap"
+            // A WhatsApp day carries its messages underneath, so its row
+            // may wrap; the others stay on one line.
+            className={`group flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-md border border-border/60 px-3 py-2 ${
+              item.interaction.source === "whatsapp" ? "" : "md:flex-nowrap"
+            }`}
           >
             <span className="text-muted-foreground">
               {KIND_ICON[item.interaction.kind] ?? KIND_ICON.manual}
             </span>
             <span className="whitespace-nowrap text-[13px] font-medium">
-              {KIND_LABEL[item.interaction.kind] ?? item.interaction.kind}
+              {item.interaction.source === "whatsapp"
+                ? "WhatsApp"
+                : (KIND_LABEL[item.interaction.kind] ?? item.interaction.kind)}
             </span>
             {item.interaction.title ? (
               <span className="order-last basis-full text-[13px] text-muted-foreground md:order-none md:min-w-0 md:basis-auto md:truncate">
-                {item.interaction.title}
+                {item.interaction.source === "whatsapp"
+                  ? item.interaction.title.replace(/^WhatsApp · /, "")
+                  : item.interaction.title}
               </span>
             ) : null}
             {item.interaction.kind === "message" && bodyFromMeta(item.interaction.meta) && (
               <details className="order-last basis-full text-[12px]">
                 <summary className="cursor-pointer text-[11px] text-muted-foreground hover:text-foreground">
-                  Full message
+                  {item.interaction.source === "whatsapp" ? "Messages" : "Full message"}
                 </summary>
                 <p className="mt-1 whitespace-pre-wrap rounded-md border border-border/60 bg-accent/20 px-2.5 py-1.5 leading-relaxed">
                   {bodyFromMeta(item.interaction.meta)}

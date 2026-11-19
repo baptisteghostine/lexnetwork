@@ -32,10 +32,13 @@ import {
 } from "@/server/custom-fields";
 import { requireAuth } from "@/lib/auth";
 import { agentNoteIds } from "@/server/agent/ledger";
+import { collectorLastSeenAt, getWhatsAppLink, whatsAppOverview } from "@/server/whatsapp-core";
+import { formatWaId } from "@/lib/whatsapp/chat";
+import { WhatsAppPanel } from "@/components/whatsapp-panel";
 import { CADENCE_PRESETS, DAY_MS } from "@/lib/cadence/engine";
 import { changeAge } from "@/lib/digest/network-updates";
 import { noteSnippet } from "@/lib/notes/format";
-import { formatInZone, now as currentTime } from "@/lib/time";
+import { formatInZone, localDateKey, now as currentTime } from "@/lib/time";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -51,6 +54,9 @@ import {
 import { ownerTimezone } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
+
+const WA_DAY = { day: "numeric", month: "short", year: "numeric" } as const;
+const WA_WHEN = { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" } as const;
 
 const SOURCE_LABEL: Record<string, string> = {
   user: "Edited by you",
@@ -86,6 +92,9 @@ export default async function ContactPage({
     education,
   } = detail;
   const timeline = getContactTimeline(contactId);
+  const whatsappLink = getWhatsAppLink(contactId);
+  const whatsapp = whatsappLink ? whatsAppOverview(whatsappLink) : null;
+  const collectorSeenAt = collectorLastSeenAt();
   // A just-created empty note opens directly in edit mode.
   const newestEmptyNote = timeline.find(
     (i) => i.type === "note" && !i.mentionedOnly && i.note.bodyMd === ""
@@ -560,6 +569,41 @@ export default async function ContactPage({
 
           <Separator />
           <RelationshipsCard contactId={contact.id} edges={relationships} />
+
+          <Separator />
+
+          <WhatsAppPanel
+            // A fresh panel when the link appears or goes, so no form state
+            // from the other mode lingers.
+            key={whatsapp ? `linked-${whatsapp.link.id}` : "unlinked"}
+            contactId={contact.id}
+            timezone={tz}
+            suggestedNumber={phones[0]?.phoneE164 ?? phones[0]?.phoneRaw ?? ""}
+            collectorSeen={collectorSeenAt === null ? null : formatInZone(tz, collectorSeenAt, WA_WHEN)}
+            link={
+              whatsapp
+                ? {
+                    number: formatWaId(whatsapp.link.waId),
+                    savedName: whatsapp.link.savedName,
+                    syncEnabled: whatsapp.link.syncEnabled,
+                    historyFrom: whatsapp.link.syncFrom === null ? "" : localDateKey(tz, whatsapp.link.syncFrom),
+                    linkedOn: formatInZone(tz, whatsapp.link.createdAt, WA_DAY),
+                    lastSynced: whatsapp.link.lastSyncedAt === null ? null : formatInZone(tz, whatsapp.link.lastSyncedAt, WA_WHEN),
+                    messages: whatsapp.messages,
+                    withText: whatsapp.withText,
+                    first: whatsapp.firstAt === null ? null : formatInZone(tz, whatsapp.firstAt, WA_DAY),
+                    last: whatsapp.lastAt === null ? null : formatInZone(tz, whatsapp.lastAt, WA_DAY),
+                    summaryMd: whatsapp.link.summaryMd,
+                    summaryCovers:
+                      whatsapp.link.summaryCoversThrough === null ? null : formatInZone(tz, whatsapp.link.summaryCoversThrough, WA_DAY),
+                    summaryUpdated:
+                      whatsapp.link.summaryUpdatedAt === null ? null : formatInZone(tz, whatsapp.link.summaryUpdatedAt, WA_DAY),
+                    unsummarised: whatsapp.unsummarised,
+                    scheduledForClearing: whatsapp.scheduledForClearing,
+                  }
+                : null
+            }
+          />
         </aside>
       </div>
     </div>
