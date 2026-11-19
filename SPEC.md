@@ -839,7 +839,7 @@ A linked chat follows a merge to the winner with its messages and day rows, and 
 
 ### Not built
 
-- **The laptop collector.** Whether WhatsApp Desktop's files can be read at all is unverified: the WebView2 build (since December 2025) is reported to keep encrypted SQLite databases under its `LocalState` folder with machine-bound keys. `collector/probe.mjs` is a read-only script that reports the layout and how quickly a new message reaches disk, with no message content; the collector is designed after its results.
+- **The laptop collector.** Probe part 1 (`collector/probe.mjs`, run by the owner 2026-11-19 on WhatsApp 2.2645.101.0) found that messages are not in the encrypted native databases under `LocalState` but in the WebView's IndexedDB store (`LocalCache\EBWebView\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb`), that those files can be read while the app runs, and that a message reaches them within about a second. Still open: whether message *text* in that store is readable — WhatsApp Web is reported to keep it in a per-message encrypted envelope. Part 2 (`collector/inspect.mjs`) reports the store's shape and whether keys kept in the same store open the text, with no content in the report. It is built on `collector/idb.mjs`, a dependency-free reader that treats the store as bytes — never opening the database, which would lock and rewrite WhatsApp's files — and is tested against a real Chromium store. The collector is designed after part 2's result.
 - **The collector's Settings card** (create and rotate the token, last seen). Until it exists the endpoint is closed.
 - **Commitments → reminders.** Left to Claude through the connector, which already has `create_reminder`.
 

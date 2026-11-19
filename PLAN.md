@@ -672,6 +672,15 @@ the owner; see that section before revisiting them.
     yet — the panel says so, and the endpoint is closed because no token
     exists. Automatic sync depends on `collector/probe.mjs` showing that
     WhatsApp Desktop's files can be read at all.
+  - **Probe part 1, run by the owner** (WhatsApp 2.2645.101.0): messages
+    are in the WebView's IndexedDB store, not the encrypted native
+    databases; the files are readable while the app runs; a message
+    reaches disk within about a second. Open: whether message text
+    inside is readable. **Part 2** (`collector/inspect.mjs` on
+    `collector/idb.mjs`, a dependency-free read-only IndexedDB reader
+    tested against a real Chromium store, including opening encrypted
+    text with a WebCrypto key read from disk) reports the store's shape
+    and whether the stored keys open the text — structure only.
   - **Step 2** (after the probe): the collector, the token card, and the
     owner's "message him and see it" check. **Step 3:** a scheduled
     Claude routine that keeps the rolling summaries current.
