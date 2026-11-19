@@ -556,6 +556,25 @@ the owner; see that section before revisiting them.
     the session; the no-phoning-home test gained a carve-out for Claude's
     callback hosts; a call the protocol layer rejects for malformed
     arguments is not logged because it never reaches a tool.
+  - **Reviewed twice before the summary.** An independent adversarial
+    pass over the sign-in and tools found no critical or high problem and
+    six worth fixing, all fixed with tests (SPEC §14 lists them): retired
+    refresh tokens now always end their grant, the repeat window is 10 s,
+    stranger-facing bodies are bounded before being read, an old code
+    cannot disconnect the owner, registrations always fit their id, the
+    overview cannot outgrow its cap. And the official MCP client library,
+    pointed at the production build, signed in entirely by itself —
+    discovery, registration, PKCE, consent in a real browser, token
+    exchange — listed the nine tools, called one, and recovered from a
+    spoiled access token by refreshing.
+  - **`ROLO_BIND`** (docker-compose.yml, optional): `127.0.0.1` stops the
+    container answering on port 3000 from the internet around Caddy.
+    Default unchanged. Found by the review; it predates the connector.
+  - **Verified:** `npm run check` clean with 778 unit tests (615 after
+    Phase 13; 22 came with the throttle branch, 141 are new); Playwright
+    28 of 28; `next build` succeeds and the standalone server, started the
+    way the Docker image starts it, answers every connector endpoint
+    behind proxy headers with nothing in its error log.
   - **Not verifiable here:** the live connection from claude.ai. The build
     sandbox cannot reach the deployment, so "add the connector and ask a
     question" is the owner's first check after merging (DEPLOY.md lists

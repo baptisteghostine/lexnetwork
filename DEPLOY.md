@@ -276,6 +276,20 @@ Settings card shows one to paste; the secret stays empty.
 - Rotating `SESSION_SECRET`, or losing `data/secret.key`, also means
   connecting again: client registrations and refreshes are signed with it.
 
+**One thing to close on a VPS.** `docker compose` publishes port 3000 on
+every network interface, and a port Docker publishes is reachable from
+the internet even when `ufw` says otherwise — so Rolo is also answering
+on plain `http://your-server:3000`, around Caddy and without TLS. Unless
+you use that on purpose (reaching it over Tailscale, say), add this to
+the `.env` next to `docker-compose.yml` and restart:
+
+```bash
+ROLO_BIND=127.0.0.1
+```
+
+Rolo then listens only to Caddy on the same machine. This was true before
+the connector existed; the connector is a good reason to close it.
+
 **If Claude says "Couldn't reach the MCP server"**, it is almost always
 the address: run the `dig` and `curl` checks above from outside your
 network. **If it says "Authorization failed"** after you allowed it,
