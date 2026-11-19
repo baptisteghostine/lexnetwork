@@ -473,9 +473,53 @@ product bug; the spec wants a wait like the one `01-today-flow` got on
 09-22. Open questions from SPEC.md's decision list are all resolved with
 the owner; see that section before revisiting them.
 
-**Next: the agent connector (Phases 13–18)** — proposed 2026-11-19 and
-awaiting the owner's decisions; the full plan is the last section of this
-file.
+- ✅ **Phase 13 — agent connector groundwork** (2026-11-19, migration
+  0020, SPEC §14). The owner accepted all eight recommendations of the
+  connector plan (last section of this file); they are recorded in
+  CLAUDE.md (the API non-goal amended, a new "Agent connector" terms
+  block), SPEC §14 and decision 8, and SCHEMA.md. No visible feature —
+  the app is now drivable by something other than a browser session:
+  - **Auth-free cores.** `executeFilter` (queries.ts), `recordInteraction`
+    / `addNote` (interaction-core.ts), `createReminder` /
+    `completeReminder` (reminder-core.ts), `findOrCreateTag` /
+    `setTagMembership` / `setGroupMembership` (membership-core.ts), and
+    `matchContact` / `applyImportRow` (import-engine.ts). The actions
+    behind Log interaction, the quick log, "Reached out", new notes, the
+    Reminders page and the bulk tag bar are now wrappers over them, so
+    the owner's clicks and the connector will run the same code. Cores
+    take no session, revalidate nothing, return what they touched, and
+    report bad input instead of throwing.
+  - **`agent` as a source.** The import planner needed no change: an
+    agent write fills empty fields, overwrites only its own, and is a
+    reported conflict against anything the owner or another source set.
+    `recordInteraction` is idempotent on `sourceKey` and applies the §3
+    touch rule itself, so an inbound email logged by an agent cannot
+    reset a keep-in-touch clock.
+  - **Ledger tables** `agent_grants` (hashed tokens, authorization-code
+    leg, refresh rotation with replay detection) and `agent_calls` (one
+    row per tool call, undo data, idempotency key). Nothing writes them
+    until Phase 14.
+  - **Not in this phase after all:** the login attempt throttle, which is
+    being done as its own change in a separate session; and the hosting
+    question (§4.4) is still the owner's to confirm before Phase 14.
+  - Also fixed: `e2e/06-quick-add` pressed `q` before the page had
+    hydrated and lost the keypress on a cold compile (it failed in both
+    full runs today and passed alone); it now presses until the dialog
+    answers.
+  - Verified: `npm run check` clean with 615 unit tests (589 before; 26
+    new — the cores against a migrated database with `requireAuth` and
+    `revalidatePath` mocked to throw, the planner as source `agent`, the
+    ledger constraints); Playwright 20 of 20; `next build` succeeds.
+  - Read ahead for Phase 14 (`node_modules/next/dist/docs/01-app/
+    03-api-reference/03-file-conventions/route.md` and the
+    backend-for-frontend guide): route handlers take a Web `Request` and
+    return a `Response`, which is what the MCP server package's handler
+    wants; `app/.well-known/<name>/route.ts` is a supported way to serve
+    the OAuth metadata documents; `GET` handlers are dynamic by default
+    since Next 15, so no caching opt-out is needed.
+
+**Next: Phase 14 — the read-only connector.** Blocked only on the owner
+confirming that Rolo is reachable at a public HTTPS address.
 
 ---
 
@@ -594,10 +638,11 @@ file.
 
 # The agent connector (Phases 13–18) — proposed 2026-11-19
 
-**Status: a proposal. Nothing below is built, and nothing should be until
-the owner has answered the decisions in §4** — the plan touches the auth
-model, the schema, two written non-goals and a privacy invariant, all of
-which CLAUDE.md agreement 5 puts on the stop-and-ask list.
+**Status: accepted by the owner on 2026-11-19 — "go with your
+recommendations" — covering all eight decisions in §4.** Phase 13 is
+built (see the status list above); Phases 14–18 are not. The title keeps
+its "proposed" date; the decisions now live in CLAUDE.md, SPEC §14 and
+SCHEMA.md, which win over this section wherever they differ.
 
 ## 1. The vision
 
@@ -709,7 +754,9 @@ the MCP spec; re-verify at build time, they move):
 
 ## 4. Decisions for the owner
 
-Each has a recommendation; none is taken.
+Each has a recommendation. **All eight were accepted as recommended on
+2026-11-19.** Item 4 still needs a fact from the owner: whether the
+public address exists yet.
 
 1. **Amend the "public third-party API" non-goal** to allow one
    owner-only MCP endpoint. *Recommended: yes — it is the owner's own
@@ -835,7 +882,12 @@ useful to Claude after 14; the loop in §1 is whole after 16; it runs by
 itself after 17. Each phase ends with the usual ritual (`npm run check`
 output, what is stubbed, what is next).
 
-### Phase 13 — Groundwork (no visible feature)
+### Phase 13 — Groundwork (no visible feature) — ✅ built 2026-11-19
+
+*As built: see the status list. Two deviations from the scope below —
+the login throttle moved to its own change, and "search, contact detail,
+timeline, today" needed no lifting because they were already plain
+functions with no session check.*
 
 **Goal:** the app is ready to be driven by something other than a browser
 session, and the rules allow it.

@@ -15,7 +15,7 @@ Conventions used below:
 ### Behavior
 - A contact is one person, potentially assembled from many sources (manual, CSV, vCard, LinkedIn, Google Contacts, Gmail/Calendar auto-capture).
 - Profile fields: first/last name, photo, title, company, location (free text, geocoded to lat/lng when a geocoder is configured), bio, work history (multiple rows), education (multiple rows), birthday (month/day required, year optional), emails (multiple, priority-ordered), phones (multiple, priority-ordered), social links (platform + URL), freeform rich-text description (markdown), related contacts ("who knows who", labeled edges).
-- **Provenance per field:** every scalar profile field and every multi-value row records which source last set it (`user`, `csv:<run>`, `linkedin:<run>`, `google_contacts`, `gmail`, `calendar`) and when. The UI shows provenance on hover in the profile editor.
+- **Provenance per field:** every scalar profile field and every multi-value row records which source last set it (`user`, `csv:<run>`, `linkedin:<run>`, `google_contacts`, `gmail`, `calendar`, and since 2026-11-19 `agent` — the owner's Claude through the connector, §14) and when. The UI shows provenance on hover in the profile editor.
 - **User edits always win:** once the owner hand-edits a field, imports may propose changes (as conflicts in the diff report) but never overwrite it silently.
 - Custom fields: owner defines fields of type text, number, date, single-select, multi-select. They appear on every contact profile and are filterable.
 - Tags: flat, colored, freely assignable. Groups: hierarchical (one parent max), each with an emoji; a contact can be in many groups.
@@ -478,7 +478,7 @@ Candidate pair scoring:
 
 Provider (owner-amended 2026-08-20, was "Anthropic API" only; Gemini added 2026-09-20; OpenAI added 2026-09-26): Anthropic, OpenAI (paid), Groq's OpenAI-compatible API (free tier, e.g. `openai/gpt-oss-120b`), or Gemini's OpenAI-compatible API (free tier, e.g. `gemini-3.6-flash`; no search grounding) — configured entirely by env pairs (`ANTHROPIC_API_KEY`+`ANTHROPIC_MODEL` / `OPENAI_API_KEY`+`OPENAI_MODEL` / `GROQ_API_KEY`+`GROQ_MODEL` / `GEMINI_API_KEY`+`GEMINI_MODEL`; `AI_PROVIDER` picks when several exist, defaulting to the most recently adopted: OpenAI, then Gemini, then Groq). The three OpenAI-shaped providers share one adapter; the only differences are the endpoint, the max-tokens parameter name and OpenAI's `strict` schema flag. The provider adapter is the only part that differs: one `ai_calls` row per call, strict Zod validation with one retry, and never-auto-apply hold for every provider. Groq free-tier rate limits surface as logged errors naming the cap.
 
-All features: model from the provider's env var; every call logged to `ai_calls` (feature, prompt, model, input/output tokens, latency, error). No AI call ever writes user data directly — output always lands in a review/approval surface.
+All features: model from the provider's env var; every call logged to `ai_calls` (feature, prompt, model, input/output tokens, latency, error). No AI call ever writes user data directly — output always lands in a review/approval surface. *(This binds the in-app features below. The agent connector, §14, is a separate path with its own write policy, owner-decided 2026-11-19.)*
 
 - **Natural-language search:** query → model produces a filter JSON (the §7 schema) via a constrained tool/JSON-schema output → app validates it (unknown fields rejected, values checked against real tags/groups/fields) → the deterministic query layer executes it → UI shows both results AND the compiled filter chips, editable, saveable as a View. The model never sees contact data for this feature — only the schema plus the owner's tag/group/field names.
 - **Auto-tagging:** owner selects contacts (or "all untagged") → batched calls with each contact's profile summary + the existing tag list, prompt strongly prefers existing tags → suggestions land in a queue (contact, tag, confidence, rationale) → owner approves/rejects individually or in bulk. New-tag suggestions are visually distinct.
@@ -536,6 +536,52 @@ All features: model from the provider's env var; every call logged to `ai_calls`
 
 ---
 
+## 14. Agent connector
+
+*Added 2026-11-19 on the owner's decisions (PLAN.md "The agent connector", §4, all eight recommendations accepted). It amends the "public third-party API" non-goal and scopes §11's "no AI call ever writes user data directly" to the in-app features; the terms are in CLAUDE.md §Agent connector. Built in phases 13–18; this section is extended as each lands, and anything not yet built is marked.*
+
+**What it is.** One owner-only MCP endpoint through which the owner's own Claude reads Rolo and writes back to it, used next to Claude's Gmail connector on the forwarding mailbox. Rolo stays the memory and the hands; the reasoning is Claude's. Rolo calls no model on this path.
+
+**Why it has to exist.** Since June 2026 the owner's school mail reaches the forwarding Gmail as Outlook *forwards*: From the owner, To the forwarding address, the real sender and recipients in the body. §9's sync is metadata-only, finds no counterpart, and skips every one of them (`processMessages`: no counterparts → no interaction). Only a reader of bodies can tell who the owner is talking to, and the invariant that keeps Rolo from being that reader stands. Claude with its own Gmail connector is the reader; the connector is how what it learns gets into Rolo.
+
+### Phase 13 — groundwork (built)
+
+- **Auth-free cores.** Every async export of a `"use server"` file is an endpoint a browser can call, and `requireAuth()` redirects when there is no session cookie, so a route handler can call neither safely. The logic the connector needs lives in plain modules, and each server action is a `requireAuth()` + core + `revalidatePath` wrapper:
+
+  | Core | Module | Used by |
+  |---|---|---|
+  | `executeFilter` | `src/server/queries.ts` | `runFilter` action, contacts page, Ask |
+  | `recordInteraction`, `addNote` | `src/server/interaction-core.ts` | Log interaction, quick log, "Reached out", new note |
+  | `createReminder`, `completeReminder` | `src/server/reminder-core.ts` | Reminders page, Today |
+  | `setTagMembership` | `src/server/membership-core.ts` | the contacts-list bulk bar |
+  | `findOrCreateTag`, `setGroupMembership` | `src/server/membership-core.ts` | the connector only, so far |
+  | `matchContact`, `applyImportRow` | `src/server/import-engine.ts` | share the ladder and `applyPlan` with CSV / vCard imports |
+
+  Cores take no session, revalidate no page, and return what they touched (ids, and for membership exactly which contacts flipped) so a caller can refresh pages and record an undo. They report bad input as `{ ok: false, error }` rather than throwing.
+
+  Reads that were already plain functions are used as they are: `searchContacts`, `searchNotes`, `getContactDetail`, `getContactTimeline`, `getTodayData`, `listTags`, `listGroups`, `ownerVoiceContext`.
+- **Write policy.** Appended, attributed, undoable records apply directly: interactions, notes, reminders, drafts, tag and group membership, new contacts. Contact fields go through §8's field-conflict rules as source `agent`, which the planner treats like any non-user source: it fills an empty field, overwrites a value `agent` itself set, and reports a conflict against a value the owner or another source set — never overwriting it. Delete, merge, archive, export, settings and tokens are never exposed.
+- **What counts for touch is unchanged** (§3): `recordInteraction` asks `interactionCountsForTouch(kind, direction)`, the one rule — an email counts only when outbound, everything else logged counts — so an agent logging a reply the owner received does not reset the clock. The caller cannot override it.
+- **Idempotency.** `recordInteraction` takes a `sourceKey`; a repeat with the same `(contact, source, key)` writes nothing — not the interaction, not its attached note — and returns the first row with `created: false`. For mail the key is the id of the message the agent read. `findOrCreateTag` matches names case-insensitively, so "Investor" and "investor" are one tag.
+- **One row, any source.** `applyImportRow(row, { source, dryRun })` runs a single person through §8's identity ladder and field rules without creating a sync run; a dry run returns the plan and writes nothing. An overwrite of a title or company the same source set earlier is a `contact_changes` row like any other (§5).
+- **Ledger tables** (migration 0020, SCHEMA.md): `agent_grants` — one row per authorised client, tokens stored as SHA-256 hashes; `agent_calls` — one row per tool call with its arguments, outcome, the rows it wrote and the data to undo them.
+
+### Phases 14–18 (not built)
+
+Read-only connector and OAuth sign-in (14), write tools with undo and an activity page (15), campaigns, derived outreach stage and the Outbox (16), unattended runs (17), richer targeting data (18). Scope and acceptance criteria are in PLAN.md until each phase starts.
+
+### Acceptance criteria (Phase 13)
+
+- [ ] Each core runs against a migrated database with `requireAuth` and `revalidatePath` mocked to throw, proving no core depends on a session or a page cache; the same test shows each action wrapper still refuses without a session.
+- [ ] `recordInteraction` with the same `sourceKey` twice writes one row and reports the second as not created; a different key writes a second row.
+- [ ] An inbound email logged by an agent leaves `last_interaction_at` and `next_touch_at` unchanged; an outbound one moves them.
+- [ ] `applyImportRow` as source `agent` against a field the owner edited writes nothing to that field and returns the conflict; against an empty field it fills it and stamps provenance `agent`; a second agent write overwrites its own value.
+- [ ] An agent-created contact carries `agent` provenance on every field it set, and a second row with the same email resolves to it instead of creating another.
+- [ ] `agent_calls` enforces one successful row per `(tool, idempotency_key)`; a failed attempt does not burn the key; a call row outlives its grant and its contact.
+- [ ] Not built in Phase 13: the login attempt throttle listed in the plan — it is being done as its own change.
+
+---
+
 ## Decisions (resolved with owner, 2026-08-12)
 
 1. **"What counts for touch"** (§3): CONFIRMED — inbound-only email does not reset the cadence clock; only outbound emails, meetings, LinkedIn messages, manual logs, and counting notes do.
@@ -545,3 +591,4 @@ All features: model from the provider's env var; every call logged to `ai_calls`
 5. **Notes counting as interactions** (§3): default toggle stands as specced — on for notes created via Today's "log interaction", off for plain notes.
 6. **Auth setup** (owner decision): first-run setup screen creates the password (hash in `settings`), changeable in settings; recovery via documented CLI reset script. No password env var.
 7. **LinkedIn automatic sync** (owner decision, 2026-08-13): add the Member Data Portability API as a second official ingestion channel (§9a); the scraping/automation prohibition stands.
+8. **Agent connector** (owner decision, 2026-11-19, §14): an owner-only MCP endpoint; direct agent writes for appended, undoable records and provenance-guarded field writes; the data flow into the owner's Claude conversations accepted; an OAuth authorization server inside Rolo with the password gate as consent; migration 0020 (`agent_grants`, `agent_calls`); `@modelcontextprotocol/server` as the one new dependency, to be added with Phase 14; campaigns as a group plus a brief with the stage derived from interactions; the Outbox's "Sent" as the record of sent mail. Hosting on a public HTTPS address is the owner's to confirm before Phase 14.

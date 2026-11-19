@@ -102,9 +102,11 @@ data/               # SQLite file, attachments/, backups/ — gitignored
 
 ## Non-goals (never build these)
 
-Multi-user auth, roles/permissions, teams, deal pipelines/stages/revenue, email campaign sending, billing/Stripe, admin panel, public third-party API, native mobile app, telemetry/analytics of any kind, external message brokers.
+Multi-user auth, roles/permissions, teams, deal pipelines/stages/revenue, email campaign sending, billing/Stripe, admin panel, native mobile app, telemetry/analytics of any kind, external message brokers.
 
 ~~browser extension that scrapes or automates LinkedIn~~ — **owner-amended 2026-08-20.** Path 3 below (server-side Voyager sync) proved structurally impossible: LinkedIn is behind Cloudflare bot management, which fingerprints the TLS handshake before a single header is sent, so a Node process is refused no matter how it presents itself. The commercial products solve this by running inside the browser, and the owner directed Rolo to do the same. `extension/` is an unpacked Chrome extension (SPEC §9c) that pages the owner's own connection list from a real linkedin.com tab and posts it to Rolo. Same ToS breach and same account-restriction risk as path 3, explicitly re-accepted; same pacing and fail-loud terms; no fingerprint spoofing, because inside a real browser there is nothing to spoof.
+
+~~public third-party API~~ — **owner-amended 2026-11-19.** One owner-only MCP endpoint (the "agent connector", SPEC §14) lets the owner's own Claude read and update Rolo. It is not an API for third parties: it authenticates as the owner (OAuth with the Rolo password as the consent step), every token is revocable in Settings, and it exposes no delete, merge, archive, export, settings or token tools. Anything beyond that — other users, API keys handed to other products, webhooks out — is still a non-goal. The other non-goals bind it too: Rolo never sends mail (drafts only), and a person's outreach stage is derived from interactions, never a pipeline stage someone drags.
 
 **Privacy invariants:** Gmail sync is `gmail.metadata` scope only — sender/recipients, subject, thread id, timestamp. Never fetch, store, or log message bodies. No third-party network calls except integrations the owner explicitly configured (Google APIs, Anthropic API, geocoding if configured; owner-amended 2026-08-24: Mapbox tiles load in the owner's browser when they paste their own token in Settings — the bundled SVG map remains the default and the no-token fallback).
 
@@ -122,6 +124,16 @@ Path 3 was added on the owner's explicit instruction — requested once before P
 - **Polite pacing.** Serial requests, a real delay between pages, a hard page cap. Burst traffic is both rude and the thing that actually gets accounts flagged.
 - **Fail loud, never silent.** A zero-connection result is an error, not a successful no-op — it means the response shape drifted or the session died. Imports only ever add or update; a contact is never deleted because it stopped appearing.
 - **Never log the session.** `li_at`/`JSESSIONID` are bearer credentials: encrypted at rest via the token box (`lib/crypto`), and anything bound for a log, `jobs.last_error`, or a sync-run report goes through `scrubSecrets` first.
+
+**Agent connector** (owner decisions 2026-11-19, SPEC §14, PLAN.md Phases 13–18) — the terms it is built under, not preferences:
+
+- **Rolo calls no model on this path.** Claude reasons; Rolo validates structured arguments (Zod, ids checked against the database) and runs its own deterministic code. Invalid input is refused, never guessed.
+- **What an agent may write** (amending SPEC §11's "no AI call ever writes user data directly", which still binds the in-app AI features): appended, attributed, undoable records apply directly — interactions, notes, reminders, drafts, tag and group membership, new contacts. Contact *fields* go through the import provenance rules as source `agent`: an owner-edited field is never overwritten, the conflict is reported back. A Settings switch can demote all of it to "queue for review".
+- **Every write is attributed and reversible.** `source = 'agent'` where the table has a source, one `agent_calls` row per tool call with what it changed and how to undo it, an idempotency key so a re-run upserts instead of doubling.
+- **Data flow, accepted by the owner:** tool results carry contact names, roles, notes and message text into the owner's Claude conversations (their claude.ai account terms, not the API terms the in-app AI runs under), and notes an agent writes may summarise email it read through its own Gmail connector. This is inbound-only for Rolo — no new outbound host. The Gmail invariant above is untouched: Rolo's own sync stays `gmail.metadata`.
+- **Mail is untrusted.** Third-party text is returned marked as data; nothing in a mail body or a note is an instruction. Small, paged, capped results — no tool can dump the database.
+- **Never log a token.** Access and refresh tokens are stored hashed and never written to a log, an `agent_calls` row or an error message.
+- **`"use server"` files export endpoints.** Every async export of such a file is callable from the browser, so logic shared with the connector lives in plain modules (`src/server/*-core.ts`, `queries.ts`, `import-engine.ts`) and the action is a thin `requireAuth()` + core + `revalidatePath` wrapper. Never add an unauthenticated export to a `"use server"` file.
 
 **Outbound HTTP** goes through `src/lib/net/fetch.ts` (`outboundFetch`) — a host allowlist enforcing the privacy invariant. Never call `fetch` directly for external hosts; add a host to the allowlist only alongside an owner-configurable integration.
 
