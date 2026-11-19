@@ -758,6 +758,107 @@ Campaigns, derived outreach stage and "Drafts to send" (16), unattended runs (17
 
 ---
 
+## 15. WhatsApp, per person
+
+*Added 2026-11-19 on the owner's request and design ("everything per person, driven from Rolo"). Step 1 of three is built: the Rolo side and the phone-export source. The laptop collector (step 2) waits on a feasibility probe the owner runs; nothing in this section depends on how it turns out. The terms are in CLAUDE.md §WhatsApp.*
+
+**What it is.** For the people the owner chooses — and only them — their one-to-one WhatsApp conversation is in Rolo: on the timeline as exchanges, readable by the owner's Claude, and kept as exact words for 90 days and as one rolling summary after that. Everyone else in the owner's WhatsApp does not exist as far as Rolo is concerned.
+
+**What it rests on.**
+
+- *Rolo knows a chat only as a row the owner made.* A chat exists in Rolo when the owner types a number on a contact (`whatsapp_links`). There is no chat list, no address book, no discovery. Every way in — the export upload, the collector's endpoint — resolves to such a row or is refused.
+- *Identity is the number, never the name.* The link stores the number in E.164 digits (`wa_id`) and, separately, the name the owner saved that person under in WhatsApp (`saved_name`: Chris Haswani is "John"). The saved name is an alias for display and search; nothing is ever matched on it to decide whose messages these are.
+- *Read-only by construction.* Rolo has no code that talks to WhatsApp, and neither source can: an export is a file the owner made on their phone; the collector (when built) reads WhatsApp Desktop's files on disk and has no network path to WhatsApp and no hold on the running app.
+- *No protocol bridge.* Baileys, whatsapp-web.js and attaching to the running app through a debugging port are excluded — the last because it is the same technique and can send as well as read. If reading the local files proves impossible, there is no automatic path and the export remains the source.
+- *Groups stay out.* A group's identifier is not a phone number, so it cannot be linked or delivered; an export with more than two voices is refused.
+
+### The panel
+
+Each contact page has a WhatsApp panel (`src/components/whatsapp-panel.tsx`; actions in `src/server/whatsapp.ts`, rules in `src/server/whatsapp-core.ts`):
+
+- **Link chat** — the number and the saved name. A number typed with its country code is accepted if it is a possible number for that country (the bundled numbering plans lag behind new ranges); a national number needs the default region and must be valid. One chat per contact, one contact per number.
+- **Keep this chat in sync** — on/off, off by default. It is the only thing that puts a number on the collector's list. Until a collector has ever checked in, the panel says that nothing syncs automatically yet.
+- **Import history from** a date — how far back the collector is asked to go for this chat. Without one, sync starts when the chat was linked.
+- **Upload a phone export** — the official "Export chat" file (.zip or `_chat.txt`), for older history or as the only source.
+- **Summary of older messages** — the rolling summary and how far it reaches.
+- **Delete WhatsApp data…** — two clicks. Removes the link, every message, the summary and the WhatsApp timeline rows for this person. Their other Rolo data is untouched, and WhatsApp itself cannot be affected.
+
+Turning sync off keeps what is already in Rolo. Deleting is always the separate action.
+
+### Messages, and the timeline
+
+- `whatsapp_messages` holds one row per message: its key, direction, time, kind (`text`, `media`, `call`, `other`) and — for text — the body. **Media never leaves the laptop**: a photo or voice note is a row with a kind and no body, and the collector's contract has no field that could carry one.
+- **The timeline shows one row per day of conversation**, not one per message: `WhatsApp · 12 messages (5 sent, 7 received)`, with the day's retained text behind it as a transcript (capped at 4,000 characters). A conversation is dozens of messages; a timeline — and Claude's view of "recent exchanges" — is for "we talked on Tuesday". The rows are `interactions` with `source = 'whatsapp'`, `source_key = 'wa-day:<YYYY-MM-DD>'` (the day in the owner's timezone), and are *derived*: rebuilt from `whatsapp_messages` whenever those change, never written any other way, and not individually deletable.
+- **Only what the owner sent resets the keep-in-touch clock** (§3): a day row counts as a touch when it contains at least one outbound message, and is dated to the last one. A day of only received messages is on the timeline and moves nothing — the same line §9 draws for email. (LinkedIn messages are unchanged: any message counts.)
+
+### No duplicates, from two sources
+
+- The collector's messages carry WhatsApp's own ids; the same id again is the same message, and an edit made in WhatsApp updates the text.
+- An export has no ids. Each line gets a key from its content — chat, direction, second, text, and its position among identical lines — so the same file, or a longer export of the same chat, lands on the same rows.
+- **Across the two sources**, a message is recognised by what it says and when: same direction, same second, same text. An export of a stretch the collector already delivered adds nothing, and the reverse; three identical "ok"s against two already there adds one.
+- **Purged text does not come back.** A row whose text was cleared (below) still matches on time and direction alone, so re-importing old history cannot resurrect it.
+
+### The phone export
+
+`src/lib/whatsapp/export.ts` reads iPhone exports (`[19/11/2026, 14:03:22] John: …`, inside a zip as `_chat.txt`) and Android's bracketless form. From a zip only the text file is unpacked — photos in the archive are never read.
+
+- *Dates.* The order follows the phone's region. A four-digit first part or any day above 12 settles it; otherwise the order that keeps the file in time order wins (an export is oldest-first); if even that cannot say, day/month is assumed and the result says so. 12-hour clocks, two-digit years and `.`/`-` separators are read.
+- *Times* are wall-clock with no zone, so they are read in Rolo's timezone setting; the panel names it, and warns when it is still UTC.
+- *Who is who.* The file names people as the phone's address book does, so the contact appears under their saved name. That name is "them"; the other voice is the owner. If the saved name is not in the file, nothing is imported and the panel asks which of the two names is theirs. **Uploading the file on a contact's page is what says whose chat it is** — never a name.
+- Refused: a file that is not an export, one with more than two voices, and one whose dates come out in the future.
+- WhatsApp's own lines (the encryption notice, "changed their phone number") are skipped; deleted messages are kept as a row with no text; media and calls as their kind.
+
+### The collector's contract (server side built; the collector is not)
+
+`/api/whatsapp/collector`, gated by a bearer token compared in constant time (`src/server/whatsapp-collector.ts`). **No token exists until the collector ships, so the endpoint answers nobody.**
+
+- `GET` → `{ wants: [{ waId, from, to }] }`: the numbers whose sync is on, each with the date ranges still wanted — history first (from the date the owner picked, back to where the collector has already covered), then the live tail with a ten-minute overlap. No names, no contact ids, nothing about anyone whose sync is off. This list is the whole of what the laptop is asked to read.
+- `POST` → `{ chats: [{ waId, coveredFrom, coveredTo, messages: [{ id, at, fromMe, kind, text }] }] }`, strictly validated: an unknown field is an error, 2,000 messages per chat and 4 MB per request at most.
+- **The filter runs twice.** The collector filters before it stores or sends anything; the server applies the same rule again: a chat that is not linked with sync on is discarded unread, counted, and recorded as a failed `whatsapp_sync` run — a stale list or a bug on the laptop cannot put an unlinked chat into Rolo. Messages from before the owner's chosen date are dropped too.
+
+### Retention: exact words for 90 days, then one rolling summary
+
+- Exact text is kept for 90 days. Older history lives on as **one rolling summary per contact** (`whatsapp_links.summary_md`), rewritten each time rather than stacked: topics, plans, commitments in both directions, personal updates, how the relationship is evolving.
+- **Claude writes it, through the connector** (`save_whatsapp_summary`, §14) — on the owner's request or a routine they schedule. Rolo calls no model for this, so WhatsApp text never goes to the in-app AI providers. Each save states `coversThrough`: the time of the last message folded in.
+- **Text is never cleared on age alone.** The nightly `whatsapp_retention` job clears a message's text only when it is *both* older than 90 days *and* at or before the saved summary's `coversThrough` — and then only after it has been on the clearing list for **7 days**, and is still covered. If Claude's routine never runs, nothing is ever cleared.
+- The 7 days are for the one irreversible step here: time to read a new summary and undo it. Undoing restores the previous summary and takes the text it covered off the list at once.
+- A summary must be at least 80 characters, may not reach past the newest message Rolo holds, and only moves forward. Rolo keeps one earlier version: the latest update can be undone, once.
+- After clearing, the row stays without its text: the day is still on the timeline with its counts, and the keep-in-touch clock is unaffected.
+- *Stated limit:* nightly backups (§13) are kept 30 days, so text cleared from the live database remains in backup files for up to 30 more days.
+
+### What Claude can see and do (§14)
+
+- `list_whatsapp_chats` (read) — the linked contacts, with message counts, how far each summary reaches, and how many messages are waiting to be summarised.
+- `get_whatsapp_chat` (read) — one linked contact's summary and messages, up to 200 a call, marked as data. A contact with no link has nothing to read, and after "Delete WhatsApp data" there is nothing left.
+- `get_contacts` shows `whatsapp: { savedInWhatsAppAs, summary, … }` for a linked contact, and `find_contact` finds a person by their saved name ("John" → Chris) as a candidate.
+- `save_whatsapp_summary` (write) — replaces the rolling summary. Sanitised like every text an agent writes, ledgered, undoable, and queued in "ask me first" mode with the full text shown.
+
+### Merging and deleting contacts
+
+A linked chat follows a merge to the winner with its messages and day rows, and returns on undo. A merge is refused when both contacts have a chat (one would lose its messages); delete the WhatsApp data from one first. Deleting a contact deletes their WhatsApp data with them.
+
+### Not built
+
+- **The laptop collector.** Whether WhatsApp Desktop's files can be read at all is unverified: the WebView2 build (since December 2025) is reported to keep encrypted SQLite databases under its `LocalState` folder with machine-bound keys. `collector/probe.mjs` is a read-only script that reports the layout and how quickly a new message reaches disk, with no message content; the collector is designed after its results.
+- **The collector's Settings card** (create and rotate the token, last seen). Until it exists the endpoint is closed.
+- **Commitments → reminders.** Left to Claude through the connector, which already has `create_reminder`.
+
+### Acceptance criteria
+
+- [ ] Pure: a number becomes the same `wa_id` however typed, a national number needs a region, and names, group ids and JIDs are not numbers; the fingerprint ignores milliseconds and spacing; an export line gets the same key on every upload and repeats get their own; a day row dates itself to the owner's last message, counts as a touch only with an outbound message, keeps its counts when its text is gone, and is cut with a mark when very long; `wantsForLink` asks for the link date, an earlier chosen date, exactly the missing stretch, and the tail; `purgeEligible` needs both conditions.
+- [ ] Export parser: iPhone and Android forms; multi-line messages; media, calls, deleted and edited messages; WhatsApp's own lines skipped; summer time; 12-hour clocks and two-digit years; date order by evidence, by time order, and assumed with a flag; impossible dates skipped; a zip yields its text and not its media; a file that is not an export is refused.
+- [ ] Against a migrated database: linking refuses a non-number, an empty name, a second chat and a number someone else has; an export lands as day rows in the owner's timezone and moves the clock only by what was sent; the same file twice adds nothing and a longer one adds the difference; an unknown saved name asks and takes the answer; a group export, a future-dated file and an unlinked contact are refused.
+- [ ] Collector contract: closed without a token; `wants` holds numbers and dates only and nobody whose sync is off; a delivery stores the enabled chat and discards a disabled one, an unlinked one and a group id without any of their text reaching any table, recording a failed run; the same delivery twice changes nothing; toggling off empties `wants` and a late delivery is discarded; "import history from" asks for exactly the stretch and nothing older is kept; an edit updates; malformed, oversized and extra-field deliveries are refused; media arrives without text whatever was sent.
+- [ ] Two sources: an export of messages the collector delivered adds nothing, and the reverse; a third identical message is new.
+- [ ] Retention: with no summary a year-old message keeps its text; a summary must be real, cover only what exists, and move forward; text is scheduled only when past 90 days and covered, kept through day 6, cleared on day 7, and only that text; purged text does not return from either source; undoing a summary restores the previous one and unschedules its text; only the latest update can be undone, once.
+- [ ] Deleting WhatsApp data removes the link, messages, summary and day rows for that person, restores the clock to what the rest says, and leaves the contact, their note and their hand-logged interaction; deleting the contact cascades; renaming the saved name rewrites transcripts, not identity.
+- [ ] Connector: only linked chats are listed and readable; text is marked as data; a profile carries the saved name and summary; "John" finds Chris; `save_whatsapp_summary` is refused for a short text, a future or backward `coversThrough`, an unlinked contact and a read-only grant, is sanitised, undoable, and queued whole in review mode; the widest call stays under the size cap on a 400-message, maximum-length chat.
+- [ ] Merge: a linked chat moves with its messages and day rows and returns on undo; both-linked is refused with neither changed.
+- [ ] E2E in a real browser: link by number and saved name (a non-number is refused); upload an export and see one row per day with the day's words behind it; upload it again and nothing is added; a group export is refused; the saved name, sync toggle and history date are remembered; Delete WhatsApp data removes the WhatsApp rows and leaves a hand-logged interaction.
+- [ ] Manual, the owner's: run the probe on the Windows laptop and send the report; upload a real iPhone export for one contact and check the dates.
+
+---
+
 ## Decisions (resolved with owner, 2026-08-12)
 
 1. **"What counts for touch"** (§3): CONFIRMED — inbound-only email does not reset the cadence clock; only outbound emails, meetings, LinkedIn messages, manual logs, and counting notes do.

@@ -440,3 +440,39 @@ describe("AI annotations after a merge", () => {
     expect(count("SELECT count(*) AS n FROM ai_annotations WHERE subject_id = ?", ids.loser)).toBe(0);
   });
 });
+
+// SPEC §15: a linked WhatsApp chat belongs to the person, so it follows a merge.
+describe("merging a contact that has a WhatsApp chat linked", () => {
+  function linkChat(contactId: number, waId: string): number {
+    const linkId = Number(
+      db
+        .prepare("INSERT INTO whatsapp_links (contact_id, wa_id, saved_name, sync_enabled, summary_md, created_at, updated_at) VALUES (?, ?, 'John', 1, 'A summary.', ?, ?)")
+        .run(contactId, waId, NOW, NOW).lastInsertRowid
+    );
+    db.prepare("INSERT INTO whatsapp_messages (link_id, message_key, direction, sent_at, kind, body, source, created_at) VALUES (?, 'k1', 'outbound', ?, 'text', 'See you Thursday', 'export', ?)").run(linkId, NOW - 1000, NOW);
+    db.prepare("INSERT INTO interactions (contact_id, kind, direction, occurred_at, title, source, source_key, counts_for_touch, created_at) VALUES (?, 'message', 'outbound', ?, 'WhatsApp · 1 message sent', 'whatsapp', 'wa-day:2026-08-13', 1, ?)").run(contactId, NOW - 1000, NOW);
+    return linkId;
+  }
+  const chats = () => db.prepare("SELECT l.contact_id AS contactId, l.wa_id AS waId, (SELECT count(*) FROM whatsapp_messages m WHERE m.link_id = l.id) AS messages FROM whatsapp_links l ORDER BY l.id").all();
+
+  it("the chat, its messages and its timeline rows move to the winner, and undo sends them back", () => {
+    linkChat(ids.loser, "447911123456");
+    const { logId } = mergeContacts(db, { winnerId: ids.winner, loserId: ids.loser, now: NOW });
+    expect(chats()).toEqual([{ contactId: ids.winner, waId: "447911123456", messages: 1 }]);
+    expect(db.prepare("SELECT contact_id FROM interactions WHERE source = 'whatsapp'").all()).toEqual([{ contact_id: ids.winner }]);
+    expect(undoMerge(db, logId, NOW + 1000)).toMatchObject({ ok: true });
+    expect(chats()).toEqual([{ contactId: ids.loser, waId: "447911123456", messages: 1 }]);
+    expect(db.prepare("SELECT contact_id FROM interactions WHERE source = 'whatsapp'").all()).toEqual([{ contact_id: ids.loser }]);
+  });
+
+  it("is refused when both have a chat — one would lose its messages", () => {
+    linkChat(ids.winner, "447911123456");
+    linkChat(ids.loser, "33612345678");
+    expect(() => mergeContacts(db, { winnerId: ids.winner, loserId: ids.loser, now: NOW })).toThrow(/Both contacts have a WhatsApp chat linked/);
+    expect(chats()).toEqual([
+      { contactId: ids.winner, waId: "447911123456", messages: 1 },
+      { contactId: ids.loser, waId: "33612345678", messages: 1 },
+    ]);
+    expect(db.prepare("SELECT count(*) AS n FROM contacts WHERE id IN (?, ?)").get(ids.winner, ids.loser)).toEqual({ n: 2 });
+  });
+});

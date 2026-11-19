@@ -4,7 +4,7 @@ SQLite via better-sqlite3 + Drizzle. Conventions:
 - `id` = `INTEGER PRIMARY KEY` (SQLite rowid alias) unless noted.
 - Timestamps = `INTEGER` unix epoch **milliseconds**, named `*_at`. Nullable when the event may not have happened.
 - Booleans = `INTEGER` 0/1.
-- `source` columns = TEXT enum: `'user' | 'csv' | 'vcard' | 'linkedin' | 'google_contacts' | 'gmail' | 'calendar' | 'merge' | 'ai' | 'agent'` (ai only ever via approved suggestions; `agent` = the owner's Claude writing through the connector, SPEC §14, added 2026-11-19 — no migration, the columns are plain TEXT).
+- `source` columns = TEXT enum: `'user' | 'csv' | 'vcard' | 'linkedin' | 'google_contacts' | 'gmail' | 'calendar' | 'merge' | 'ai' | 'agent' | 'whatsapp'` (`whatsapp` = the derived per-day rows of a linked chat, SPEC §15; ai only ever via approved suggestions; `agent` = the owner's Claude writing through the connector, SPEC §14, added 2026-11-19 — no migration, the columns are plain TEXT).
 - All FKs declared with `ON DELETE` behavior stated; `PRAGMA foreign_keys = ON` at every connection open, plus `journal_mode=WAL`, `synchronous=NORMAL`, `busy_timeout=5000`.
 
 Tables the brief listed are all here, plus **four additions** (each flagged inline): `contact_field_sources`, `duplicate_candidates`, `ai_suggestions`, `settings`. Rationale in their sections; if you'd rather fold any of them elsewhere, say so before Phase 1.
@@ -190,7 +190,7 @@ Everything externally-sourced or manually logged (notes live in `notes`):
 
 Covers **both** API syncs and file imports (one lifecycle: started → stats → finished/failed):
 
-`id, kind TEXT NOT NULL ('gmail','calendar','google_contacts','csv_import','vcard_import','linkedin_import','linkedin_api_sync','linkedin_voyager_sync' (retired 2026-09-19; historical rows only),'linkedin_extension_sync','linkedin_profile_enrich','linkedin_profile_capture','dedupe_scan','export','backup'), integration_account_id FK ON DELETE SET NULL, file_name TEXT, file_sha256 TEXT, mapping_json TEXT (CSV column mapping used), cursor_before TEXT, cursor_after TEXT, status TEXT ('running','success','failed','partial'), stats_json TEXT ({new, updated, unchanged, conflicts, errors,…}), report_json TEXT (row-level diff report; large, loaded lazily), error TEXT, started_at, finished_at`.
+`id, kind TEXT NOT NULL ('gmail','calendar','google_contacts','csv_import','vcard_import','linkedin_import','linkedin_api_sync','linkedin_voyager_sync' (retired 2026-09-19; historical rows only),'linkedin_extension_sync','linkedin_profile_enrich','linkedin_profile_capture','dedupe_scan','export','whatsapp_export' (a phone export uploaded on a contact),'whatsapp_sync' (a collector delivery that added messages or was partly refused),'backup'), integration_account_id FK ON DELETE SET NULL, file_name TEXT, file_sha256 TEXT, mapping_json TEXT (CSV column mapping used), cursor_before TEXT, cursor_after TEXT, status TEXT ('running','success','failed','partial'), stats_json TEXT ({new, updated, unchanged, conflicts, errors,…}), report_json TEXT (row-level diff report; large, loaded lazily), error TEXT, started_at, finished_at`.
 - `idx_sync_runs_kind ON sync_runs(kind, started_at DESC)`, `idx_sync_runs_sha ON sync_runs(file_sha256)` (the "already imported this exact file" check).
 
 ## contact_changes
@@ -267,6 +267,24 @@ Covers **both** API syncs and file imports (one lifecycle: started → stats →
 - Both FKs are SET NULL: the log outlives a revoked-and-deleted grant and a deleted contact. Rows that changed nothing (`writes_json` NULL, or `'[]'` on anything but an undo) are pruned after 90 days, at most once a day, on the back of a call being recorded — except proposals still `queued`. Rows that wrote something, and undos, are the audit trail and stay.
 - Written only by the tool dispatcher (`callAgentTool`) and the owner's Approve / Reject / Undo; a write tool's row is inserted in the same transaction as the write. `args_json` is stubbed past 4,000 characters — except on a `queued` row, which is run from it on approval and so keeps its (schema-bounded) arguments whole — and never holds a token. A call that failed validation stores `{"_invalid":true,"keys":[…]}`: the names of what was sent, not the values.
 
+## whatsapp_links  *(added 2026-11-19, migration 0021 — SPEC §15)*
+
+`id, contact_id FK → contacts ON DELETE CASCADE NOT NULL, wa_id TEXT NOT NULL, saved_name TEXT NOT NULL, sync_enabled INTEGER NOT NULL DEFAULT 0, sync_from INTEGER, collector_covered_from INTEGER, last_synced_at INTEGER, summary_md TEXT, summary_covers_through INTEGER, summary_updated_at INTEGER, summary_prev_md TEXT, summary_prev_covers_through INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL`.
+- One row per contact whose 1:1 WhatsApp chat the owner linked — the whole of what Rolo knows about the owner's WhatsApp. `uq_whatsapp_links_contact ON (contact_id)`: one chat per contact. `uq_whatsapp_links_wa_id ON (wa_id)`: one contact per number.
+- `wa_id` is the chat's identity: the number in E.164 digits without `+`. `saved_name` is what the owner calls the person in WhatsApp ("John" for Chris) — an alias for display and lookup, never used to decide whose messages these are.
+- `sync_enabled` is the only thing that puts the number on the laptop collector's list. `sync_from` is the "import history from" date (NULL = from `created_at`). `collector_covered_from` is the earliest moment the collector has confirmed reading; `last_synced_at` the last time it reported on this chat.
+- `summary_md` is the rolling summary of older history, written through the agent connector; `summary_covers_through` is the time of the last message it reflects, and is what allows text up to there to be cleared. `summary_updated_at` is a strictly increasing marker (never reused, even within a millisecond): an undo applies only to the update that still holds it. `summary_prev_*` hold the one earlier version an undo restores.
+- Written only by `src/server/whatsapp-core.ts`. Merge moves the row to the winner (`CHILD_TABLES`); a merge where both contacts have one is refused.
+
+## whatsapp_messages  *(added 2026-11-19, migration 0021 — SPEC §15)*
+
+`id, link_id FK → whatsapp_links ON DELETE CASCADE NOT NULL, message_key TEXT NOT NULL, direction TEXT NOT NULL ('inbound','outbound'), sent_at INTEGER NOT NULL, kind TEXT NOT NULL ('text','media','call','other'), body TEXT, source TEXT NOT NULL ('collector','export'), purge_after INTEGER, body_purged_at INTEGER, created_at INTEGER NOT NULL`.
+- One row per message of a linked chat. `uq_whatsapp_messages_key ON (link_id, message_key)`; `idx_whatsapp_messages_time ON (link_id, sent_at)`.
+- `message_key` is WhatsApp's own message id (collector) or `export:<32 hex>` — a hash of chat, direction, second, text and position among identical lines (phone export, which has no ids).
+- `body` is text only. Media has `kind = 'media'` and no body: nothing but text ever leaves the laptop.
+- Retention: `purge_after` is set when the text is both older than 90 days and at or before the link's `summary_covers_through`; the text is cleared (`body = NULL`, `body_purged_at` set) once that time passes and it is still covered. **The row is kept**: counts hold, and a re-import matches it by time and direction and cannot bring the text back.
+- The timeline does not read this table: each day's messages are folded into one `interactions` row — `source = 'whatsapp'`, `source_key = 'wa-day:<YYYY-MM-DD>'` in the owner's timezone, `kind = 'message'`, `counts_for_touch = 1` only when the day holds an outbound message, `meta = {channel, day, count, sent, received, body?}` — which is **derived**: rebuilt whenever these rows change and never hand-written.
+
 ## ai_suggestions  *(added table — approval queue)*
 
 `id, kind TEXT NOT NULL ('tag'), contact_id FK CASCADE, payload_json TEXT NOT NULL ({tagName, isNewTag, confidence, rationale}), ai_call_id FK SET NULL, status TEXT ('pending','approved','rejected'), created_at, resolved_at`.
@@ -276,6 +294,7 @@ Covers **both** API syncs and file imports (one lifecycle: started → stats →
 
 `key TEXT PRIMARY KEY, value TEXT NOT NULL (JSON)`. Timezone, digest hour, SMTP config, snooze-all params, password hash, failed-login throttle state (`auth.login_throttle`), birthday-Feb-29 rule, my-addresses default, geocoder config. A settings table beats env vars for anything the UI should edit.
 
+- `whatsapp_collector.token` → the laptop collector's bearer token (SPEC §15). Absent until the collector's Settings card exists, which keeps `/api/whatsapp/collector` closed. `whatsapp_collector.last_seen_at` → epoch ms of the collector's last call.
 - `agent.write_mode` → `'apply'` (default, also when absent) or `'review'`: whether the connector's writes apply at once or wait on the activity page for the owner's approval (SPEC §14, Phase 15).
 - `linkedin_voyager.session` / `linkedin_voyager.enabled` → **retired 2026-09-19** with SPEC §9b; no code reads them any more (a Disconnect before the retirement cleared the session). Historical note: the owner's pasted LinkedIn cookie pair (SPEC §9b), boxed with `lib/crypto` `encryptToken` (same at-rest encryption as OAuth tokens — a live LinkedIn login must not sit plaintext in backups; rotating the session secret invalidates it, surfaced as "reconnect"). `linkedin_voyager.enabled` → boolean, the weekly-sync opt-in toggle.
 

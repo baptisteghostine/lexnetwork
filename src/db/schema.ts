@@ -894,6 +894,78 @@ export const agentCalls = sqliteTable(
   ]
 );
 
+// ---------- WhatsApp, per person (SPEC §15) ----------
+
+// One row per contact whose 1:1 WhatsApp chat the owner has linked. The
+// row is the whole of what Rolo knows about the owner's WhatsApp: no chat
+// list, no other numbers. Identity is the number, never the name.
+export const whatsappLinks = sqliteTable(
+  "whatsapp_links",
+  {
+    id: integer("id").primaryKey(),
+    contactId: integer("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    // The chat's identity: the number in E.164 digits, no "+".
+    waId: text("wa_id").notNull(),
+    // What the owner calls this person in WhatsApp ("John" for Chris).
+    savedName: text("saved_name").notNull(),
+    syncEnabled: integer("sync_enabled", { mode: "boolean" }).notNull().default(false),
+    // Import history from this moment on; null = from when it was linked.
+    syncFrom: integer("sync_from"),
+    // The earliest moment the laptop collector has confirmed covering.
+    collectorCoveredFrom: integer("collector_covered_from"),
+    // Last time the collector reported on this chat, even with nothing new.
+    lastSyncedAt: integer("last_synced_at"),
+    // The rolling summary of everything older than the retained text.
+    summaryMd: text("summary_md"),
+    // Every message up to here is reflected in summary_md.
+    summaryCoversThrough: integer("summary_covers_through"),
+    summaryUpdatedAt: integer("summary_updated_at"),
+    // The version before the last update, so one update can be undone.
+    summaryPrevMd: text("summary_prev_md"),
+    summaryPrevCoversThrough: integer("summary_prev_covers_through"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("uq_whatsapp_links_contact").on(t.contactId),
+    uniqueIndex("uq_whatsapp_links_wa_id").on(t.waId),
+  ]
+);
+
+// One row per message of a linked chat. The row outlives its text: after
+// retention the body is cleared and the row stays, so counts hold and a
+// later re-import cannot bring purged text back.
+export const whatsappMessages = sqliteTable(
+  "whatsapp_messages",
+  {
+    id: integer("id").primaryKey(),
+    linkId: integer("link_id")
+      .notNull()
+      .references(() => whatsappLinks.id, { onDelete: "cascade" }),
+    // WhatsApp's own message id (collector), or "export:<hash>" (phone export).
+    messageKey: text("message_key").notNull(),
+    // 'inbound' | 'outbound'
+    direction: text("direction").notNull(),
+    sentAt: integer("sent_at").notNull(),
+    // 'text' | 'media' | 'call' | 'other' — media itself never leaves the laptop.
+    kind: text("kind").notNull(),
+    body: text("body"),
+    // 'collector' | 'export'
+    source: text("source").notNull(),
+    // Set when the text is both past retention and covered by the summary;
+    // the text is cleared once this passes (and it is still covered).
+    purgeAfter: integer("purge_after"),
+    bodyPurgedAt: integer("body_purged_at"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("uq_whatsapp_messages_key").on(t.linkId, t.messageKey),
+    index("idx_whatsapp_messages_time").on(t.linkId, t.sentAt),
+  ]
+);
+
 export type Contact = typeof contacts.$inferSelect;
 export type NewContact = typeof contacts.$inferInsert;
 export type ContactEmail = typeof contactEmails.$inferSelect;

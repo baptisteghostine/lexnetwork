@@ -148,6 +148,13 @@
       "when": 1795053480275,
       "tag": "0020_flaky_silhouette",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1795095668454,
+      "tag": "0021_powerful_human_torch",
+      "breakpoints": true
     }
   ]
 }

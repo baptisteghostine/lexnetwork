@@ -120,6 +120,14 @@ const CHILD_TABLES: { name: string; conflictSql: string | null }[] = [
     conflictSql: `SELECT l.id FROM note_mentions l WHERE l.contact_id = @loser AND EXISTS (
       SELECT 1 FROM note_mentions w WHERE w.note_id = l.note_id AND w.contact_id = @winner)`,
   },
+  {
+    // One WhatsApp chat per contact (SPEC §15). mergeContacts refuses the
+    // merge outright when both sides have one — the loser's messages hang
+    // off its link and would be lost with it — so a row here always moves.
+    name: "whatsapp_links",
+    conflictSql: `SELECT l.id FROM whatsapp_links l WHERE l.contact_id = @loser AND EXISTS (
+      SELECT 1 FROM whatsapp_links w WHERE w.contact_id = @winner)`,
+  },
   { name: "contact_changes", conflictSql: null },
   { name: "work_history", conflictSql: null },
   { name: "education", conflictSql: null },
@@ -416,6 +424,14 @@ export function mergeContacts(
 ): MergeResult {
   const { winnerId, loserId } = opts;
   if (winnerId === loserId) throw new Error("Cannot merge a contact into itself.");
+  const bothLinked = db
+    .prepare("SELECT count(*) AS n FROM whatsapp_links WHERE contact_id IN (?, ?)")
+    .get(winnerId, loserId) as { n: number };
+  if (bothLinked.n > 1) {
+    throw new Error(
+      "Both contacts have a WhatsApp chat linked. Delete the WhatsApp data from one of them first (on its page), then merge."
+    );
+  }
   const now = opts.now ?? Date.now();
 
   const run = db.transaction((): MergeResult => {

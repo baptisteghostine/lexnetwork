@@ -73,7 +73,7 @@ function json(body: unknown, status = 200, extra: Record<string, string> = {}): 
  * either case. These endpoints answer anyone, so nothing they are sent may
  * be buffered whole before it is known to be small. Null = too large.
  */
-async function readBodyLimited(req: Request, maxBytes: number): Promise<string | null> {
+export async function readBodyLimited(req: Request, maxBytes: number): Promise<string | null> {
   const declared = req.headers.get("content-length");
   if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > maxBytes)) return null;
   if (!req.body) return "";

@@ -3,6 +3,7 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, lte, ne, or } from 
 import { DATA_DIR, db, rawDb } from "@/db/client";
 import { jobs } from "@/db/schema";
 import { runBackup } from "@/lib/backup/run";
+import { hasWhatsAppLinks, runWhatsAppRetention } from "@/server/whatsapp-core";
 import { getSmtpSettings } from "@/lib/digest/send";
 import {
   applyOutcome,
@@ -93,6 +94,9 @@ const HANDLERS: Record<string, Handler> = {
   backup: async () => {
     runBackup(rawDb, DATA_DIR);
   },
+  whatsapp_retention: async () => {
+    runWhatsAppRetention(Date.now());
+  },
 };
 
 function providerActive(provider: "google" | "linkedin"): boolean {
@@ -119,6 +123,7 @@ const SYNC_JOBS: {
     | "meeting_prep"
     | "geocode"
     | "backup"
+    | "whatsapp_retention"
     | "ai_change_triage"
     | "ai_enrich";
   connected: () => boolean;
@@ -162,6 +167,9 @@ const SYNC_JOBS: {
   // Nightly backup (SPEC §13) — always on; first run fires at first boot,
   // then every 24h from the last success, like dedupe_scan.
   { kind: "backup", connected: () => true, intervalMs: 24 * 3600 * 1000 },
+  // WhatsApp retention (SPEC §15): nightly, and only once a chat is linked.
+  // Clears exact text that is past 90 days and inside the saved summary.
+  { kind: "whatsapp_retention", connected: () => hasWhatsAppLinks(), intervalMs: 24 * 3600 * 1000 },
   // Job-change triage (SPEC §5/§11, 2026-09-26): gives every open change
   // its verdict, reason and opener. Also enqueued right after an import
   // that detected moves; the interval only mops up.
