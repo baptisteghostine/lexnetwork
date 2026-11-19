@@ -1,4 +1,4 @@
-import { expect, test } from "playwright/test";
+import { expect, test, type Page } from "playwright/test";
 
 // SPEC §2 amendment: "Who did you meet?" — global quick log. `q` opens it
 // anywhere; find-or-create a contact; the entry lands as a counting
@@ -6,14 +6,25 @@ import { expect, test } from "playwright/test";
 
 test.describe.configure({ mode: "serial" });
 
+/**
+ * `q` is a global key handler attached on hydration. On a cold dev compile
+ * the page is visible before it has hydrated, and a keypress sent then is
+ * simply lost — so press until the dialog answers. A press is only
+ * repeated while the dialog is still closed, so it never types into it.
+ */
+async function openQuickLog(page: Page): Promise<void> {
+  const heading = page.getByRole("heading", { name: "Who did you meet?" });
+  await expect(async () => {
+    if (!(await heading.isVisible())) await page.keyboard.press("q");
+    await expect(heading).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 20_000 });
+}
+
 test("q opens quick log; a brand-new person is created and logged", async ({
   page,
 }) => {
   await page.goto("/contacts");
-  await page.keyboard.press("q");
-  await expect(
-    page.getByRole("heading", { name: "Who did you meet?" })
-  ).toBeVisible();
+  await openQuickLog(page);
 
   await page
     .getByPlaceholder("Search contacts or type a new name…")
@@ -35,7 +46,7 @@ test("q opens quick log; a brand-new person is created and logged", async ({
 
 test("an existing contact is found by search and logged", async ({ page }) => {
   await page.goto("/today");
-  await page.keyboard.press("q");
+  await openQuickLog(page);
   const search = page.getByPlaceholder("Search contacts or type a new name…");
   await search.fill("Zara");
   // First option is the existing match, not the create row.
