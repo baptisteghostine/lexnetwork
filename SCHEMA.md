@@ -265,7 +265,7 @@ Covers **both** API syncs and file imports (one lifecycle: started → stats →
   - `{table:"settings", op:"voice_guide", marker}` — a replaced voice guide; undo applies only while `ai.voice_generated_at` still holds `marker`.
   - A `reminders` insert may carry `purpose:"call"`: the reminder marks a booked call (SPEC §16).
   - `{table:"firms", op:"tier", key, name, before, after}` and `{table:"firms", op:"email_format", key, name, before, after}` — a firm is named by its key, not a row id; `before` and `after` are the tier (or format) columns as replaced and as set, and undo restores `before` only while the row still holds `after`.
-  - `{table:"email_guesses", op:"bounce", record}` — `record` holds the guessed address taken off the contact as it was (`retracted`), the tag added (`tagged`), and the email marked (`send: {id, occurredAt, createdAt, countedForTouch}`); each part is reversed only while still as the bounce left it, and the email only if the row is the one recorded.
+  - `{table:"email_guesses", op:"bounce", record}` — `record` holds the guessed address taken off the contact as it was (`retracted`), the tag added (`tagged: {tagId, tagName, …}` — undo checks the tag still has that name), the email marked (`send: {id, occurredAt, createdAt, countedForTouch}`), and `stamp`, the contact's `updated_at` as the bounce left it; each part is reversed only while still as the bounce left it, the email only if the row is the one recorded, and the address only if the contact has not been edited since (otherwise it is merely offered again).
   - `{table:"email_guesses", op:"confirm", contactId, email, previous}`
   - `{table:"ai_suggestions", op:"insert", ids, createdAt}` — tag suggestions; undo deletes those still `pending` with that creation time.
   - `{table:"contact_tags", op:"add"|"remove", tagId, tagName, contactIds, at}` and `{table:"group_members", op:"add"|"remove", groupId, groupName, contactIds, at}` — only the contacts whose membership actually flipped; `at` is when, which is how undo tells its own memberships from ones the owner re-added.
@@ -324,7 +324,7 @@ Covers **both** API syncs and file imports (one lifecycle: started → stats →
 - An `accepted` row's address is excluded from the evidence a firm's format is learned from; a `confirmed` one counts.
 - Written only by `src/server/email-guess-core.ts`. Merge moves rows to the winner (`CHILD_TABLES`), dropping one the winner already has.
 
-**A bounced email** is an `interactions` row whose `meta` JSON has `"bounced": true` and whose `counts_for_touch` is 0. It stays on the timeline with a mark, and the outreach stage rule ignores it.
+**A bounced email** is an `interactions` row whose `meta` JSON has `"bounced": true` and `"bouncedAddress": "<address>"` and whose `counts_for_touch` is 0. It stays on the timeline with a mark, and the outreach stage rule ignores it. `bouncedAddress` is what makes a second report of the same bounce a no-op: only an email sent after the last one marked for that address can be marked.
 
 ## ai_suggestions  *(added table — approval queue)*
 

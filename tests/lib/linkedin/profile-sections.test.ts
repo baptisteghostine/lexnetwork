@@ -142,6 +142,64 @@ describe("experience", () => {
   });
 });
 
+describe("found by the review", () => {
+  it("a short line about the role is kept — only a real place line is dropped", () => {
+    const role = (fourth: string) => parseExperience([{ lines: ["Vice President", "Goldman Sachs · Full-time", "Jan 2022 - Present · 2 yrs", fourth] }])[0].description;
+    expect(role("TMT, covering software and internet")).toBe("TMT, covering software and internet");
+    expect(role("M&A · Software · Internet")).toBe("M&A · Software · Internet");
+    expect(role("Technology coverage")).toBe("Technology coverage");
+    for (const place of ["London Area, United Kingdom", "London, England, United Kingdom · Hybrid", "Paris, Île-de-France, France · Sur site", "Remote", "New York, New York, United States"]) {
+      expect(role(place), place).toBeNull();
+    }
+  });
+
+  it("reads German, Spanish, Italian, Dutch and Portuguese dates, so a current role is not lost in silence", () => {
+    expect(parseDateRange("Okt. 2020 – Heute · 4 Jahre")).toEqual({ start: "2020-10", end: null, current: true });
+    expect(parseDateRange("März 2019 – Dez. 2021")).toEqual({ start: "2019-03", end: "2021-12", current: false });
+    expect(parseDateRange("Jan. 2018 bis Sep. 2020")).toEqual({ start: "2018-01", end: "2020-09", current: false });
+    expect(parseDateRange("ene. 2020 - actualidad · 4 años")).toEqual({ start: "2020-01", end: null, current: true });
+    expect(parseDateRange("gen 2019 - mag 2021")).toEqual({ start: "2019-01", end: "2021-05", current: false });
+    expect(parseDateRange("mrt. 2019 - heden")).toEqual({ start: "2019-03", end: null, current: true });
+    expect(parseDateRange("fev de 2020 - o momento")).toBeNull(); // "de" between month and year is not handled: reported as unread, not misread
+    const roles = parseExperience([
+      { lines: ["Direktor", "Deutsche Bank · Vollzeit", "Okt. 2020 – Heute · 4 Jahre"] },
+      { lines: ["Analyst", "Deutsche Bank", "Jan. 2018 – Sep. 2020 · 2 Jahre 9 Monate"] },
+    ]);
+    expect(roles.map((r) => [r.title, r.isCurrent])).toEqual([["Direktor", true], ["Analyst", false]]);
+  });
+
+  const norm = (c: string) => c.toLowerCase();
+  const vp: CapturedRole = { company: "Goldman Sachs", title: "Vice President", startDate: "2022-01", endDate: null, isCurrent: true, description: "TMT." };
+  const row = (over: Partial<StoredRole>): StoredRole => ({ id: 1, companyNormalized: "goldman sachs", title: "Vice President", startDate: null, endDate: null, isCurrent: true, description: null, source: "user", ...over });
+
+  it("a typed row dated to the year is the same role as one dated to the month", () => {
+    expect(planWorkHistory([row({ startDate: "2022" })], [vp], norm)).toEqual({ inserts: [], updates: [{ id: 1, description: "TMT." }] });
+  });
+
+  it("the headline's row is the same job when it has ended, and when the profile spells the firm in full", () => {
+    const ended = row({ id: 5, source: "linkedin", title: "Tech M&A", startDate: "2023-06", endDate: "2025-02", isCurrent: false });
+    const past: CapturedRole = { ...vp, endDate: "2025-01", isCurrent: false };
+    expect(planWorkHistory([ended], [past], norm)).toEqual({
+      inserts: [],
+      updates: [{ id: 5, title: "Vice President", startDate: "2022-01", endDate: "2025-01", description: "TMT.", source: PROFILE_SOURCE }],
+    });
+    const headline = row({ id: 6, source: "linkedin", title: "Tech M&A" });
+    const plan = planWorkHistory([headline], [{ ...vp, company: "Goldman Sachs International" }], norm);
+    expect(plan.inserts).toEqual([]);
+    expect(plan.updates[0]).toMatchObject({ id: 6, source: PROFILE_SOURCE });
+    // Not a different firm that merely starts the same.
+    expect(planWorkHistory([row({ id: 7, source: "linkedin", companyNormalized: "citi" })], [{ ...vp, company: "Citizens Bank" }], norm).inserts).toHaveLength(1);
+  });
+
+  it("a row the owner calls current is never told it ended, and another role's text never lands on it", () => {
+    expect(planWorkHistory([row({ startDate: "2022-01" })], [{ ...vp, endDate: "2024-12", isCurrent: false, description: null }], norm)).toEqual({ inserts: [], updates: [] });
+    const observer = row({ id: 8, source: "csv", title: "Board Observer", startDate: "2022-01" });
+    const plan = planWorkHistory([observer], [vp], norm);
+    expect(plan.updates).toEqual([]);
+    expect(plan.inserts).toEqual([vp]);
+  });
+});
+
 describe("education", () => {
   it("reads the school, the degree and field, and the years", () => {
     const schools = parseEducation([

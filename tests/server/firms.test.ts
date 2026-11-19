@@ -241,7 +241,7 @@ describe("a bounce", () => {
     expect(again.next.map((c) => c.email)).toEqual(["dpatel@gs.test"]);
     expect(emailsOf(id.dev)).toEqual([]);
     expect(one("SELECT status FROM email_guesses WHERE contact_id = ?", id.dev)).toEqual({ status: "bounced" });
-    expect(one("SELECT meta, counts_for_touch AS touch FROM interactions WHERE id = ?", sent)).toEqual({ meta: '{"bounced":true}', touch: 0 });
+    expect(one("SELECT meta, counts_for_touch AS touch FROM interactions WHERE id = ?", sent)).toEqual({ meta: '{"bounced":true,"bouncedAddress":"dev.patel@gs.test"}', touch: 0 });
     // Nobody is waiting on a reply to an email that never arrived, and the keep-in-touch clock forgets it.
     expect(stageOf(groupId, id.dev)).toMatchObject({ stage: "not_contacted", email: null, guess: { email: "dpatel@gs.test" } });
     expect(one("SELECT last_interaction_at AS last FROM contacts WHERE id = ?", id.dev)).toEqual({ last: null });
@@ -393,10 +393,12 @@ describe("what Claude can do with it", () => {
     ]);
     // The owner moves one; undo takes back only what is still the proposal's.
     firms.setFirmTier({ company: "Goldman Sachs International", tier: "Elite boutique", source: "user" }, NOW);
-    const undone = ok("undo_agent_action", { actionId: proposal.actionId });
-    // An undo is itself a change, and applies at once here (write mode is "apply").
-    expect(undone.reversed).toEqual(["put Goldman Sachs's tier back"]);
-    expect(undone.leftInPlace).toEqual(["Goldman Sachs International's tier has been changed since, so it was left"]);
+    // What the owner approved, an agent does not take back by itself: the undo waits for them too.
+    const undo = ok("undo_agent_action", { actionId: proposal.actionId });
+    expect(undo).toMatchObject({ queued: true, note: expect.stringMatching(/always waits for the owner/) });
+    expect(one("SELECT tier FROM firms WHERE name = 'Goldman Sachs'")).toEqual({ tier: "Bulge bracket" });
+    expect(tools.approveQueuedCall(undo.actionId!)).toMatchObject({ ok: true });
+    expect(one<{ summary: string }>("SELECT summary FROM agent_calls WHERE id = ?", undo.actionId).summary).toMatch(/Undid/i);
     expect(rows("SELECT name, tier FROM firms ORDER BY name")).toEqual([
       { name: "Goldman Sachs International", tier: "Elite boutique" },
       { name: "Lazard", tier: "Elite boutique" },
@@ -548,6 +550,43 @@ describe("a profile's career, captured", () => {
     expect(rows("SELECT id FROM contacts")).toHaveLength(1);
   });
 
+  it("a change of employer after a capture still ends the old job and starts the new one", async () => {
+    await capture({ profile, sections });
+    const moved = await capture({ profile: { ...profile, headline: "Director at Morgan Stanley" } });
+    expect(moved.json).toMatchObject({ ok: true });
+    const month = new Date().toISOString().slice(0, 7);
+    expect(history().filter((r) => (r as { is_current: number }).is_current === 1)).toEqual([
+      { company: "Morgan Stanley", title: "Director", start_date: month, end_date: null, is_current: 1, description: null, source: "linkedin" },
+    ]);
+    expect(history().find((r) => (r as { company: string }).company === "Goldman Sachs")).toMatchObject({ title: "Vice President", start_date: "2022-01", end_date: month, is_current: 0, source: "linkedin_profile" });
+    const contactId = one<{ id: number }>("SELECT id FROM contacts").id;
+    const names = (mode: string) => (ok("search_contacts", { company: "Goldman Sachs", companyMode: mode }).contacts as { id: number }[]).map((c) => c.id);
+    expect(names("ex")).toEqual([contactId]);
+    expect(names("current")).toEqual([]);
+  });
+
+  it("a profile that spells the employer in full does not leave two current rows for one job", async () => {
+    const full = { ...sections, experience: [{ lines: twice("Vice President", "Goldman Sachs International · Full-time", "Jan 2022 - Present · 2 yrs 11 mos") }] };
+    await capture({ profile, sections: full });
+    expect(history()).toEqual([
+      { company: "Goldman Sachs", title: "Vice President", start_date: "2022-01", end_date: null, is_current: 1, description: null, source: "linkedin_profile" },
+    ]);
+    await capture({ profile });
+    expect(history()).toHaveLength(1);
+  });
+
+  it("a \"show all experiences\" page never names, renames or creates anyone", async () => {
+    await capture({ profile });
+    const details = { ...sections, page: "details" };
+    const res = await capture({ profile: { publicIdentifier: "ana-silva-1", fullName: "Experience | Ana Silva" }, sections: details });
+    expect(res.json).toMatchObject({ ok: true, updated: false, career: { rolesAdded: 2, rolesUpdated: 1 } });
+    expect(one("SELECT first_name, last_name FROM contacts")).toEqual({ first_name: "Ana", last_name: "Silva" });
+    const stranger = await capture({ profile: { publicIdentifier: "bo-li-9", fullName: "Experience | Bo Li" }, sections: details });
+    expect(stranger.status).toBe(422);
+    expect(stranger.json.error).toMatch(/main profile page first/);
+    expect(rows("SELECT id FROM contacts")).toHaveLength(1);
+  });
+
   it("refuses sections it cannot read, a missing token, and reports a page that gave nothing", async () => {
     expect((await capture({ profile, sections: { experience: "lots" } })).status).toBe(400);
     expect(rows("SELECT id FROM contacts")).toHaveLength(0);
@@ -556,6 +595,138 @@ describe("a profile's career, captured", () => {
     expect(noToken.status).toBe(401);
     const empty = await capture({ profile, sections: { experience: [], education: [], about: null } });
     expect(empty.json).toMatchObject({ ok: true, career: { read: { roles: 0, schools: 0, about: false }, rolesAdded: 0, bio: "none" } });
+  });
+});
+
+// Each of these was found by an independent review of the first version
+// and proved with a failing test before it was fixed.
+describe("found by the review", () => {
+  const sendTo = (contactId: number, daysAgo: number, title: string, extra: Record<string, unknown> = {}) =>
+    ins("interactions", { contact_id: contactId, kind: "email", direction: "outbound", occurred_at: NOW - daysAgo * DAY, title, source: "user", source_key: `k${Math.random()}`, counts_for_touch: 1, created_at: NOW - daysAgo * DAY, ...extra });
+  const marked = () => rows<{ title: string }>("SELECT title FROM interactions WHERE meta LIKE '%bounced%' ORDER BY id").map((r) => r.title);
+
+  it("an agent cannot put Rolo's own guess on a contact by the ordinary door — current, turned down or bounced", () => {
+    expect(refused("upsert_contact", { contactId: id.dev, emails: ["Dev.Patel@gs.test"] })).toMatch(/Rolo's own guess for this person.*Only the owner can accept it/);
+    expect(emailsOf(id.dev)).toEqual([]);
+    contact("Hal Moss", "Goldman Sachs", "hmoss@gs.test");
+    guess.dismissGuess(id.dev, "dev.patel@gs.test", NOW);
+    expect(refused("upsert_contact", { contactId: id.dev, emails: ["dev.patel@gs.test"] })).toMatch(/turned .* down as a guess/);
+    guess.acceptGuess(id.dev, "dpatel@gs.test", NOW);
+    guess.recordBounce({ contactId: id.dev, email: "dpatel@gs.test" }, NOW);
+    expect(refused("upsert_contact", { contactId: id.dev, emails: ["dpatel@gs.test"] })).toMatch(/bounced when it was tried/);
+    // …for a second record of the same person, too.
+    const twin = contact("Dev Patel", "Goldman Sachs");
+    expect(refused("upsert_contact", { contactId: twin, emails: ["dpatel@gs.test"] })).toMatch(/bounced/);
+    // The bounced address is dead for the twin as well; the one merely turned down for Dev is still theirs to consider.
+    expect(guess.suggestionFor(twin)!.candidates.map((c) => c.email)).toEqual(["dev.patel@gs.test"]);
+    expect(rows("SELECT count(*) AS n FROM contact_emails WHERE contact_id IN (?, ?)", id.dev, twin)).toEqual([{ n: 0 }]);
+    // An address that is nobody's guess is still an agent's to add, attributed as its own.
+    expect(ok("upsert_contact", { contactId: id.finn, emails: ["finn@hale-family.test"] })).toMatchObject({ updated: true });
+    expect(emailsOf(id.finn)).toEqual([{ email: "finn@hale-family.test", source: "agent" }]);
+    // One person's address at a domain that is not the firm's says nothing about the firm.
+    expect(guess.suggestionFor(contact("Hal Moss", "Lazard"))!.candidates).toEqual([]);
+  });
+
+  it("the same bounce reported twice marks one email, not the one before it as well", () => {
+    sendTo(id.ana, 6, "First email");
+    sendTo(id.ana, 1, "Follow-up");
+    expect(ok("record_email_outcome", { contactId: id.ana, email: "ana.silva@gs.test", outcome: "bounced", idempotencyKey: "gmail:m1" })).toMatchObject({ emailNoLongerCountsAsSent: "Follow-up" });
+    const again = ok("record_email_outcome", { contactId: id.ana, email: "ana.silva@gs.test", outcome: "bounced", idempotencyKey: "gmail:m2" });
+    expect(again).toMatchObject({ recorded: false, emailNoLongerCountsAsSent: null, note: expect.stringMatching(/already recorded/) });
+    expect(marked()).toEqual(["Follow-up"]);
+    // A guess that already went: nothing at all.
+    contact("Hal Moss", "Goldman Sachs", "hmoss@gs.test");
+    guess.acceptGuess(id.dev, "dev.patel@gs.test", NOW);
+    sendTo(id.dev, 5, "Older");
+    sendTo(id.dev, 1, "Newer");
+    guess.recordBounce({ contactId: id.dev, email: "dev.patel@gs.test" }, NOW);
+    expect(guess.recordBounce({ contactId: id.dev, email: "dev.patel@gs.test" }, NOW)).toMatchObject({ ok: true, noSend: "already_recorded", record: { retracted: null, send: null } });
+    expect(marked()).toEqual(["Follow-up", "Newer"]);
+    // A later email to the same bad address that bounces too is a new bounce.
+    sendTo(id.ana, 0.1, "Third try");
+    expect(guess.recordBounce({ contactId: id.ana, email: "ana.silva@gs.test" }, NOW)).toMatchObject({ ok: true, sendTitle: "Third try" });
+  });
+
+  it("never marks an email that was answered, or one that went to another address", () => {
+    sendTo(id.ana, 3, "Coffee?");
+    ins("interactions", { contact_id: id.ana, kind: "email", direction: "inbound", occurred_at: NOW - 2 * DAY, title: "Re: Coffee?", source: "agent", counts_for_touch: 0, created_at: NOW });
+    expect(guess.recordBounce({ contactId: id.ana, email: "ana.silva@gs.test" }, NOW)).toMatchObject({ ok: true, noSend: "no_match", record: { send: null } });
+    expect(guess.recordBounce({ contactId: id.ana, email: "ana.silva@gs.test", subject: "Coffee?" }, NOW)).toMatchObject({ ok: true, record: { send: null } });
+    // Two addresses and no subject: Rolo cannot tell which email came back, and says so.
+    ins("contact_emails", { contact_id: id.ben, email: "ben@old-firm.test", email_normalized: "ben@old-firm.test", priority: 1, source: "user", created_at: NOW });
+    sendTo(id.ben, 1, "To the working address");
+    const res = ok("record_email_outcome", { contactId: id.ben, email: "ben@old-firm.test", outcome: "bounced" });
+    expect(res).toMatchObject({ taggedBadAddress: true, emailNoLongerCountsAsSent: null, note: expect.stringMatching(/more than one address.*subject/) });
+    // An email sent from "Drafts to send" knows where it went.
+    const draft = out.saveDraft({ contactId: id.ben, groupId: null, kind: "first", subject: "Via the draft", body: "Dear Ben…", source: "agent" }, NOW - 3600_000);
+    if (!draft.ok) throw new Error(draft.error);
+    out.markDraftSent(draft.draft.id, NOW - 1800_000);
+    expect(guess.recordBounce({ contactId: id.ben, email: "ben@old-firm.test", subject: "Via the draft" }, NOW)).toMatchObject({ ok: true, record: { send: null } });
+    expect(marked()).toEqual([]);
+  });
+
+  it("undoing a bounce leaves a tag that only inherited the id, and does not put back an address the owner has handled since", () => {
+    sendTo(id.ana, 1, "Hello");
+    const real = guess.recordBounce({ contactId: id.ana, email: "ana.silva@gs.test" }, NOW);
+    if (!real.ok) throw new Error(real.error);
+    const tagId = real.record.tagged!.tagId;
+    rawDb.prepare("DELETE FROM tags WHERE id = ?").run(tagId);
+    ins("tags", { id: tagId, name: "VIP", color: "#888", created_at: NOW });
+    ins("contact_tags", { contact_id: id.ana, tag_id: tagId, created_at: NOW });
+    expect(guess.undoBounce(real.record, NOW).skipped).toContain('the tag "bad address" is gone');
+    expect(rows("SELECT t.name FROM contact_tags ct JOIN tags t ON t.id = ct.tag_id WHERE ct.contact_id = ?", id.ana)).toEqual([{ name: "VIP" }]);
+
+    contact("Hal Moss", "Goldman Sachs", "hmoss@gs.test");
+    guess.acceptGuess(id.dev, "dev.patel@gs.test", NOW);
+    const bounced = guess.recordBounce({ contactId: id.dev, email: "dev.patel@gs.test" }, NOW);
+    if (!bounced.ok) throw new Error(bounced.error);
+    // The owner edits the contact afterwards (here: typed the address in and took it out again).
+    rawDb.prepare("UPDATE contacts SET updated_at = ? WHERE id = ?").run(NOW + 60_000, id.dev);
+    expect(guess.undoBounce(bounced.record, NOW + 120_000).reversed).toEqual(["made the address a suggestion again (the contact was edited since, so it was not put back)"]);
+    expect(emailsOf(id.dev)).toEqual([]);
+    expect(guess.suggestionFor(id.dev)!.candidates.map((c) => c.email)).toContain("dev.patel@gs.test");
+  });
+
+  it("a format an agent records cannot move a firm off the domain its real addresses are at, nor get round the owner's for the house", () => {
+    const rec = ok("record_email_format", { company: "Goldman Sachs", domain: "gs-careers.test", pattern: "flast", basis: "published", note: "a careers page" });
+    expect(rec.recorded).toBe(true);
+    expect(guess.suggestionFor(id.dev)!.candidates).toEqual([
+      { email: "dev.patel@gs.test", domain: "gs.test", pattern: "first.last", strength: "strong", evidence: "3 of the 3 addresses Rolo holds at gs.test are built this way" },
+    ]);
+    ok("undo_agent_action", { actionId: rec.actionId });
+    firms.setFirmEmailFormat({ company: "Goldman Sachs", domain: "gs.test", pattern: "first.last", source: "user" }, NOW);
+    expect(refused("record_email_format", { company: "Goldman Sachs International", domain: "evil.test", pattern: "flast", basis: "published", note: "x" })).toMatch(/You set the address format for Goldman Sachs yourself, and Goldman Sachs International is part of it/);
+    expect(guess.suggestionFor(id.eve)!.candidates[0]).toMatchObject({
+      email: "eve.stone@gs.test",
+      strength: "strong",
+      evidence: "3 of the 3 addresses Rolo holds at gs.test (from Goldman Sachs) are built this way; the format you set for Goldman Sachs",
+    });
+    // Even with an agent's record already on the subsidiary, the owner's word for the house wins.
+    ins("firms", { company_key: "goldman sachs international", name: "Goldman Sachs International", email_domain: "evil.test", email_pattern: "flast", email_source: "agent", email_basis: "published", created_at: NOW, updated_at: NOW });
+    expect(guess.suggestionFor(id.eve)!.candidates.map((c) => c.email)).toEqual(["eve.stone@gs.test"]);
+  });
+
+  it("what counts as a firm's domain: a hostname with a real ending, and not a mailbox provider in any country", () => {
+    const set = (domain: string) => firms.setFirmEmailFormat({ company: "Lazard", domain, pattern: "flast", source: "user" }, NOW);
+    for (const bad of ["10.0.0.1", "foo.123", `${"a".repeat(70)}.com`, "lazard.c"]) expect(set(bad), bad).toMatchObject({ ok: false, error: expect.stringMatching(/not a domain/) });
+    for (const personal of ["hotmail.es", "yahoo.de", "gmail.co.uk", "live.com.au", "virginmedia.com", "mail.ru", "protonmail.ch"]) {
+      expect(set(personal), personal).toMatchObject({ ok: false, error: expect.stringMatching(/mailbox provider/) });
+    }
+    expect(set("lazard.co.uk")).toMatchObject({ ok: true });
+  });
+
+  it("a bounced email is flagged wherever Claude reads the timeline, and a format says who recorded it", () => {
+    sendTo(id.ana, 1, "Hello Ana");
+    guess.recordBounce({ contactId: id.ana, email: "ana.silva@gs.test" }, NOW);
+    const [ana] = ok("get_contacts", { ids: [id.ana] }).contacts as { interactions: Record<string, unknown>[] }[];
+    expect(ana.interactions[0]).toMatchObject({ title: "Hello Ana", bounced: true });
+    expect((ok("get_timeline", { contactId: id.ana }).entries as Record<string, unknown>[])[0]).toMatchObject({ title: "Hello Ana", bounced: true });
+    expect((ok("get_timeline", {}).entries as Record<string, unknown>[])[0]).toMatchObject({ title: "Hello Ana", bounced: true });
+    ok("record_email_format", { company: "Lazard", domain: "lazard.test", pattern: "flast", basis: "published", note: "x" });
+    firms.setFirmEmailFormat({ company: "Goldman Sachs", domain: "gs.test", pattern: "first.last", source: "user" }, NOW);
+    const companies = ok("list_companies", {}).companies as Record<string, unknown>[];
+    expect(companies.find((c) => c.company === "Lazard")).toMatchObject({ emailFormat: "asilva@lazard.test", emailFormatFrom: "claude" });
+    expect(companies.find((c) => c.company === "Goldman Sachs")).toMatchObject({ emailFormatFrom: "owner" });
   });
 });
 

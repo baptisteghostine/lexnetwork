@@ -19,6 +19,11 @@ export const sectionEntrySchema = z.object({
 export type SectionEntry = z.infer<typeof sectionEntrySchema>;
 
 export const capturedSectionsSchema = z.object({
+  /**
+   * 'details' for a "show all experiences" page, which carries the list
+   * and nothing trustworthy about who it belongs to beyond the address.
+   */
+  page: z.enum(["profile", "details"]).optional(),
   experience: z.array(sectionEntrySchema).max(80).optional(),
   education: z.array(sectionEntrySchema).max(40).optional(),
   about: z
@@ -78,22 +83,25 @@ export function cleanLines(lines: string[]): string[] {
 
 // ---------- dates ----------
 
+// Months as LinkedIn abbreviates them in English, French, German, Spanish,
+// Italian, Dutch and Portuguese (accents already folded away). A profile
+// in a language missing here would lose its dated roles without a word.
 const MONTHS: Record<string, number> = {
-  jan: 1, january: 1, janv: 1, janvier: 1,
-  feb: 2, february: 2, fev: 2, fevr: 2, fevrier: 2,
-  mar: 3, march: 3, mars: 3,
-  apr: 4, april: 4, avr: 4, avril: 4,
-  may: 5, mai: 5,
-  jun: 6, june: 6, juin: 6,
-  jul: 7, july: 7, juil: 7, juillet: 7,
-  aug: 8, august: 8, aout: 8,
-  sep: 9, sept: 9, september: 9, septembre: 9,
-  oct: 10, october: 10, octobre: 10,
-  nov: 11, november: 11, novembre: 11,
-  dec: 12, december: 12, decembre: 12,
+  jan: 1, january: 1, janv: 1, janvier: 1, januar: 1, ene: 1, enero: 1, gen: 1, gennaio: 1, januari: 1, janeiro: 1,
+  feb: 2, february: 2, fev: 2, fevr: 2, fevrier: 2, februar: 2, febrero: 2, febbraio: 2, februari: 2, fevereiro: 2,
+  mar: 3, march: 3, mars: 3, marz: 3, maerz: 3, marzo: 3, mrt: 3, maart: 3, marco: 3,
+  apr: 4, april: 4, avr: 4, avril: 4, abr: 4, abril: 4, aprile: 4,
+  may: 5, mai: 5, mayo: 5, mag: 5, maggio: 5, mei: 5, maio: 5,
+  jun: 6, june: 6, juin: 6, juni: 6, junio: 6, giu: 6, giugno: 6, junho: 6,
+  jul: 7, july: 7, juil: 7, juillet: 7, juli: 7, julio: 7, lug: 7, luglio: 7, julho: 7,
+  aug: 8, august: 8, aout: 8, ago: 8, agosto: 8, augustus: 8,
+  sep: 9, sept: 9, september: 9, septembre: 9, septiembre: 9, set: 9, settembre: 9, setembro: 9,
+  oct: 10, october: 10, octobre: 10, okt: 10, oktober: 10, octubre: 10, ott: 10, ottobre: 10, out: 10, outubro: 10,
+  nov: 11, november: 11, novembre: 11, noviembre: 11, novembro: 11,
+  dec: 12, december: 12, decembre: 12, dez: 12, dezember: 12, dic: 12, diciembre: 12, dicembre: 12, dezembro: 12,
 };
 
-const PRESENT = /^(present|now|current|aujourd ?hui|actuel|ce jour|heute|actualidad|presente|oggi|heden)$/;
+const PRESENT = /^(present|now|current|aujourd ?hui|actuel|ce jour|heute|actualidad|la actualidad|presente|o momento|oggi|heden)$/;
 
 /** "Jan 2022" → "2022-01"; "2022" → "2022"; anything else → null. */
 export function parsePartialDate(text: string): string | null {
@@ -116,7 +124,7 @@ export type DateRange = { start: string; end: string | null; current: boolean };
 export function parseDateRange(text: string): DateRange | null {
   // The duration after the dot is LinkedIn's arithmetic, not a date.
   const head = fold(text.split(" · ")[0]).trim();
-  const parts = head.split(/\s+(?:-|–|—|to|a|au)\s+/).map((p) => p.trim());
+  const parts = head.split(/\s+(?:-|–|—|to|a|au|bis)\s+/).map((p) => p.trim());
   if (parts.length === 1) {
     // A single month or year: a role that began and ended inside it.
     const only = parsePartialDate(parts[0]);
@@ -137,12 +145,19 @@ const NOT_DESCRIPTION = /^(skills|competences|kenntnisse|aptitudes)\s*:/;
 const SEE_MORE = /^(…|\.\.\.)?\s*(see more|voir plus|show more|afficher plus)$/;
 const WORK_MODE = /\b(remote|hybrid|on-site|onsite|sur site|a distance|hybride|teletravail)\b/;
 
-/** "London, England, United Kingdom · Hybrid" — where, not what. */
+/**
+ * "London, England, United Kingdom · Hybrid" — where, not what. Kept
+ * narrow on purpose: "TMT, covering software and internet" is what the
+ * role was about, and losing it loses the one fact this is read for.
+ */
 function looksLikeLocation(text: string): boolean {
-  if (text.length > 110) return false;
-  const f = fold(text);
-  if (/[.!?]\s|[.!?]$/.test(text) && !/ · /.test(text)) return false;
-  return WORK_MODE.test(f) || /^[^,]{2,40}(, [^,]{2,40}){1,3}$/.test(text) || / · /.test(text);
+  if (text.length > 110 || /[.!?;:&]/.test(text)) return false;
+  const [place, mode] = text.split(" · ");
+  if (mode !== undefined) return WORK_MODE.test(fold(mode));
+  if (WORK_MODE.test(fold(place)) && place.split(" ").length <= 2) return true;
+  // Place names: two to four comma-separated parts, each capitalised and short.
+  const parts = place.split(", ");
+  return parts.length >= 2 && parts.length <= 4 && parts.every((p) => /^\p{Lu}/u.test(p) && p.split(" ").length <= 4 && !/\d/.test(p));
 }
 
 function describe(lines: string[]): string | null {
@@ -162,8 +177,13 @@ function employer(text: string): string {
   return text.split(" · ")[0].trim();
 }
 
-function roleFrom(company: string, title: string | null, range: DateRange, after: string[]): CapturedRole {
-  const rest = after.length > 0 && looksLikeLocation(after[0]) ? after.slice(1) : after;
+/**
+ * `after` is what follows the date line in the entry itself; `nested` is
+ * text from the entries under it. Only the first of the entry's own lines
+ * can be the place — LinkedIn prints it there and nowhere else.
+ */
+function roleFrom(company: string, title: string | null, range: DateRange, after: string[], nested: string[] = []): CapturedRole {
+  const rest = [...(after.length > 0 && looksLikeLocation(after[0]) ? after.slice(1) : after), ...nested];
   return {
     company: company.slice(0, 200),
     title: title ? title.slice(0, 200) : null,
@@ -195,7 +215,7 @@ export function parseExperience(entries: SectionEntry[]): CapturedRole[] {
     if (at >= 2) {
       const company = employer(lines[1]);
       const written = nested.filter((c) => c.at === -1).flatMap((c) => c.lines);
-      if (company) roles.push(roleFrom(company, lines[0], parseDateRange(lines[at]) as DateRange, [...lines.slice(at + 1), ...written]));
+      if (company) roles.push(roleFrom(company, lines[0], parseDateRange(lines[at]) as DateRange, lines.slice(at + 1), written));
       continue;
     }
     // An employer, then its roles.
@@ -301,43 +321,74 @@ export const PROFILE_SOURCE = "linkedin_profile";
 const HEADLINE_SOURCE = "linkedin";
 
 /**
+ * Whether two employer keys name the same house: equal, or one the other
+ * with more on the end ("goldman sachs" / "goldman sachs international").
+ * Whole words only, so "citi" is not "citizens bank".
+ */
+export function sameEmployer(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const [short, long] = a.length < b.length ? [a, b] : [b, a];
+  return long.startsWith(`${short} `);
+}
+
+/** "2022" and "2022-01" are the same start, said with different precision. */
+function sameStart(a: string | null, b: string | null): boolean {
+  if (a === null || b === null) return false;
+  return a === b || (a.length === 4 && b.startsWith(`${a}-`)) || (b.length === 4 && a.startsWith(`${b}-`));
+}
+
+/**
  * What to write so the stored history holds the captured roles — once
  * each. A profile page shows only its first few roles, so nothing is
- * ever removed for being absent. The current row the imports keep from
- * the headline becomes the real role rather than sitting beside it; a
- * row from any other source (typed, imported from a file) is only filled
- * in where it is empty.
+ * ever removed for being absent. A row the imports keep from the
+ * headline becomes the real role rather than sitting beside it; a row
+ * from any other source (typed, imported from a file) is matched only
+ * when it is plainly the same role, and then only filled in where it is
+ * empty.
  */
 export function planWorkHistory(stored: StoredRole[], captured: CapturedRole[], normalize: (company: string) => string): RolePlan {
   const plan: RolePlan = { inserts: [], updates: [] };
   const taken = new Set<number>();
+  const isOurs = (s: StoredRole) => s.source === HEADLINE_SOURCE || s.source === PROFILE_SOURCE;
+  const sameTitle = (s: StoredRole, role: CapturedRole) => fold(s.title ?? "") === fold(role.title ?? "");
   for (const role of captured) {
     const key = normalize(role.company);
     if (!key) continue;
-    const pool = stored.filter((s) => s.companyNormalized === key && !taken.has(s.id));
+    const exact = stored.filter((s) => s.companyNormalized === key && !taken.has(s.id));
     const match =
-      pool.find((s) => s.startDate !== null && s.startDate === role.startDate) ??
-      (role.isCurrent ? pool.find((s) => s.isCurrent && s.source === HEADLINE_SOURCE) : undefined) ??
-      pool.find((s) => s.startDate === null && fold(s.title ?? "") === fold(role.title ?? ""));
+      // The same role, read before: same employer and start.
+      exact.find((s) => s.source === PROFILE_SOURCE && sameStart(s.startDate, role.startDate)) ??
+      // The row the imports keep from the headline — current, or ended when
+      // the headline moved on. Its title is a headline and its start is the
+      // day it was noticed, so neither is compared; the employer may be the
+      // same house under a longer name.
+      stored.find((s) => !taken.has(s.id) && s.source === HEADLINE_SOURCE && s.isCurrent === role.isCurrent && sameEmployer(s.companyNormalized, key)) ??
+      // Somebody else's row: only when it is plainly this role.
+      exact.find((s) => !isOurs(s) && sameStart(s.startDate, role.startDate) && (s.title === null || sameTitle(s, role))) ??
+      exact.find((s) => !isOurs(s) && s.startDate === null && s.title !== null && sameTitle(s, role));
     if (!match) {
       plan.inserts.push(role);
       continue;
     }
     taken.add(match.id);
-    const ours = match.source === HEADLINE_SOURCE || match.source === PROFILE_SOURCE;
     const update: RoleUpdate = { id: match.id };
-    const set = <K extends keyof Omit<RoleUpdate, "id">>(field: K, value: RoleUpdate[K], current: RoleUpdate[K]) => {
-      if (value === undefined || value === current) return;
-      // Somebody else's row: add what is missing, change nothing that is there.
-      if (!ours && current !== null && current !== false) return;
-      update[field] = value;
-    };
-    if (role.title) set("title", role.title, match.title);
-    set("startDate", role.startDate, match.startDate);
-    if (role.endDate !== null || ours) set("endDate", role.endDate, match.endDate);
-    if (ours) set("isCurrent", role.isCurrent, match.isCurrent);
-    if (role.description) set("description", role.description, match.description);
-    if (match.source === HEADLINE_SOURCE) update.source = PROFILE_SOURCE;
+    if (isOurs(match)) {
+      // Ours to keep true: the page is the better record.
+      if (role.title && role.title !== match.title) update.title = role.title;
+      if (role.startDate !== match.startDate) update.startDate = role.startDate;
+      if (role.endDate !== match.endDate) update.endDate = role.endDate;
+      if (role.isCurrent !== match.isCurrent) update.isCurrent = role.isCurrent;
+      if (role.description && role.description !== match.description) update.description = role.description;
+      if (match.source === HEADLINE_SOURCE) update.source = PROFILE_SOURCE;
+    } else {
+      // Somebody else's: add what is missing, change nothing that is there —
+      // and never say a role they call current has ended.
+      if (match.title === null && role.title) update.title = role.title;
+      if (match.startDate === null && role.startDate) update.startDate = role.startDate;
+      if (match.endDate === null && role.endDate && !match.isCurrent) update.endDate = role.endDate;
+      if (match.description === null && role.description) update.description = role.description;
+    }
     if (Object.keys(update).length > 1) plan.updates.push(update);
   }
   return plan;

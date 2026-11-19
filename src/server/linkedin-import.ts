@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, gte, isNull, lt, ne, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lt, ne, sql } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import {
@@ -24,7 +24,7 @@ import {
   type LinkedInConnection,
   type LinkedInMessage,
 } from "@/lib/imports/linkedin";
-import { PROFILE_SOURCE } from "@/lib/linkedin/profile-sections";
+import { PROFILE_SOURCE, sameEmployer } from "@/lib/linkedin/profile-sections";
 import {
   isBaselineRun,
   normalizeForChange,
@@ -215,58 +215,61 @@ function upsertProvenance(
     .run();
 }
 
-/** Keep the linkedin-sourced current work_history row in sync; a company
- * switch end-dates the old row — this is what feeds ex-company filters. */
+/**
+ * Keep work history in step with the employer the headline names; a
+ * company switch end-dates the job that ended — this is what feeds
+ * ex-company filters. A current role read off the person's profile (SPEC
+ * §9c career history) is the better record of the same job: the headline
+ * neither duplicates it nor rewrites its title, but a change of employer
+ * still ends it. `previousCompany` is the employer Rolo held before this
+ * row was applied — the job that has just ended, when one has.
+ */
 function upsertWorkHistory(
   contactId: number,
   row: LinkedInConnection,
-  now: number
+  now: number,
+  previousCompany: string | null
 ): void {
   if (!row.company) return;
   const normalized = normalizeForChange("company", row.company);
-  // A role read off the person's profile (SPEC §9c capture) is the better
-  // record of the same job: the headline neither duplicates it nor
-  // rewrites its title. It is changed only by reading the profile again.
-  const fromProfile = db
-    .select({ id: workHistory.id })
-    .from(workHistory)
-    .where(
-      and(
-        eq(workHistory.contactId, contactId),
-        eq(workHistory.isCurrent, true),
-        eq(workHistory.source, PROFILE_SOURCE),
-        eq(workHistory.companyNormalized, normalized)
-      )
-    )
-    .get();
-  if (fromProfile) return;
-  const current = db
+  const currents = db
     .select()
     .from(workHistory)
     .where(
       and(
         eq(workHistory.contactId, contactId),
         eq(workHistory.isCurrent, true),
-        eq(workHistory.source, SOURCE)
+        inArray(workHistory.source, [SOURCE, PROFILE_SOURCE])
       )
     )
-    .get();
-  if (current && current.companyNormalized === normalized) {
-    if ((current.title ?? "") !== (row.position ?? "")) {
+    .all();
+  const same =
+    currents.find((c) => c.companyNormalized === normalized) ??
+    currents.find((c) => sameEmployer(c.companyNormalized, normalized));
+  if (same) {
+    // A headline may restate its own row's title; a title read off the profile is the real one.
+    if (same.source === SOURCE && (same.title ?? "") !== (row.position ?? "")) {
       db.update(workHistory)
         .set({ title: row.position })
-        .where(eq(workHistory.id, current.id))
+        .where(eq(workHistory.id, same.id))
         .run();
     }
     return;
   }
+  // A different employer. What ended is the headline's own row, and any
+  // profile-read current role at the employer Rolo held until now; a second
+  // current role somewhere else (a board seat) is not touched.
+  const previous = previousCompany ? normalizeForChange("company", previousCompany) : null;
+  const ended = currents.filter(
+    (c) => c.source === SOURCE || (previous !== null && sameEmployer(c.companyNormalized, previous))
+  );
   const tz = ownerTimezone();
   const p = localParts(tz, now);
   const yearMonth = `${p.year}-${String(p.month).padStart(2, "0")}`;
-  if (current) {
+  for (const c of ended) {
     db.update(workHistory)
       .set({ isCurrent: false, endDate: yearMonth })
-      .where(eq(workHistory.id, current.id))
+      .where(eq(workHistory.id, c.id))
       .run();
   }
   db.insert(workHistory)
@@ -275,7 +278,7 @@ function upsertWorkHistory(
       company: row.company,
       companyNormalized: normalized,
       title: row.position,
-      startDate: current ? yearMonth : null,
+      startDate: ended.length > 0 ? yearMonth : null,
       isCurrent: true,
       source: SOURCE,
       createdAt: now,
@@ -672,7 +675,7 @@ export function executeLinkedInRows(opts: {
           ensureSocialUrl(cid, row.profileUrlRaw, now);
           if (row.profileUrl) byUrl.set(row.profileUrl, cid);
         }
-        upsertWorkHistory(cid, row, now);
+        upsertWorkHistory(cid, row, now, snapshot?.values.company ?? null);
       });
     } catch {
       report.stats.errors++;

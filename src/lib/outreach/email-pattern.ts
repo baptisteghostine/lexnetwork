@@ -51,12 +51,20 @@ export const EMAIL_PATTERN_EXAMPLE: Record<EmailPattern, string> = {
 
 const LETTERS: Record<string, string> = { ß: "ss", ø: "o", æ: "ae", œ: "oe", ł: "l", đ: "d", ð: "d", þ: "th", ı: "i" };
 
-/** Words people put after a name that are not part of it. */
-const NOT_A_NAME = new Set(["jr", "sr", "ii", "iii", "iv", "phd", "mba", "cfa", "cpa", "md", "esq", "acca", "aca", "frm", "caia"]);
+/** Words people put before or after a name that are not part of it. */
+const NOT_A_NAME = new Set([
+  "jr", "sr", "ii", "iii", "iv", "phd", "mba", "cfa", "cpa", "md", "esq", "acca", "aca", "frm", "caia",
+  "dr", "prof", "professor", "sir", "dame", "lord", "lady", "mr", "mrs", "ms", "miss", "mme", "mlle", "herr", "frau",
+]);
+
+/** The longest a part before the @ may be (RFC 5321). */
+export const LOCAL_PART_MAX = 64;
 
 /** "José-María" → ["jose", "maria"]: ascii letters only, in the order written. */
 function tokens(text: string): string[] {
   const plain = text
+    // What follows a divider is a tagline, not the name: "Silva | Hiring", "Silva - Recruiter at GS".
+    .split(/\s+[|•·–—-]\s+|,/)[0]
     .normalize("NFD")
     .replace(/\p{M}+/gu, "")
     .toLowerCase()
@@ -97,6 +105,8 @@ export function nameParts(firstName: string | null, lastName: string | null): Na
     first = first.slice(0, -1);
   }
   if (first.length === 0 || last.length === 0) return null;
+  // An initial is not a first name: "J. Smith" cannot be spelled out.
+  if (first.join("").length < 2) return null;
   const firstHyphenated = /[A-Za-zÀ-ÿ]-[A-Za-zÀ-ÿ]/.test(firstName ?? "");
   const lastHyphenated = /[A-Za-zÀ-ÿ]-[A-Za-zÀ-ÿ]/.test(lastName ?? "");
   // "Jean-Pierre" is one first name; "Ana Maria" is a first and a middle.
@@ -182,11 +192,26 @@ const PERSONAL_DOMAINS = new Set([
   "wanadoo.fr", "laposte.net", "sfr.fr", "web.de", "hey.com", "fastmail.com", "zoho.com", "duck.com",
 ]);
 
-/** A hostname as an address has it: lowercase labels, a dot, a TLD. */
-const DOMAIN = /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/;
+/** A hostname as an address has it: lowercase labels, a dot, a TLD of letters. */
+const DOMAIN = /^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}$/;
 
 export function isDomain(value: string): boolean {
-  return value.length <= 253 && DOMAIN.test(value) && !value.split(".").some((l) => l.startsWith("-") || l.endsWith("-"));
+  return value.length <= 253 && DOMAIN.test(value) && !value.split(".").some((l) => l.length > 63 || l.startsWith("-") || l.endsWith("-"));
+}
+
+/** Mailbox providers, by the name they go by in every country: hotmail.es, yahoo.de, gmail.co.uk. */
+const PROVIDER_NAMES = new Set([
+  "gmail", "googlemail", "hotmail", "outlook", "live", "msn", "yahoo", "ymail", "aol", "icloud", "protonmail", "proton",
+  "gmx", "yandex", "zoho", "fastmail", "tutanota", "virginmedia", "btinternet", "btopenworld", "talktalk", "ntlworld",
+  "blueyonder", "sky", "orange", "wanadoo", "laposte", "sfr", "free", "bluewin", "telenet", "ziggo", "comcast", "verizon", "att",
+]);
+const SECOND_LEVEL = new Set(["co", "com", "net", "org", "ac", "edu"]);
+
+/** The name a domain is registered under: "gs" for gs.com, "evercore" for uk.evercore.co.uk. */
+export function registeredName(domain: string): string {
+  const labels = domain.toLowerCase().split(".");
+  const tldParts = labels.length >= 3 && SECOND_LEVEL.has(labels[labels.length - 2]) ? 2 : 1;
+  return labels[labels.length - tldParts - 1] ?? "";
 }
 
 /**
@@ -195,7 +220,7 @@ export function isDomain(value: string): boolean {
  */
 export function isPersonalDomain(domain: string): boolean {
   const d = domain.toLowerCase();
-  if (PERSONAL_DOMAINS.has(d)) return true;
+  if (PERSONAL_DOMAINS.has(d) || PROVIDER_NAMES.has(registeredName(d)) || d === "mail.ru") return true;
   return /\.edu$/.test(d) || /\.edu\.[a-z]{2}$/.test(d) || /\.ac\.[a-z]{2}$/.test(d) || /(^|\.)alumni\./.test(d);
 }
 
@@ -205,6 +230,29 @@ export function splitAddress(email: string): { local: string; domain: string } |
   const domain = email.slice(at + 1).toLowerCase().trim();
   const local = email.slice(0, at).trim();
   return isDomain(domain) && local ? { local, domain } : null;
+}
+
+const FIRM_FILLER = new Set([
+  "the", "and", "of", "group", "bank", "banking", "capital", "partners", "partner", "company", "international", "global",
+  "advisors", "advisory", "management", "asset", "securities", "holdings", "investments", "investment", "europe", "limited",
+  "llp", "llc", "plc", "ltd", "inc", "corp",
+]);
+
+/**
+ * Whether a domain plausibly belongs to the firm with this key: its
+ * registered name shares a word with the firm's ("lazard.com" / lazard,
+ * "morganstanley.com" / morgan stanley) or is its initials ("gs.com" /
+ * goldman sachs). One person's address at an unrelated domain is their
+ * own mailbox or their school, not their employer's format.
+ */
+export function domainFitsFirm(firmKey: string, domain: string): boolean {
+  const name = registeredName(domain).replace(/[^a-z0-9]/g, "");
+  if (!name) return false;
+  const words = firmKey.split(/[^a-z0-9]+/).filter(Boolean);
+  const telling = words.filter((w) => w.length >= 3 && !FIRM_FILLER.has(w));
+  if (telling.some((w) => name.includes(w) || (name.length >= 3 && w.includes(name)))) return true;
+  const initials = words.map((w) => w[0]).join("");
+  return initials.length >= 2 && (name === initials || name.startsWith(initials));
 }
 
 // ---------- learning ----------
@@ -246,6 +294,8 @@ export function learnPatterns(observations: Observation[]): Map<string, DomainEv
     out.set(
       firm,
       [...domains.entries()]
+        // Two people there share it, or it carries the firm's name: otherwise it is not evidence about the firm.
+        .filter(([domain, e]) => e.addresses >= 2 || domainFitsFirm(firm, domain))
         .map(([domain, e]) => ({
           domain,
           addresses: e.addresses,
@@ -316,7 +366,10 @@ export function suggestEmails(input: SuggestInput): SuggestResult {
   const firm = input.firmName?.trim() || "this firm";
   const name = nameParts(input.firstName, input.lastName);
   if (!name) return { candidates: [], reason: "Rolo needs a first and a last name to work out an address." };
-  const domain = input.stated?.domain ?? input.learned[0]?.domain ?? null;
+  // The owner's format settles the domain. Failing that, the addresses Rolo
+  // holds do; a format an agent recorded decides it only when there is
+  // nothing else, and never moves a firm to a domain its real addresses are not at.
+  const domain = (input.stated?.source === "user" ? input.stated.domain : null) ?? input.learned[0]?.domain ?? input.stated?.domain ?? null;
   if (!domain) {
     return { candidates: [], reason: `Rolo holds no address at ${firm} to learn from, and no format has been recorded for it.` };
   }
@@ -348,7 +401,7 @@ export function suggestEmails(input: SuggestInput): SuggestResult {
       );
     }
   }
-  if (input.stated) {
+  if (input.stated && input.stated.domain === domain) {
     const s = input.stated;
     const note = s.note ? `: ${s.note}` : "";
     if (s.source === "user") add(s.pattern, 1000, `the format you set for ${input.evidenceFirm ?? firm}`, "strong");
@@ -378,7 +431,9 @@ export function suggestEmails(input: SuggestInput): SuggestResult {
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score || EMAIL_PATTERNS.indexOf(a.pattern) - EMAIL_PATTERNS.indexOf(b.pattern));
   for (const s of ordered) {
-    const email = `${applyPattern(s.pattern, name)}@${domain}`;
+    const local = applyPattern(s.pattern, name);
+    if (local.length > LOCAL_PART_MAX) continue;
+    const email = `${local}@${domain}`;
     if (excluded.has(email) || candidates.some((c) => c.email === email)) continue;
     candidates.push({
       email,

@@ -344,6 +344,7 @@ async function renderPage() {
   pageSections = read.sections ?? null;
   const onPage = sectionsLabel(pageSections);
   const name = [profile.firstName, profile.lastName].filter(Boolean).join(" ") || profile.fullName || profile.publicIdentifier;
+  const detailsPage = pageSections?.page === "details";
   showPage(name, profile.headline, "Checking Rolo…");
   if (!status) {
     showPage(name, profile.headline, "Rolo isn't answering — pair first.");
@@ -370,7 +371,9 @@ async function renderPage() {
     showPage(c.displayName, [c.title, c.company].filter(Boolean).join(", ") || profile.headline, bits.join(" · "), overdue ? "due" : "in", { open: true, add: true });
     $("pageOpen").onclick = () => chrome.tabs.create({ url: `${settings.roloUrl}/contacts/${c.id}` });
   } else {
-    showPage(name, profile.headline, onPage ? `Not in Rolo · ${onPage}` : "Not in Rolo", "out", { add: true });
+    // A "show all" page cannot add anyone: it does not say who they are.
+    if (detailsPage) showPage(name, null, "Not in Rolo — add them from their main profile page first", "out");
+    else showPage(name, profile.headline, onPage ? `Not in Rolo · ${onPage}` : "Not in Rolo", "out", { add: true });
   }
 }
 

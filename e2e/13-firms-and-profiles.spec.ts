@@ -141,6 +141,15 @@ test("the extension reads a profile's roles and schools off the page, and Rolo s
   expect(read.sections.education).toHaveLength(1);
   expect(read.sections.about).toBe("About\nI cover software and internet companies.");
 
+  expect((read.sections as { page?: string }).page).toBe("profile");
+
+  // A "show all experiences" page is read as a list and nothing more: its heading is not anybody's name.
+  await page.goto("https://www.linkedin.com/in/ana-capture-e2e/details/experience/");
+  await page.addScriptTag({ content: `${fs.readFileSync(path.join(__dirname, "../extension/content.js"), "utf8")}\nwindow.__read = () => ({ profile: readProfile(), sections: readSections() });` });
+  const details = await page.evaluate(() => (window as unknown as { __read: () => { profile: Record<string, unknown>; sections: Record<string, unknown> } }).__read());
+  expect(details.profile).toEqual({ publicIdentifier: "ana-capture-e2e", firstName: null, lastName: null, fullName: null, headline: null, location: null });
+  expect(details.sections.page).toBe("details");
+
   // What the extension would post, posted.
   const res = await request.post("/api/linkedin/extension/capture", { headers: { authorization: `Bearer ${TOKEN}` }, data: read });
   expect(res.status()).toBe(200);

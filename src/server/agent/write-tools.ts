@@ -64,7 +64,7 @@ import {
   VOICE_GUIDE_MIN,
 } from "@/server/outreach-core";
 import { EMAIL_PATTERN_EXAMPLE, EMAIL_PATTERNS } from "@/lib/outreach/email-pattern";
-import { confirmGuess, recordBounce } from "@/server/email-guess-core";
+import { confirmGuess, guessBlock, recordBounce } from "@/server/email-guess-core";
 import { FIRM_NOTE_MAX, setFirmEmailFormat, setFirmTier, TIER_NAME_MAX } from "@/server/firms-core";
 import { suggestTags, TAG_EVIDENCE_MAX } from "@/server/tag-suggestion-core";
 import { saveWhatsAppSummary, WA_SUMMARY_MAX, WA_SUMMARY_MIN } from "@/server/whatsapp-core";
@@ -602,6 +602,11 @@ const upsertContactTool = defineTool({
     // through are not an agent's to do.
     const extraConflicts: { field: string; kept: string; setBy: string; notApplied: string }[] = [];
     if (targetId !== null) {
+      // A guess reaches a contact by the owner's click, never by this door (SPEC §17).
+      for (const email of args.emails ?? []) {
+        const blocked = guessBlock(targetId, email);
+        if (blocked) throw new ToolRefusal(blocked);
+      }
       const current = db.select().from(contacts).where(eq(contacts.id, targetId)).get();
       const typedByOwner = new Set(
         db
@@ -1129,7 +1134,7 @@ const recordEmailOutcomeTool = defineTool({
   name: "record_email_outcome",
   title: "Record that an address bounced, or that it works",
   description:
-    "What happened to an email the owner sent, as you saw it in their mail. `outcome: \"bounced\"` when a delivery failure came back for that address: if the address was a guess, Rolo takes it off the contact, remembers it as wrong and offers the next one; if it was an address Rolo was given, it stays and the contact is tagged \"bad address\". Either way the email it was sent in stops counting as sent, so nobody shows as waiting on a reply to it — give its `subject` so Rolo marks the right one. `outcome: \"confirmed\"` when the person answered from that address: a guess stops being a guess, and counts as evidence for the firm's format. Report only what a message actually shows; an out-of-office is neither.",
+    "What happened to an email the owner sent, as you saw it in their mail. `outcome: \"bounced\"` when a delivery failure came back for that address: if the address was a guess, Rolo takes it off the contact, remembers it as wrong and offers the next one; if it was an address Rolo was given, it stays and the contact is tagged \"bad address\". Either way the email it was sent in stops counting as sent, so nobody shows as waiting on a reply to it — always give its `subject` (from the failure notice) so Rolo marks the right one; without it Rolo takes the latest unanswered email, and marks none when the person has several addresses. Reporting the same bounce twice changes nothing the second time. `outcome: \"confirmed\"` when the person answered from that address: a guess stops being a guess, and counts as evidence for the firm's format. Report only what a message actually shows; an out-of-office is neither.",
   scope: "write",
   mutates: true,
   input: z.strictObject({
@@ -1172,7 +1177,16 @@ const recordEmailOutcomeTool = defineTool({
         guessRemoved: r.retracted !== null,
         taggedBadAddress: r.tagged !== null,
         emailNoLongerCountsAsSent: r.send !== null ? clip(res.sendTitle, 200) : null,
-        ...(r.send === null ? { note: "No email to this person in the last three weeks matched, so nothing on the timeline was changed." } : {}),
+        ...(r.send === null
+          ? {
+              note:
+                res.noSend === "needs_subject"
+                  ? "This person has more than one address, so Rolo cannot tell which email came back. Nothing on the timeline was changed: call again with the subject of the email that bounced."
+                  : res.noSend === "already_recorded"
+                    ? "This bounce was already recorded; nothing more was changed."
+                    : "No unanswered email to this person in the last three weeks matched, so nothing on the timeline was changed.",
+            }
+          : {}),
         ...(res.next.length > 0
           ? { nextGuess: { email: res.next[0].email, strength: res.next[0].strength, evidence: clip(res.next[0].evidence, 400) }, tellTheOwner: "Another address can be tried. The owner accepts it in Rolo; you cannot." }
           : {}),

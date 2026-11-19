@@ -251,6 +251,14 @@ export function setFirmEmailFormat(
       if (created) dropIfEmpty(firm.id);
       return { ok: false, conflict: true, error: `You set ${firm.name}'s address format yourself (${firm.emailPattern}@${firm.emailDomain}), so it was kept.` };
     }
+    if (input.source === "agent") {
+      // The owner's format for a house covers the firms that are part of it.
+      const house = allFirms().find((f) => f.id !== firm.id && f.emailSource === "user" && f.emailDomain !== null && isSameHouse(f.companyKey, who.key));
+      if (house) {
+        if (created) dropIfEmpty(firm.id);
+        return { ok: false, conflict: true, error: `You set the address format for ${house.name} yourself, and ${firm.name} is part of it, so nothing was recorded.` };
+      }
+    }
     const changed = (Object.keys(after) as (keyof FormatState)[]).some((k) => before[k] !== after[k]);
     if (changed) db.update(firms).set({ ...after, updatedAt: now }).where(eq(firms.id, firm.id)).run();
     dropIfEmpty(firm.id);

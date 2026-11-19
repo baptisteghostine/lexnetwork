@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyPattern,
   bounceKey,
+  domainFitsFirm,
   EMAIL_PATTERN_EXAMPLE,
   EMAIL_PATTERNS,
   isDomain,
@@ -10,6 +11,7 @@ import {
   learnPatterns,
   matchingPatterns,
   nameParts,
+  registeredName,
   splitAddress,
   suggestEmails,
   type DomainEvidence,
@@ -73,8 +75,8 @@ describe("patterns", () => {
   });
 
   it("an address a name cannot tell apart is evidence for nothing", () => {
-    // "A Li": a.li is both first.last and f.last.
-    expect(matchingPatterns(nameParts("A", "Li")!, "a.li").length).toBeGreaterThan(1);
+    // "Li Li": li.li is first.last and last.first alike.
+    expect(matchingPatterns(nameParts("Li", "Li")!, "li.li").length).toBeGreaterThan(1);
   });
 });
 
@@ -94,6 +96,60 @@ describe("domains", () => {
     expect(splitAddress("Ana.Silva@GS.com")).toEqual({ local: "Ana.Silva", domain: "gs.com" });
     expect(splitAddress("ana@")).toBeNull();
     expect(splitAddress("gs.com")).toBeNull();
+  });
+});
+
+describe("found by the review", () => {
+  it("titles, taglines and initials are not names", () => {
+    expect(nameParts("Dr. Ana", "Silva")).toMatchObject({ first: "ana", last: "silva" });
+    expect(nameParts("Prof Ana", "Silva")).toMatchObject({ first: "ana" });
+    expect(nameParts("Ana", "SILVA | Hiring")).toMatchObject({ last: "silva", compound: false });
+    expect(nameParts("Ana", "Silva - Recruiter at GS")).toMatchObject({ last: "silva" });
+    expect(nameParts("Ana", "Smith-Jones")).toMatchObject({ last: "smithjones" });
+    expect(nameParts("J.", "Smith")).toBeNull();
+    expect(nameParts("Sir", "Smith")).toBeNull();
+  });
+
+  it("no address is offered with more before the @ than an address can hold", () => {
+    const learned: DomainEvidence[] = [{ domain: "gs.com", addresses: 3, patterns: [{ pattern: "first.last", count: 3 }], unclear: 0 }];
+    const res = suggestEmails({ firstName: "Ana", lastName: "x".repeat(300), firmName: "Goldman Sachs", learned, stated: null });
+    expect(res.candidates).toEqual([]);
+  });
+
+  it("a domain is a hostname with a real ending; a mailbox provider is one in any country", () => {
+    for (const d of ["10.0.0.1", "a.b", "foo.123", `${"a".repeat(64)}.com`]) expect(isDomain(d), d).toBe(false);
+    for (const d of ["hotmail.es", "yahoo.de", "outlook.de", "gmail.co.uk", "live.com.au", "virginmedia.com", "btopenworld.com", "protonmail.ch", "mail.ru"]) {
+      expect(isPersonalDomain(d), d).toBe(true);
+    }
+    for (const d of ["gs.com", "livenation.com", "mailchimp.com", "skyscanner.net"]) expect(isPersonalDomain(d), d).toBe(false);
+    expect(registeredName("uk.evercore.co.uk")).toBe("evercore");
+    expect(registeredName("gs.com")).toBe("gs");
+  });
+
+  it("one address at a domain that is not the firm's says nothing about the firm", () => {
+    expect(domainFitsFirm("goldman sachs", "gs.com")).toBe(true);
+    expect(domainFitsFirm("morgan stanley", "morganstanley.com")).toBe(true);
+    expect(domainFitsFirm("lazard", "lazard.com")).toBe(true);
+    expect(domainFitsFirm("jp morgan", "jpmorgan.com")).toBe(true);
+    expect(domainFitsFirm("goldman sachs", "hec.fr")).toBe(false);
+    expect(domainFitsFirm("goldman sachs", "bocconi.it")).toBe(false);
+    expect(domainFitsFirm("bank of america", "capitalgroup.com")).toBe(false);
+    const learned = learnPatterns([
+      obs("goldman sachs", "Ana", "Silva", "ana.silva@hec.fr"),
+      obs("lazard", "Ben", "Okafor", "ben.okafor@advisors-llp.com"),
+      obs("lazard", "Cara", "Lin", "cara.lin@advisors-llp.com"),
+    ]);
+    expect(learned.get("goldman sachs")).toEqual([]);
+    // Two colleagues at the same unfamiliar domain: that is the firm's.
+    expect(learned.get("lazard")).toEqual([{ domain: "advisors-llp.com", addresses: 2, patterns: [{ pattern: "first.last", count: 2 }], unclear: 0 }]);
+  });
+
+  it("a format an agent recorded does not decide the domain when real addresses are elsewhere", () => {
+    const learned: DomainEvidence[] = [{ domain: "gs.com", addresses: 3, patterns: [{ pattern: "first.last", count: 3 }], unclear: 0 }];
+    const agent = { domain: "gs-careers.com", pattern: "flast" as const, source: "agent" as const, basis: "published" as const, note: null };
+    expect(suggestEmails({ firstName: "Ana", lastName: "Silva", firmName: "Goldman Sachs", learned, stated: agent }).candidates.map((c) => c.email)).toEqual(["ana.silva@gs.com"]);
+    // With nothing else to go on, it is what there is — and labelled as Claude's.
+    expect(suggestEmails({ firstName: "Ana", lastName: "Silva", firmName: "Goldman Sachs", learned: [], stated: agent }).candidates.map((c) => [c.email, c.strength])).toEqual([["asilva@gs-careers.com", "weak"]]);
   });
 });
 

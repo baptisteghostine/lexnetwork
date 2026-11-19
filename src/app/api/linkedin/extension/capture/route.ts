@@ -40,13 +40,20 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) return extensionJson({ error: "The page's career sections could not be read — reload the extension." }, 400);
     sections = parsed.data;
   }
-  const row = capturedProfileToConnection(profile);
+  // A "show all experiences" page carries the career and nothing to be
+  // trusted about the person: its heading and title read "Experience | …".
+  // So it never names, renames or creates anyone — it only adds history
+  // to someone already in Rolo under that profile address. The same goes
+  // for any capture that has sections and no name at all.
+  const detailsPage = sections?.page === "details";
+  const row = detailsPage ? null : capturedProfileToConnection(profile);
   if (!row && sections) {
-    // A "show all experience" page carries the career and not the name.
-    // For someone already in Rolo that is all it needs to carry.
     const existing = contactIdsFor([profile.publicIdentifier]).get(profile.publicIdentifier) ?? null;
     if (existing !== null) {
       return extensionJson({ ok: true, contactId: existing, created: false, updated: false, conflicts: 0, jobChanges: 0, career: applyProfileSections(existing, sections) });
+    }
+    if (detailsPage) {
+      return extensionJson({ error: "This person is not in Rolo yet — add them from their main profile page first." }, 422);
     }
   }
   if (!row) {

@@ -448,6 +448,12 @@ function readVisibleHeadline() {
 function readProfile() {
   const publicIdentifier = profileIdFromLocation();
   if (!publicIdentifier) return null;
+  // A "show all …" page has no profile heading: its h1 and title are the
+  // list's ("Experience | Name"). It identifies the person by address only.
+  // (`window.location`: this function has a local called `location`, the profile's.)
+  if (/^\/in\/[^/]+\/details\//.test(window.location.pathname)) {
+    return { publicIdentifier, firstName: null, lastName: null, fullName: null, headline: null, location: null };
+  }
 
   let record = null;
   for (const code of document.querySelectorAll('code[id^="bpr-guid-"], code[id^="datalet-bpr-guid-"]')) {
@@ -550,15 +556,19 @@ function readSections() {
   // "Show all experiences" opens a page that is only that list.
   const details = path.match(/^\/in\/[^/]+\/details\/(experience|education)\b/);
   if (details) {
+    // The list is the page's one section; anything else in <main> is not part of it.
     const main = document.querySelector("main");
+    const list = main?.querySelector("section") ?? main;
     return {
-      experience: details[1] === "experience" ? sectionEntries(main) : [],
-      education: details[1] === "education" ? sectionEntries(main) : [],
+      page: "details",
+      experience: details[1] === "experience" ? sectionEntries(list) : [],
+      education: details[1] === "education" ? sectionEntries(list) : [],
       about: null,
     };
   }
   const about = findSection("about");
   return {
+    page: "profile",
     experience: sectionEntries(findSection("experience")),
     education: sectionEntries(findSection("education")),
     about: about ? entryLines(about, []).join("\n").slice(0, 8000) : null,

@@ -37,7 +37,7 @@ import {
 import { WRITE_TOOLS } from "@/server/agent/write-tools";
 import { STAGES } from "@/lib/outreach/stage";
 import { EMAIL_PATTERN_EXAMPLE } from "@/lib/outreach/email-pattern";
-import { guessStates, suggestionsFor } from "@/server/email-guess-core";
+import { guessStates, isBouncedMeta, suggestionsFor } from "@/server/email-guess-core";
 import { allFirms, companySpellingsForTiers, firmKey, formatOf, tierNames, tiersByKey, type Firm } from "@/server/firms-core";
 import { campaignPipeline, countOpenDrafts, listCampaigns, listDrafts } from "@/server/outreach-core";
 import {
@@ -437,13 +437,18 @@ const searchContactsTool = defineTool({
 
 // ---------- list_companies ----------
 
-/** What the owner has settled about a firm: its tier, and whether its address format is known. */
-function firmFacts(firm: Firm | undefined): { tier?: string; emailFormat?: string } {
+/** An email that came back undelivered: it never reached the person (SPEC §17). */
+function bouncedFlag(meta: string | null): { bounced?: true } {
+  return isBouncedMeta(meta) ? { bounced: true } : {};
+}
+
+/** What is recorded about a firm: its tier, and its address format with who recorded it. */
+function firmFacts(firm: Firm | undefined): { tier?: string; emailFormat?: string; emailFormatFrom?: "owner" | "claude" } {
   if (!firm) return {};
   const format = formatOf(firm);
   return {
     ...(firm.tier ? { tier: firm.tier } : {}),
-    ...(format ? { emailFormat: `${EMAIL_PATTERN_EXAMPLE[format.pattern]}@${format.domain}` } : {}),
+    ...(format ? { emailFormat: `${EMAIL_PATTERN_EXAMPLE[format.pattern]}@${format.domain}`, emailFormatFrom: format.source === "user" ? ("owner" as const) : ("claude" as const) } : {}),
   };
 }
 
@@ -451,7 +456,7 @@ const listCompaniesTool = defineTool({
   name: "list_companies",
   title: "List employers",
   description:
-    "The employers across the owner's active contacts, largest first: the company name as most contacts spell it, how many contacts work there now, other spellings folded in, the titles seen most often, and — where the owner has settled them — the firm's tier and how its email addresses are formed (shown for \"Ana Silva\"). `tiers` lists the tier names in use. Use it to see which firms are in the network before searching — for example to pick out the banks, funds or firms worth a closer look. `query` keeps the companies whose name contains it. Follow up with search_contacts(company=...).",
+    "The employers across the owner's active contacts, largest first: the company name as most contacts spell it, how many contacts work there now, other spellings folded in, the titles seen most often, and — where they are recorded — the firm's tier (always one the owner approved) and how its email addresses are formed (shown for \"Ana Silva\", with whether the owner or Claude recorded it). `tiers` lists the tier names in use. Use it to see which firms are in the network before searching — for example to pick out the banks, funds or firms worth a closer look. `query` keeps the companies whose name contains it. Follow up with search_contacts(company=...).",
   scope: "read",
   input: z.strictObject({
     query: z.string().trim().min(1).max(120).optional(),
@@ -701,6 +706,7 @@ function fullContact(id: number, now: number, budget: ReturnType<typeof budgets>
             kind: t.interaction.kind,
             direction: t.interaction.direction,
             title: clip(t.interaction.title, 200),
+            ...bouncedFlag(t.interaction.meta),
             text: clipBody(bodyFromMeta(t.interaction.meta), budget.bodyChars),
             source: t.interaction.source,
           }
@@ -871,6 +877,7 @@ const getTimelineTool = defineTool({
           direction: interactions.direction,
           title: interactions.title,
           occurredAt: interactions.occurredAt,
+          meta: interactions.meta,
         })
         .from(interactions)
         .innerJoin(contacts, eq(contacts.id, interactions.contactId))
@@ -898,6 +905,7 @@ const getTimelineTool = defineTool({
             kind: r.kind,
             direction: r.direction,
             title: clip(r.title, 200),
+            ...bouncedFlag(r.meta),
           })),
         },
       };
@@ -944,6 +952,7 @@ const getTimelineTool = defineTool({
               kind: t.interaction.kind,
               direction: t.interaction.direction,
               title: clip(t.interaction.title, 200),
+              ...bouncedFlag(t.interaction.meta),
               text: clipBody(bodyFromMeta(t.interaction.meta), 900),
               source: t.interaction.source,
             };
@@ -1492,6 +1501,19 @@ function rehearse(tool: AgentTool, args: unknown, now: number): { ok: true; out:
 /** Changes nothing itself, but is not a no-op: it removes what another call wrote. */
 const UNDO_TOOL = "undo_agent_action";
 
+/**
+ * Whether this is an undo of a call that needed the owner's approval
+ * whatever the write mode. What the owner approved, an agent does not
+ * take back by itself: the undo waits for them too.
+ */
+function undoesAProposal(tool: AgentTool, args: unknown): boolean {
+  if (tool.name !== UNDO_TOOL) return false;
+  const actionId = (args as { actionId?: unknown }).actionId;
+  if (typeof actionId !== "number") return false;
+  const target = db.select({ tool: agentCalls.tool }).from(agentCalls).where(eq(agentCalls.id, actionId)).get();
+  return target !== undefined && AGENT_TOOLS.some((t) => t.name === target.tool && t.alwaysReview);
+}
+
 /** What was sent, for a call that failed validation: the shape, never the values. */
 function argumentNames(raw: unknown): unknown {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { _invalid: true };
@@ -1608,7 +1630,7 @@ export function callAgentTool(
   }
 
   // "Ask me first" for everything, or a tool that is a proposal by nature.
-  if (agentWriteMode() === "review" || tool.alwaysReview) {
+  if (agentWriteMode() === "review" || tool.alwaysReview || undoesAProposal(tool, parsed.data)) {
     const trial = rehearse(tool, parsed.data, now);
     if (!trial.ok) {
       log(trial.kind, { error: trial.message, args: parsed.data, contactId: subjectOf(parsed.data) });
@@ -1637,7 +1659,7 @@ export function callAgentTool(
         text: JSON.stringify({
           queued: true,
           actionId,
-          note: tool.alwaysReview
+          note: tool.alwaysReview || undoesAProposal(tool, parsed.data)
             ? "This kind of change always waits for the owner. Nothing has changed yet: it is on Rolo's activity page for them to approve or reject. Tell the owner it is there."
             : "The owner reviews changes before they apply. Nothing has changed yet: this is waiting on Rolo's activity page. Tell the owner it is there.",
         }),

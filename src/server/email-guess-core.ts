@@ -3,7 +3,7 @@ import "server-only";
 import { and, desc, eq, gte, inArray, isNotNull, ne } from "drizzle-orm";
 
 import { db } from "@/db/client";
-import { contactEmails, contacts, emailGuesses, interactions } from "@/db/schema";
+import { contactEmails, contacts, emailGuesses, interactions, outreachDrafts, tags } from "@/db/schema";
 import { normalizeSubject } from "@/lib/agent/writes";
 import { recomputeContact } from "@/lib/cadence/recompute";
 import { normalizeEmail } from "@/lib/contacts/normalize";
@@ -45,6 +45,8 @@ export type Suggestion = {
 };
 
 type Evidence = {
+  /** Addresses that have bounced, for whoever they were tried. */
+  dead: Set<string>;
   /** A firm key as somebody spells it, for saying whose evidence was borrowed. */
   names: Map<string, string>;
   learned: Map<string, DomainEvidence[]>;
@@ -81,28 +83,33 @@ function gatherEvidence(): Evidence {
     if (format) formats.set(firm.companyKey, { name: firm.name, format });
   }
   const bounces = db
-    .select({ contactId: emailGuesses.contactId, domain: emailGuesses.domain, pattern: emailGuesses.pattern })
+    .select({ contactId: emailGuesses.contactId, domain: emailGuesses.domain, pattern: emailGuesses.pattern, email: emailGuesses.emailNormalized })
     .from(emailGuesses)
     .where(eq(emailGuesses.status, "bounced"))
     .all();
-  return { names, learned: learnPatterns(observations), formats, bounces };
+  return { names, dead: new Set(bounces.map((b) => b.email)), learned: learnPatterns(observations), formats, bounces };
 }
 
-/** The firm's own evidence, or that of the firm it is part of. */
+/**
+ * The firm's own evidence, or that of the firm it is part of. A format
+ * the owner set — for this firm or for the house it belongs to — is never
+ * displaced by one an agent recorded.
+ */
 function evidenceFor(key: string, evidence: Evidence): { learned: DomainEvidence[]; stated: FirmFormat | null; from: string | null } {
   const own = { learned: evidence.learned.get(key) ?? [], stated: evidence.formats.get(key)?.format ?? null };
+  if (own.stated?.source === "user") return { ...own, from: null };
+  const closest = (keys: string[]) =>
+    keys.filter((other) => other !== key && isSameHouse(key, other)).sort((a, b) => Math.abs(a.length - key.length) - Math.abs(b.length - key.length) || (a < b ? -1 : 1))[0];
+  const nameOf = (other: string) => evidence.formats.get(other)?.name ?? evidence.names.get(other) ?? other;
+  // "Goldman Sachs International" under an owner-set "Goldman Sachs": the owner's word covers the house.
+  const ownerSet = closest([...evidence.formats.entries()].filter(([, f]) => f.format.source === "user").map(([k]) => k));
+  if (ownerSet) {
+    return { learned: own.learned.length > 0 ? own.learned : (evidence.learned.get(ownerSet) ?? []), stated: evidence.formats.get(ownerSet)!.format, from: nameOf(ownerSet) };
+  }
   if (own.learned.length > 0 || own.stated) return { ...own, from: null };
-  // "Goldman Sachs International" borrows from "Goldman Sachs": the closest relative with anything to say.
-  const relatives = [...new Set([...evidence.learned.keys(), ...evidence.formats.keys()])]
-    .filter((other) => isSameHouse(key, other))
-    .sort((a, b) => Math.abs(a.length - key.length) - Math.abs(b.length - key.length) || (a < b ? -1 : 1));
-  const relative = relatives[0];
+  const relative = closest([...new Set([...evidence.learned.keys(), ...evidence.formats.keys()])]);
   if (!relative) return { ...own, from: null };
-  return {
-    learned: evidence.learned.get(relative) ?? [],
-    stated: evidence.formats.get(relative)?.format ?? null,
-    from: evidence.formats.get(relative)?.name ?? evidence.names.get(relative) ?? relative,
-  };
+  return { learned: evidence.learned.get(relative) ?? [], stated: evidence.formats.get(relative)?.format ?? null, from: nameOf(relative) };
 }
 
 /**
@@ -147,7 +154,8 @@ export function suggestionsFor(contactIds: number[]): Map<number, Suggestion> {
       const k = bounceKey(b.domain, b.pattern);
       bounces.set(k, (bounces.get(k) ?? 0) + 1);
     }
-    const excluded = new Set<string>([...(own.get(p.id) ?? []), ...(refused.get(p.id) ?? [])]);
+    // An address that bounced is dead for everyone — a second record of the same person included.
+    const excluded = new Set<string>([...(own.get(p.id) ?? []), ...(refused.get(p.id) ?? []), ...evidence.dead]);
     let result = suggestEmails({ firstName: p.firstName, lastName: p.lastName, firmName: p.company, learned, stated, evidenceFirm: from, excluded, bounces });
     // An address somebody else in Rolo holds is theirs, not a guess for this person.
     for (let pass = 0; pass < 3 && result.candidates.length > 0; pass++) {
@@ -230,6 +238,24 @@ export function dismissGuess(contactId: number, email: string, now = Date.now())
   return { ok: true };
 }
 
+/**
+ * Why an agent may not add this address to this contact, or null when it
+ * may. Rolo's own guess for the person — current, turned down or bounced —
+ * is the owner's to accept; an agent adding it would be the same guess
+ * arriving without the owner's click, and unmarked.
+ */
+export function guessBlock(contactId: number, email: string): string | null {
+  const wanted = normalizeEmail(email);
+  const dead = db.select({ id: emailGuesses.id }).from(emailGuesses).where(and(eq(emailGuesses.emailNormalized, wanted), eq(emailGuesses.status, "bounced"))).get();
+  if (dead) return `${wanted} bounced when it was tried, so it was not added.`;
+  const guess = guessRow(contactId, wanted);
+  if (guess?.status === "dismissed") return `The owner turned ${wanted} down as a guess for this person, so it was not added.`;
+  if (suggestionFor(contactId)?.candidates.some((c) => normalizeEmail(c.email) === wanted)) {
+    return `${wanted} is Rolo's own guess for this person, not an address anyone has seen. Only the owner can accept it, in Rolo. If the person has really written from it, tell the owner so.`;
+  }
+  return null;
+}
+
 export type GuessState = "accepted" | "confirmed";
 
 /** Which of a contact's addresses began as guesses, and whether they have been proven. */
@@ -282,7 +308,18 @@ export function isBouncedMeta(meta: string | null): boolean {
   }
 }
 
-function withBounced(meta: string | null, bounced: boolean): string | null {
+/** The address a bounced email was reported for, when the row records it. */
+function bouncedAddressOf(meta: string | null): string | null {
+  if (!isBouncedMeta(meta)) return null;
+  try {
+    const value = (JSON.parse(meta as string) as { bouncedAddress?: unknown }).bouncedAddress;
+    return typeof value === "string" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function withBounced(meta: string | null, address: string | null): string | null {
   let parsed: Record<string, unknown> = {};
   if (meta) {
     try {
@@ -292,8 +329,13 @@ function withBounced(meta: string | null, bounced: boolean): string | null {
       // Unreadable metadata is replaced rather than guessed at.
     }
   }
-  if (bounced) parsed.bounced = true;
-  else delete parsed.bounced;
+  if (address !== null) {
+    parsed.bounced = true;
+    parsed.bouncedAddress = address;
+  } else {
+    delete parsed.bounced;
+    delete parsed.bouncedAddress;
+  }
   return Object.keys(parsed).length > 0 ? JSON.stringify(parsed) : null;
 }
 
@@ -306,9 +348,14 @@ export type BounceRecord = {
   tagged: { tagId: number; tagName: string; createdTag: boolean } | null;
   /** The email marked as never having arrived. */
   send: { id: number; occurredAt: number; createdAt: number; countedForTouch: boolean } | null;
+  /** The contact's updated_at as this bounce left it: a later edit means the owner has been here since. */
+  stamp?: number;
 };
 
-export type BounceResult = { ok: true; record: BounceRecord; sendTitle: string | null; next: EmailCandidate[] } | CoreError;
+/** Why no email was marked, when none was. */
+export type NoSendReason = "needs_subject" | "no_match" | "already_recorded";
+
+export type BounceResult = { ok: true; record: BounceRecord; sendTitle: string | null; noSend: NoSendReason | null; next: EmailCandidate[] } | CoreError;
 
 /**
  * An email to this address came back. A guessed address is taken off the
@@ -316,6 +363,13 @@ export type BounceResult = { ok: true; record: BounceRecord; sendTitle: string |
  * against that format at the firm. An address Rolo was given stays, and
  * the contact is tagged "bad address". Either way the email it was sent
  * in stops counting as sent: nobody is waiting on a reply to it.
+ *
+ * Which email that is has to be certain, because marking the wrong one
+ * says a delivered message never arrived. So: never one that was answered;
+ * never one sent from a draft addressed elsewhere; never one older than
+ * the last already marked for this address (a second report of the same
+ * bounce marks nothing); and when the person has several addresses, only
+ * the one whose subject is given.
  */
 export function recordBounce(input: { contactId: number; email: string; subject?: string | null }, now = Date.now()): BounceResult {
   const wanted = normalizeEmail(String(input.email ?? ""));
@@ -323,19 +377,22 @@ export function recordBounce(input: { contactId: number; email: string; subject?
   return db.transaction((): BounceResult => {
     const contact = db.select({ id: contacts.id }).from(contacts).where(eq(contacts.id, input.contactId)).get();
     if (!contact) return { ok: false, error: `There is no contact with id ${input.contactId}.` };
-    const held = db.select().from(contactEmails).where(and(eq(contactEmails.contactId, input.contactId), eq(contactEmails.emailNormalized, wanted))).get();
+    const addresses = db.select().from(contactEmails).where(eq(contactEmails.contactId, input.contactId)).all();
+    const held = addresses.find((e) => e.emailNormalized === wanted);
     const guess = guessRow(input.contactId, wanted);
     if (!held && !guess) {
       return { ok: false, error: "That address is not one Rolo holds for this person, so there is nothing to correct." };
     }
     const record: BounceRecord = { contactId: input.contactId, email: wanted, retracted: null, tagged: null, send: null };
+    // The address already went when it bounced before: this is the same news again.
+    if (!held) return { ok: true, record, sendTitle: null, noSend: "already_recorded", next: [] };
 
-    if (held && guess && guess.status === "accepted") {
+    if (guess && guess.status === "accepted") {
       // A guess that proved wrong: it goes, and is not offered again.
       db.delete(contactEmails).where(eq(contactEmails.id, held.id)).run();
       db.update(emailGuesses).set({ status: "bounced", updatedAt: now }).where(eq(emailGuesses.id, guess.id)).run();
       record.retracted = { email: held.email, label: held.label, priority: held.priority, source: held.source, createdAt: held.createdAt, guessStatus: guess.status };
-    } else if (held) {
+    } else {
       // An address Rolo was given, or one that used to work: the owner decides what to do with it.
       const tag = findOrCreateTag(BAD_ADDRESS_TAG);
       if (!tag.ok) return { ok: false, error: tag.error };
@@ -344,31 +401,47 @@ export function recordBounce(input: { contactId: number; email: string; subject?
       if (res.changedContactIds.length > 0) record.tagged = { tagId: tag.tagId, tagName: tag.name, createdTag: tag.created };
     }
 
-    // The email that bounced: the latest one sent, or the latest with that subject.
-    const want = normalizeSubject(input.subject ?? null);
-    const sends = db
+    const recent = db
       .select()
       .from(interactions)
-      .where(
-        and(
-          eq(interactions.contactId, input.contactId),
-          eq(interactions.kind, "email"),
-          eq(interactions.direction, "outbound"),
-          gte(interactions.occurredAt, now - BOUNCE_WINDOW_MS)
-        )
-      )
+      .where(and(eq(interactions.contactId, input.contactId), gte(interactions.occurredAt, now - BOUNCE_WINDOW_MS)))
       .orderBy(desc(interactions.occurredAt))
-      .all()
-      .filter((s) => !isBouncedMeta(s.meta));
-    const send = (want ? sends.find((s) => normalizeSubject(s.title) === want) : undefined) ?? (want ? undefined : sends[0]);
+      .all();
+    const lastHeardAt = Math.max(0, ...recent.filter((r) => r.direction === "inbound" && (r.kind === "email" || r.kind === "message")).map((r) => r.occurredAt));
+    const lastMarkedAt = Math.max(0, ...recent.filter((r) => bouncedAddressOf(r.meta) === wanted).map((r) => r.occurredAt));
+    let sends = recent.filter(
+      (r) => r.kind === "email" && r.direction === "outbound" && !isBouncedMeta(r.meta) && r.occurredAt > lastHeardAt && r.occurredAt > lastMarkedAt
+    );
+    if (sends.length > 0) {
+      // An email sent from "Drafts to send" knows where it went.
+      const elsewhere = new Set(
+        db
+          .select({ interactionId: outreachDrafts.interactionId, toEmail: outreachDrafts.toEmail })
+          .from(outreachDrafts)
+          .where(inArray(outreachDrafts.interactionId, sends.map((r) => r.id)))
+          .all()
+          .filter((d) => d.toEmail !== null && normalizeEmail(d.toEmail) !== wanted)
+          .map((d) => d.interactionId)
+      );
+      sends = sends.filter((r) => !elsewhere.has(r.id));
+    }
+    const want = normalizeSubject(input.subject ?? null);
+    let send: (typeof sends)[number] | undefined;
+    let noSend: NoSendReason | null = null;
+    if (want) send = sends.find((r) => normalizeSubject(r.title) === want);
+    else if (addresses.length > 1) noSend = sends.length > 0 ? "needs_subject" : "no_match";
+    else send = sends[0];
     if (send) {
-      db.update(interactions).set({ meta: withBounced(send.meta, true), countsForTouch: false }).where(eq(interactions.id, send.id)).run();
+      db.update(interactions).set({ meta: withBounced(send.meta, wanted), countsForTouch: false }).where(eq(interactions.id, send.id)).run();
       record.send = { id: send.id, occurredAt: send.occurredAt, createdAt: send.createdAt, countedForTouch: send.countsForTouch };
       recomputeContact(input.contactId);
+    } else if (noSend === null) {
+      noSend = lastMarkedAt > 0 && record.retracted === null && record.tagged === null ? "already_recorded" : "no_match";
     }
     db.update(contacts).set({ updatedAt: now }).where(eq(contacts.id, input.contactId)).run();
+    record.stamp = now;
     const next = suggestionFor(input.contactId);
-    return { ok: true, record, sendTitle: send?.title ?? null, next: next && next.emails === 0 ? next.candidates : [] };
+    return { ok: true, record, sendTitle: send?.title ?? null, noSend, next: next && next.emails === 0 ? next.candidates : [] };
   });
 }
 
@@ -376,13 +449,19 @@ export function recordBounce(input: { contactId: number; email: string; subject?
 export function undoBounce(record: BounceRecord, now = Date.now()): { reversed: string[]; skipped: string[] } {
   const reversed: string[] = [];
   const skipped: string[] = [];
+  const contact = db.select({ id: contacts.id, updatedAt: contacts.updatedAt }).from(contacts).where(eq(contacts.id, record.contactId)).get();
   if (record.retracted) {
     const guess = guessRow(record.contactId, record.email);
     const exists = db.select({ id: contactEmails.id }).from(contactEmails).where(and(eq(contactEmails.contactId, record.contactId), eq(contactEmails.emailNormalized, record.email))).get();
-    const contact = db.select({ id: contacts.id }).from(contacts).where(eq(contacts.id, record.contactId)).get();
     if (!contact) skipped.push("the contact is gone");
     else if (exists || !guess || guess.status !== "bounced") skipped.push("the address has been dealt with since, so it was left");
-    else {
+    else if (record.stamp !== undefined && contact.updatedAt !== record.stamp) {
+      // The owner has been at this contact since — they may have put the
+      // address on and taken it off again. It is not put back for them;
+      // it becomes a suggestion again, theirs to accept.
+      db.delete(emailGuesses).where(eq(emailGuesses.id, guess.id)).run();
+      reversed.push("made the address a suggestion again (the contact was edited since, so it was not put back)");
+    } else {
       const r = record.retracted;
       db.insert(contactEmails)
         .values({ contactId: record.contactId, email: r.email, emailNormalized: record.email, label: r.label, priority: r.priority, source: r.source, createdAt: r.createdAt })
@@ -392,17 +471,23 @@ export function undoBounce(record: BounceRecord, now = Date.now()): { reversed: 
     }
   }
   if (record.tagged) {
-    const res = setTagMembership([record.contactId], record.tagged.tagId, false);
-    if (res.ok && res.changedContactIds.length > 0) reversed.push(`removed the tag "${record.tagged.tagName}"`);
-    else skipped.push(`the tag "${record.tagged.tagName}" was already off`);
+    // A row id is not an identity: the tag must still be the one the bounce added.
+    const tag = db.select({ name: tags.name }).from(tags).where(eq(tags.id, record.tagged.tagId)).get();
+    if (!tag || tag.name.toLowerCase() !== record.tagged.tagName.toLowerCase()) {
+      skipped.push(`the tag "${record.tagged.tagName}" is gone`);
+    } else {
+      const res = setTagMembership([record.contactId], record.tagged.tagId, false);
+      if (res.ok && res.changedContactIds.length > 0) reversed.push(`removed the tag "${record.tagged.tagName}"`);
+      else skipped.push(`the tag "${record.tagged.tagName}" was already off`);
+    }
   }
   if (record.send) {
     const row = db.select().from(interactions).where(eq(interactions.id, record.send.id)).get();
-    // A row id is not an identity: this must be the email the bounce marked.
+    // Nor is this one: it must be the email the bounce marked.
     if (!row || row.contactId !== record.contactId || row.createdAt !== record.send.createdAt || row.occurredAt !== record.send.occurredAt || !isBouncedMeta(row.meta)) {
       skipped.push("the email it marked has changed since, so it was left");
     } else {
-      db.update(interactions).set({ meta: withBounced(row.meta, false), countsForTouch: record.send.countedForTouch }).where(eq(interactions.id, row.id)).run();
+      db.update(interactions).set({ meta: withBounced(row.meta, null), countsForTouch: record.send.countedForTouch }).where(eq(interactions.id, row.id)).run();
       recomputeContact(record.contactId);
       reversed.push("counted the email as sent again");
     }
