@@ -643,6 +643,39 @@ the owner; see that section before revisiting them.
     other write. Eight write tools, seventeen in all.
   - **Known stubs:** none.
 
+- 🟡 **WhatsApp, per person — step 1 of 3** (2026-11-19, SPEC §15;
+  migration 0021: `whatsapp_links`, `whatsapp_messages`; no new
+  dependency). The owner's design: everything per person, driven from a
+  panel on the contact.
+  - **Built:** the panel (link by number and saved name, sync toggle,
+    "import history from", phone-export upload, summary, confirmed
+    delete); the iPhone / Android export parser; ingest that is
+    idempotent within a source, across the two sources, and against
+    purged text; one derived timeline row per day, where only what the
+    owner sent resets the clock; the collector's server contract (token,
+    `wants`, delivery, the filter applied twice); retention — 90 days of
+    exact text, then cleared only when inside Claude's rolling summary
+    and a week after; three connector tools (`list_whatsapp_chats`,
+    `get_whatsapp_chat`, `save_whatsapp_summary`), the saved name on
+    profiles and in `find_contact`; merge and contact-delete handling.
+  - **Found by the tests while building:** two summary updates in the
+    same millisecond let the older one be undone into the wrong version
+    (the marker is now strictly increasing, and an undo cannot be
+    repeated into a version that no longer exists); a repeated edit
+    inside one delivery was counted twice.
+  - **Verified:** `npm run check` clean with 955 unit tests (889 before);
+    Playwright 35 of 35 (4 new); `next build` succeeds and the panel was
+    exercised on the standalone production build.
+  - **Known stubs / not built:** the laptop collector and its Settings
+    card. The sync toggle and "import history from" are stored and
+    served to the collector endpoint, but nothing calls that endpoint
+    yet — the panel says so, and the endpoint is closed because no token
+    exists. Automatic sync depends on `collector/probe.mjs` showing that
+    WhatsApp Desktop's files can be read at all.
+  - **Step 2** (after the probe): the collector, the token card, and the
+    owner's "message him and see it" check. **Step 3:** a scheduled
+    Claude routine that keeps the rolling summaries current.
+
 **Next: Phase 16 — the outreach loop.** Worth doing first: a week of real
 use of write-back. Which exchanges Claude logs, what it leaves out and
 what gets undone is the best input to "Drafts to send" and the campaign
