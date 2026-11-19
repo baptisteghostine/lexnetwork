@@ -672,18 +672,21 @@ the owner; see that section before revisiting them.
     yet — the panel says so, and the endpoint is closed because no token
     exists. Automatic sync depends on `collector/probe.mjs` showing that
     WhatsApp Desktop's files can be read at all.
-  - **Probe part 1, run by the owner** (WhatsApp 2.2645.101.0): messages
-    are in the WebView's IndexedDB store, not the encrypted native
-    databases; the files are readable while the app runs; a message
-    reaches disk within about a second. Open: whether message text
-    inside is readable. **Part 2** (`collector/inspect.mjs` on
-    `collector/idb.mjs`, a dependency-free read-only IndexedDB reader
-    tested against a real Chromium store, including opening encrypted
-    text with a WebCrypto key read from disk) reports the store's shape
-    and whether the stored keys open the text — structure only.
-  - **Step 2** (after the probe): the collector, the token card, and the
-    owner's "message him and see it" check. **Step 3:** a scheduled
-    Claude routine that keeps the rolling summaries current.
+  - **Probes, run by the owner** (WhatsApp 2.2645.101.0). Part 1
+    (`collector/probe.mjs`): messages are in the WebView's IndexedDB
+    store, readable while the app runs, on disk within about a second.
+    Part 2 (`collector/inspect.mjs` on `collector/idb.mjs`, a
+    dependency-free read-only IndexedDB reader tested against a real
+    Chromium store): message text there is encrypted and the key is not
+    in files a read-only program can reach. **The WhatsApp Desktop route
+    is closed** — getting the key would mean reaching into the running
+    app, which the owner's terms rule out. Nothing was built on it.
+  - **Step 2, redirected:** the owner's own iPhone backup, read on the
+    laptop. Waiting on the owner making a backup; it starts with a
+    structure-only probe, which must show that a chat can be matched to
+    a number before anything else is built. The phone "Export chat" file
+    works today. **Step 3:** a scheduled Claude routine that keeps the
+    rolling summaries current.
 
 - ✅ **Phase 16 — The outreach loop** (2026-11-19, SPEC §16; migration
   0022: `outreach_drafts`; no new dependency).
