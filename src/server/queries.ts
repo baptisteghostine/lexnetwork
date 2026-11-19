@@ -2,7 +2,7 @@ import "server-only";
 
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne } from "drizzle-orm";
 
-import { db } from "@/db/client";
+import { db, rawDb } from "@/db/client";
 import {
   attachments,
   contactChanges,
@@ -12,6 +12,7 @@ import {
   contacts,
   contactSocials,
   contactTags,
+  customFields,
   education,
   groupMembers,
   groups,
@@ -21,6 +22,86 @@ import {
   tags,
   workHistory,
 } from "@/db/schema";
+import { compileFilter, haversineKm } from "@/lib/filters/compile";
+import type { FilterSet, SortSpec } from "@/lib/filters/types";
+
+// ---------- filter executor ----------
+
+export type FilteredContact = typeof contacts.$inferSelect;
+
+export type FilterRunResult = {
+  contacts: FilteredContact[];
+  /** Total matches before `limit` — callers show "N of total". */
+  total: number;
+  warnings: string[];
+};
+
+/** The compiled SQL is `SELECT c.* …`, so raw rows are snake_case. */
+type RawFilterRow = {
+  id: number;
+  location_lat: number | null;
+  location_lng: number | null;
+};
+
+/**
+ * Compile + run a filter set against the live DB (geocoder: not yet).
+ * No session check: callers are the `runFilter` action (which gates on
+ * the cookie) and the agent connector (which gates on its token).
+ */
+export function executeFilter(
+  filter: FilterSet,
+  opts: { now: number; sort?: SortSpec; limit?: number; offset?: number }
+): FilterRunResult {
+  const catalog = {
+    tagIds: new Set(db.select({ id: tags.id }).from(tags).all().map((t) => t.id)),
+    groupIds: new Set(
+      db.select({ id: groups.id }).from(groups).all().map((g) => g.id)
+    ),
+    customFieldIds: new Set(
+      db.select({ id: customFields.id }).from(customFields).all().map((f) => f.id)
+    ),
+    geocoderConfigured: false,
+  };
+  const compiled = compileFilter(filter, { now: opts.now, sort: opts.sort, catalog });
+  let rows = rawDb
+    .prepare(compiled.sql)
+    .all(...(compiled.params as unknown[])) as unknown as RawFilterRow[];
+  if (compiled.radius) {
+    const { lat, lng, km } = compiled.radius;
+    rows = rows.filter(
+      (c) =>
+        c.location_lat !== null &&
+        c.location_lng !== null &&
+        haversineKm(lat, lng, c.location_lat, c.location_lng) <= km
+    );
+  }
+  const total = rows.length;
+  // Hydrate only the rows the caller will render: cap before the drizzle
+  // re-select (raw rows are snake_case; the re-select yields camelCase)
+  // so a 5k-row import can't balloon the page render. `offset` is the
+  // contacts page's pager — the full ordered id list is already in memory,
+  // so paging is a slice, not a second query.
+  const offset = opts.offset ?? 0;
+  const ids = (
+    opts.limit !== undefined ? rows.slice(offset, offset + opts.limit) : rows
+  ).map((r) => r.id);
+  if (ids.length === 0) return { contacts: [], total, warnings: compiled.warnings };
+  const byId = new Map(
+    db
+      .select()
+      .from(contacts)
+      .where(inArray(contacts.id, ids))
+      .all()
+      .map((c) => [c.id, c] as const)
+  );
+  return {
+    contacts: ids
+      .map((id) => byId.get(id))
+      .filter((c): c is FilteredContact => c !== undefined),
+    total,
+    warnings: compiled.warnings,
+  };
+}
 
 export type ContactSort = "name" | "company" | "recent";
 
