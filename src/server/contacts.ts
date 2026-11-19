@@ -25,6 +25,7 @@ import {
 import { requireAuth } from "@/lib/auth";
 import { recomputeContact } from "@/lib/cadence/recompute";
 import { pruneOrphanAnnotations } from "@/server/ai-annotations";
+import { MEMBERSHIP_BATCH_MAX, setTagMembership } from "@/server/membership-core";
 import {
   deriveDisplayName,
   isValidBirthday,
@@ -415,16 +416,8 @@ export async function bulkAddTagAction(
   tagId: number
 ): Promise<void> {
   await requireAuth();
-  const ids = contactIds.filter((n) => Number.isInteger(n)).slice(0, 1000);
-  const now = Date.now();
-  db.transaction(() => {
-    for (const contactId of ids) {
-      db.insert(contactTags)
-        .values({ contactId, tagId, createdAt: now })
-        .onConflictDoNothing()
-        .run();
-    }
-  });
+  const ids = contactIds.filter((n) => Number.isInteger(n)).slice(0, MEMBERSHIP_BATCH_MAX);
+  setTagMembership(ids, tagId, true);
   revalidatePath("/contacts");
 }
 

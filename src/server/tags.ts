@@ -7,21 +7,10 @@ import { z } from "zod";
 import { db } from "@/db/client";
 import { tags } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
-
-const TAG_COLORS = [
-  "#ef4444",
-  "#f97316",
-  "#eab308",
-  "#22c55e",
-  "#14b8a6",
-  "#3b82f6",
-  "#8b5cf6",
-  "#ec4899",
-  "#78716c",
-] as const;
+import { TAG_COLORS, TAG_NAME_MAX } from "@/server/membership-core";
 
 const tagInput = z.object({
-  name: z.string().trim().min(1).max(50),
+  name: z.string().trim().min(1).max(TAG_NAME_MAX),
   color: z.string().regex(/^#[0-9a-f]{6}$/i),
 });
 
