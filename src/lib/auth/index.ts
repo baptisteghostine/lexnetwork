@@ -5,6 +5,12 @@ import { redirect } from "next/navigation";
 
 import { getSetting, setSetting } from "@/lib/settings";
 import {
+  LOGIN_THROTTLE_KEY,
+  NO_FAILURES,
+  parseThrottleState,
+  type LoginThrottleState,
+} from "./login-throttle";
+import {
   createSessionToken,
   SESSION_COOKIE,
   SESSION_TTL_MS,
@@ -20,8 +26,21 @@ export function getPasswordHash(): string | undefined {
   return getSetting<string>(PASSWORD_HASH_KEY);
 }
 
+/** A new password starts with a clean slate: any login lockout is lifted. */
 export function setPasswordHash(hash: string): void {
   setSetting(PASSWORD_HASH_KEY, hash);
+  setLoginThrottle(NO_FAILURES);
+}
+
+// Read from the database on every attempt, never cached: the state has to
+// survive a restart, and `npm run reset-password` clears it from another
+// process while the server is up.
+export function getLoginThrottle(): LoginThrottleState {
+  return parseThrottleState(getSetting<unknown>(LOGIN_THROTTLE_KEY));
+}
+
+export function setLoginThrottle(state: LoginThrottleState): void {
+  setSetting(LOGIN_THROTTLE_KEY, state);
 }
 
 export async function isAuthenticated(): Promise<boolean> {

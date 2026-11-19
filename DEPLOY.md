@@ -215,6 +215,15 @@ npm install --ignore-scripts
 ROLO_DATA_DIR=./data npm run reset-password -- <newpassword>
 ```
 
+The same command gets you back in when the login is **locked out**. After five
+wrong passwords in a row Rolo refuses further attempts for 30 seconds, doubling
+with each failure after that up to 15 minutes; the login form says how long is
+left. Waiting it out and logging in normally clears the count. So does the
+reset script, immediately — pass your current password if you only want the
+lockout lifted. The count is shared by everyone who can reach the login page,
+so on a public domain a lockout you didn't cause means someone else has been
+guessing.
+
 ## Updating
 
 ```bash

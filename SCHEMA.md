@@ -262,7 +262,7 @@ Covers **both** API syncs and file imports (one lifecycle: started → stats →
 
 ## settings  *(added table)*
 
-`key TEXT PRIMARY KEY, value TEXT NOT NULL (JSON)`. Timezone, digest hour, SMTP config, snooze-all params, password hash, birthday-Feb-29 rule, my-addresses default, geocoder config. A settings table beats env vars for anything the UI should edit.
+`key TEXT PRIMARY KEY, value TEXT NOT NULL (JSON)`. Timezone, digest hour, SMTP config, snooze-all params, password hash, failed-login throttle state (`auth.login_throttle`), birthday-Feb-29 rule, my-addresses default, geocoder config. A settings table beats env vars for anything the UI should edit.
 
 - `linkedin_voyager.session` / `linkedin_voyager.enabled` → **retired 2026-09-19** with SPEC §9b; no code reads them any more (a Disconnect before the retirement cleared the session). Historical note: the owner's pasted LinkedIn cookie pair (SPEC §9b), boxed with `lib/crypto` `encryptToken` (same at-rest encryption as OAuth tokens — a live LinkedIn login must not sit plaintext in backups; rotating the session secret invalidates it, surfaced as "reconnect"). `linkedin_voyager.enabled` → boolean, the weekly-sync opt-in toggle.
 
