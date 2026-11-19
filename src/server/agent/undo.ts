@@ -32,6 +32,7 @@ import { restoreCadence } from "@/server/cadence-core";
 import { applyScalarWrite, syncDisplayName, upsertProvenance } from "@/server/import-engine";
 import { setGroupMembership, setTagMembership } from "@/server/membership-core";
 import { mentionedContactIds } from "@/server/note-sync";
+import { undoWhatsAppSummary } from "@/server/whatsapp-core";
 
 // Taking back what an agent wrote (SPEC §14, Phase 15).
 //
@@ -326,6 +327,12 @@ function reverse(
         pruneOrphanAnnotations("change_triage");
       }
       syncDisplayName(write.id);
+      return;
+    }
+    case "whatsapp_links": {
+      const res = undoWhatsAppSummary(write.id, write.updatedAt, now);
+      if (res.ok) out.reversed.push("put the previous WhatsApp summary back");
+      else out.skipped.push(res.error);
       return;
     }
     case "tags": {

@@ -173,6 +173,8 @@ const ARG_LABELS: Record<string, string> = {
   confirmNew: "New person even if the name exists",
   contactIds: "Contacts",
   everyDays: "Keep in touch every (days)",
+  summary: "WhatsApp summary",
+  coversThrough: "Covers messages up to",
   addTags: "Add tags",
   removeTags: "Remove tags",
   addToGroupIds: "Add to groups",

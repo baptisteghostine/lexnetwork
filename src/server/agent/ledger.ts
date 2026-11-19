@@ -80,6 +80,9 @@ export type WriteRecord =
       before: CadenceState;
       after: CadenceState;
     }
+  // `updatedAt` is the summary_updated_at this call wrote: undo restores
+  // the previous summary only while this one is still the latest.
+  | { table: "whatsapp_links"; op: "summary"; id: number; contactId: number; updatedAt: number }
   | { table: "tags"; op: "insert"; id: number; name: string }
   // `at` is when the memberships were written: undo only takes back rows
   // created then, not a membership the owner removed and added again.

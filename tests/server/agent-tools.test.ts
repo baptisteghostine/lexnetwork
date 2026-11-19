@@ -219,6 +219,18 @@ beforeAll(async () => {
 
 beforeEach(() => {
   rawDb.prepare("DELETE FROM agent_calls").run();
+  // The widest-call sweeps read a WhatsApp chat too: the first contact has one.
+  if (!rawDb.prepare("SELECT 1 FROM whatsapp_links WHERE wa_id = '447911000000'").get()) {
+    const first = (rawDb.prepare("SELECT min(id) AS id FROM contacts").get() as { id: number }).id;
+    const linkId = Number(
+      rawDb
+        .prepare("INSERT INTO whatsapp_links (contact_id, wa_id, saved_name, sync_enabled, created_at, updated_at) VALUES (?, '447911000000', 'Saved Name', 0, ?, ?)")
+        .run(first, NOW, NOW).lastInsertRowid
+    );
+    rawDb
+      .prepare("INSERT INTO whatsapp_messages (link_id, message_key, direction, sent_at, kind, body, source, created_at) VALUES (?, 'k1', 'inbound', ?, 'text', 'See you Thursday', 'export', ?)")
+      .run(linkId, NOW - DAY, NOW);
+  }
 });
 
 afterAll(() => {
@@ -803,6 +815,8 @@ function widestCalls(ids: number[]): [string, unknown][] {
     ["search_notes", { query: "instructions", limit: 25 }],
     ["get_today", {}],
     ["get_voice_guide", {}],
+    ["list_whatsapp_chats", {}],
+    ["get_whatsapp_chat", { contactId: ids[0], limit: 200 }],
   ];
 }
 
@@ -821,16 +835,17 @@ describe("nothing secret leaves, nothing is changed", () => {
     for (const marker of Object.values(SECRETS)) expect(log.includes(marker)).toBe(false);
   });
 
-  it("a read-only grant has nine tools, none of which can write; what can never be done has no tool at all", () => {
+  it("a read-only grant has eleven tools, none of which can write; what can never be done has no tool at all", () => {
     const readable = tools.AGENT_TOOLS.filter((t) => t.scope === "read");
     expect(readable.map((t) => t.name)).toEqual([
       "rolo_overview", "search_contacts", "list_companies", "get_contacts", "find_contact",
       "get_timeline", "search_notes", "get_today", "get_voice_guide",
+      "list_whatsapp_chats", "get_whatsapp_chat",
     ]);
     expect(readable.every((t) => !t.mutates && !t.destructive)).toBe(true);
     expect(tools.AGENT_TOOLS.filter((t) => t.scope === "write").map((t) => t.name)).toEqual([
       "log_interaction", "add_note", "create_reminder", "complete_reminder", "upsert_contact",
-      "tag_contacts", "set_cadence", "undo_agent_action",
+      "tag_contacts", "set_cadence", "save_whatsapp_summary", "undo_agent_action",
     ]);
     expect(tools.AGENT_TOOLS.filter((t) => t.scope === "write").every((t) => t.mutates)).toBe(true);
     for (const forbidden of [
@@ -903,7 +918,18 @@ describe("a 10,000-contact network", () => {
             NOW
           ).lastInsertRowid
         );
-        if (i === 0) firstBig.id = cid;
+        if (i === 0) {
+          firstBig.id = cid;
+          // A linked WhatsApp chat at its largest: a full summary and
+          // hundreds of maximum-length messages.
+          const linkId = Number(
+            rawDb
+              .prepare("INSERT INTO whatsapp_links (contact_id, wa_id, saved_name, sync_enabled, summary_md, summary_covers_through, summary_updated_at, created_at, updated_at) VALUES (?, '447911000001', 'Big Chat', 1, ?, ?, ?, ?, ?)")
+              .run(cid, "s".repeat(20_000), NOW - 100 * DAY, NOW, NOW, NOW).lastInsertRowid
+          );
+          const insertMessage = rawDb.prepare("INSERT INTO whatsapp_messages (link_id, message_key, direction, sent_at, kind, body, source, created_at) VALUES (?, ?, ?, ?, 'text', ?, 'collector', ?)");
+          for (let k = 0; k < 400; k++) insertMessage.run(linkId, `big-${k}`, k % 2 ? "inbound" : "outbound", NOW - k * 60_000, "w".repeat(8000), NOW);
+        }
         insertEmail.run(cid, `person${i}@${"long-subdomain.".repeat(6)}example.test`, `person${i}@x.test`, NOW);
         insertTag.run(cid, id.tagTech, NOW);
         if (i < 40) {

@@ -50,6 +50,7 @@ import { addNote, recordInteraction } from "@/server/interaction-core";
 import { findOrCreateTag, setGroupMembership, setTagMembership } from "@/server/membership-core";
 import { completeReminder, createReminder } from "@/server/reminder-core";
 import { findContactsPrecisely } from "@/server/search";
+import { saveWhatsAppSummary, WA_SUMMARY_MAX, WA_SUMMARY_MIN } from "@/server/whatsapp-core";
 
 // The connector's write tools (SPEC §14, Phase 15). What an agent may do
 // to Rolo is narrow on purpose:
@@ -937,6 +938,42 @@ const setCadenceTool = defineTool({
   },
 });
 
+// ---------- save_whatsapp_summary ----------
+
+const saveWhatsAppSummaryTool = defineTool({
+  name: "save_whatsapp_summary",
+  title: "Update a WhatsApp summary",
+  description:
+    "Replace the rolling summary of one linked contact's WhatsApp history. There is one summary per contact and it is rewritten each time, not added to: read the existing summary and the messages after its `coversThrough` (get_whatsapp_chat, `order: \"oldest\"`), then write a single updated text that folds the new messages into what was there. It has to let the owner pick the relationship up once the exact words are gone, so cover: the topics discussed; plans made; commitments in both directions and whether they were kept; personal updates the person shared (work, moves, family, health); and how the relationship is evolving. Plain prose under a few short headings; quote only where the wording matters. `coversThrough` is the time of the last message you included, and it is a promise: Rolo clears exact text only when it is older than 90 days AND at or before `coversThrough`, and a week after that — so never set it later than what you actually read, and read every message up to it. list_whatsapp_chats shows which chats have text waiting.",
+  scope: "write",
+  mutates: true,
+  input: z.strictObject({
+    contactId: z.number().int().positive(),
+    summary: z.string().trim().min(WA_SUMMARY_MIN).max(WA_SUMMARY_MAX),
+    coversThrough: dateArg.describe("ISO-8601 time of the last message the summary includes."),
+    idempotencyKey: idempotencyKeyArg.optional(),
+  }),
+  run: (args, ctx) => {
+    const who = person(args.contactId);
+    const covers = parseDate(args.coversThrough);
+    if (covers === null) throw new ToolRefusal("coversThrough is not a date.");
+    const text = sanitizeAgentMarkdown(args.summary);
+    const res = saveWhatsAppSummary(who.id, text, covers, ctx.now);
+    if (!res.ok) throw new ToolRefusal(res.error);
+    return {
+      summary: `Updated the WhatsApp summary for ${who.name}`,
+      contactId: who.id,
+      writes: [{ table: "whatsapp_links", op: "summary", id: res.linkId, contactId: who.id, updatedAt: res.updatedAt }],
+      data: {
+        saved: true,
+        contactId: who.id,
+        coversThrough: iso(res.coversThrough),
+        note: "Exact text at or before coversThrough will be cleared once it is more than 90 days old, a week after it becomes due. Undo this action within that week if the summary is wrong.",
+      },
+    };
+  },
+});
+
 // ---------- undo_agent_action ----------
 
 const undoTool = defineTool({
@@ -973,5 +1010,6 @@ export const WRITE_TOOLS: AgentTool[] = [
   upsertContactTool,
   tagContactsTool,
   setCadenceTool,
+  saveWhatsAppSummaryTool,
   undoTool,
 ];
