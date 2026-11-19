@@ -580,9 +580,67 @@ the owner; see that section before revisiting them.
     question" is the owner's first check after merging (DEPLOY.md lists
     three `curl` checks to run first).
 
-**Next: Phase 15 — write-back.** Start after the owner has connected
-Claude once and used the read tools for real: what Claude actually asks
-for is the best input to the write tools' design.
+- ✅ **Phase 15 — write-back** (2026-11-19, SPEC §14; no migration — the
+  ledger's columns came with Phase 13 and its two new statuses are plain
+  text; no new dependency). Claude can keep Rolo current.
+  - **The `write` scope is the owner's tick.** Claude asks for `read` and
+    `write`; the consent screen shows a ticked "Also let it add to Rolo"
+    box, and the grant can write only if it is still ticked. A connection
+    made before this phase stays read-only until the owner reconnects.
+  - **Seven write tools** — `log_interaction`, `add_note`,
+    `create_reminder`, `complete_reminder`, `upsert_contact`,
+    `tag_contacts`, `undo_agent_action` — each a strictly validated front
+    for a Phase 13 core. Still no tool deletes, merges, archives, exports,
+    changes a cadence, touches settings or sends anything.
+  - **Signal, not volume, enforced:** `log_interaction` requires a message
+    category and refuses newsletters, notifications, automatic replies and
+    bounces; the server instructions for a write grant say the rest.
+  - **The same message never lands twice:** idempotency keys ledgered per
+    contact (one email to two people is one row each), a near-duplicate
+    guard that joins a forwarded copy to the original whatever wrote it,
+    undone and rejected calls that stay that way — and Rolo's own Gmail
+    sync now checks for the agent's row before adding its own.
+  - **Who is this, without guessing:** `upsert_contact` goes through the
+    import planner as source `agent`; an owner-edited or owner-emptied
+    field is a reported conflict; a namesake stops and asks; a shared
+    address or a second LinkedIn profile is refused or reported.
+  - **Every write is one transaction with its ledger row**, and **undo**
+    reverses exactly that row's records — checking first that each row is
+    still the one written and that the owner has not built on it.
+  - **Review mode** ("Ask me first" in Settings): a write is rehearsed in
+    a rolled-back transaction, refused at once if it would be refused, and
+    otherwise queued whole for Approve / Reject on the activity page.
+  - **For the owner:** `/agent-activity` (what changed, Undo, Approve,
+    Reject), a "Claude" mark on timeline rows and notes an agent wrote,
+    the write-mode switch and "Read and add" label in Settings.
+  - **Decided while building, cheap to reverse** (SPEC §14): the write box
+    starts ticked; at most 50 new contacts in 24 hours and two new tags
+    per call; a rejected proposal's key stays burned; in review mode an
+    undo is queued too.
+  - **Found by the tests while building:** `!![x](url)` survived the
+    image filter; "this is a different person" was matched to the
+    namesake anyway; a LinkedIn link was accepted if it merely contained
+    `linkedin.com`.
+  - **Reviewed adversarially after the first commit.** The read-scope
+    gate, the server-action surface, key replay, atomicity and the note
+    sanitiser held. Ten defects were confirmed and fixed with regression
+    tests (SPEC §14 lists them); the serious ones were in undo — SQLite
+    reuses freed row ids, so undo could remove an unrelated row, and
+    removing an added contact took the owner's later additions with it.
+  - **Verified:** `npm run check` clean with 878 unit tests (778 after
+    Phase 14); Playwright 31 of 31; `next build` succeeds, and the whole
+    write flow was run against the standalone production build and its
+    screens looked at (before the review fixes; the unit and browser
+    suites were re-run after them).
+  - **Not verifiable here:** the live flow from claude.ai — reconnect with
+    the box ticked, then "go through this week's forwarded mail and update
+    Rolo".
+  - **Known stubs:** none.
+
+**Next: Phase 16 — the outreach loop.** Worth doing first: a week of real
+use of write-back. Which exchanges Claude logs, what it leaves out and
+what gets undone is the best input to "Drafts to send" and the campaign
+page.
 
 ---
 
