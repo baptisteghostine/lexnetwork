@@ -4,7 +4,7 @@ SQLite via better-sqlite3 + Drizzle. Conventions:
 - `id` = `INTEGER PRIMARY KEY` (SQLite rowid alias) unless noted.
 - Timestamps = `INTEGER` unix epoch **milliseconds**, named `*_at`. Nullable when the event may not have happened.
 - Booleans = `INTEGER` 0/1.
-- `source` columns = TEXT enum: `'user' | 'csv' | 'vcard' | 'linkedin' | 'google_contacts' | 'gmail' | 'calendar' | 'merge' | 'ai'` (ai only ever via approved suggestions).
+- `source` columns = TEXT enum: `'user' | 'csv' | 'vcard' | 'linkedin' | 'google_contacts' | 'gmail' | 'calendar' | 'merge' | 'ai' | 'agent'` (ai only ever via approved suggestions; `agent` = the owner's Claude writing through the connector, SPEC §14, added 2026-11-19 — no migration, the columns are plain TEXT).
 - All FKs declared with `ON DELETE` behavior stated; `PRAGMA foreign_keys = ON` at every connection open, plus `journal_mode=WAL`, `synchronous=NORMAL`, `busy_timeout=5000`.
 
 Tables the brief listed are all here, plus **four additions** (each flagged inline): `contact_field_sources`, `duplicate_candidates`, `ai_suggestions`, `settings`. Rationale in their sections; if you'd rather fold any of them elsewhere, say so before Phase 1.
@@ -235,6 +235,25 @@ Covers **both** API syncs and file imports (one lifecycle: started → stats →
 - Payload shapes are documented next to their builders in `src/lib/ai/`. Nothing in an annotation is authoritative: contact fields, changes and events are never written from one.
 - `contact_profile` payload: `{summary, facts: [{label, value}], relationship: {strength 1–5, why}, openQuestions: [], basedOn: {notes, exchanges}}`; `null` payload = nothing to summarise yet (stamped so the job moves on). `change_triage` payload: `{kind, significance, reason, opener}`.
 - Settings keys added alongside: `ai.voice_examples` (owner-pasted messages), `ai.voice_guide` (the generated style guide, editable), `ai.voice_generated_at`, `ai.triage.hide_below` (significance under which a triaged change is folded away on Today, default 0.3), `digest.last_sent_at`, `digest.only_when_changed`.
+
+## agent_grants  *(added 2026-11-19, migration 0020 — SPEC §14)*
+
+`id, client_id TEXT NOT NULL, client_name TEXT, scope TEXT NOT NULL ('read' | 'read write'), resource TEXT NOT NULL (the MCP URL the tokens are bound to), code_hash TEXT, code_expires_at INTEGER, code_challenge TEXT (PKCE S256), redirect_uri TEXT, access_token_hash TEXT, access_expires_at INTEGER, refresh_token_hash TEXT, refresh_expires_at INTEGER, previous_refresh_hash TEXT, created_at INTEGER NOT NULL, last_used_at INTEGER, revoked_at INTEGER`.
+- One row per client the owner authorised through the connector's sign-in. Its life: created at consent with only the authorization-code columns set; the token endpoint exchanges the code (clearing it) for an access and a refresh token; each refresh rotates both; `revoked_at` ends it. Codes live in this table rather than in memory because the consent page and the token route are separate requests, and may be separate module instances.
+- **Every secret is stored as its SHA-256 hex and never in clear** — the code, the access token, the refresh token. The tokens are long random strings, so a plain hash is enough (no salt needed, and lookups stay a single indexed equality). `previous_refresh_hash` holds the refresh token the current one replaced: presenting it again means a rotated token was replayed, and the grant is revoked.
+- `UNIQUE(code_hash)`, `UNIQUE(access_token_hash)`, `UNIQUE(refresh_token_hash)` — each partial on NOT NULL; `idx_agent_grants_previous_refresh`.
+- Included in the full export like every table: the hashes are not credentials, and a backup restored onto the same address keeps the owner signed in.
+- Nothing reads or writes this table until Phase 14.
+
+## agent_calls  *(added 2026-11-19, migration 0020 — SPEC §14)*
+
+`id, grant_id FK → agent_grants ON DELETE SET NULL, tool TEXT NOT NULL, args_json TEXT NOT NULL, status TEXT NOT NULL ('success','error','refused'), error TEXT, summary TEXT, contact_id FK → contacts ON DELETE SET NULL, writes_json TEXT, idempotency_key TEXT, duration_ms INTEGER, created_at INTEGER NOT NULL, undone_at INTEGER`.
+- One row per tool call the connector serves, reads included — the agent's equivalent of `ai_calls`, and the source of the activity page and of undo. `args_json` is the validated arguments as called; `summary` is the one line the activity page shows; `contact_id` is the person the call was about when it was about one (a call touching several lists them in `writes_json`).
+- `writes_json` is NULL for a read. For a write it is `[{table, id, op, before?}]`: the rows the call created or changed and what reversing them needs. `undone_at` marks a reversed call; the row itself is never deleted, so the log stays honest about what happened.
+- `uq_agent_calls_idempotency ON (tool, idempotency_key) WHERE idempotency_key IS NOT NULL AND status = 'success'` — a repeated call is answered from the first instead of writing twice; a failed attempt does not burn its key.
+- `idx_agent_calls_time ON (created_at)`, `idx_agent_calls_contact ON (contact_id, created_at)` (a contact's "added by Claude" rows), `idx_agent_calls_writes ON (created_at) WHERE writes_json IS NOT NULL` (the activity page, which lists writes).
+- Both FKs are SET NULL: the log outlives a revoked-and-deleted grant and a deleted contact. Read rows can be pruned by age later if the table gets fat; write rows are the audit trail and stay.
+- Nothing writes this table until Phase 14.
 
 ## ai_suggestions  *(added table — approval queue)*
 

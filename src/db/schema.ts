@@ -12,7 +12,8 @@ import {
 
 // Timestamps are unix epoch milliseconds (see SCHEMA.md conventions).
 // `source` values: 'user' | 'csv' | 'vcard' | 'linkedin' | 'google_contacts'
-//                | 'gmail' | 'calendar' | 'merge' | 'ai'
+//                | 'gmail' | 'calendar' | 'merge' | 'ai' | 'agent'
+// ('agent' = the owner's Claude through the connector, SPEC §14.)
 
 export const contacts = sqliteTable(
   "contacts",
@@ -804,6 +805,93 @@ export const aiSuggestions = sqliteTable(
     resolvedAt: integer("resolved_at"),
   },
   (t) => [index("idx_ai_suggestions_status").on(t.status, t.createdAt)]
+);
+
+// Agent connector ledger (SCHEMA.md `agent_grants` / `agent_calls`, SPEC
+// §14; migration 0020). The owner's Claude reaches Rolo through an MCP
+// endpoint: a grant is one client the owner authorised, a call is one
+// tool invocation. Tokens are stored as SHA-256 hex and never in clear.
+export const agentGrants = sqliteTable(
+  "agent_grants",
+  {
+    id: integer("id").primaryKey(),
+    clientId: text("client_id").notNull(),
+    // What Settings shows for it ("Claude").
+    clientName: text("client_name"),
+    // Space-separated: 'read' | 'read write'
+    scope: text("scope").notNull(),
+    // The MCP URL these tokens are bound to (RFC 8707 audience).
+    resource: text("resource").notNull(),
+    // Authorization-code leg: set at consent, cleared when exchanged.
+    codeHash: text("code_hash"),
+    codeExpiresAt: integer("code_expires_at"),
+    // PKCE S256 challenge and the redirect the code was issued to.
+    codeChallenge: text("code_challenge"),
+    redirectUri: text("redirect_uri"),
+    accessTokenHash: text("access_token_hash"),
+    accessExpiresAt: integer("access_expires_at"),
+    refreshTokenHash: text("refresh_token_hash"),
+    refreshExpiresAt: integer("refresh_expires_at"),
+    // The refresh token the current one replaced: seeing it again means
+    // a rotated token was replayed, and the grant is revoked.
+    previousRefreshHash: text("previous_refresh_hash"),
+    createdAt: integer("created_at").notNull(),
+    lastUsedAt: integer("last_used_at"),
+    revokedAt: integer("revoked_at"),
+  },
+  (t) => [
+    uniqueIndex("uq_agent_grants_code")
+      .on(t.codeHash)
+      .where(sql`code_hash IS NOT NULL`),
+    uniqueIndex("uq_agent_grants_access")
+      .on(t.accessTokenHash)
+      .where(sql`access_token_hash IS NOT NULL`),
+    uniqueIndex("uq_agent_grants_refresh")
+      .on(t.refreshTokenHash)
+      .where(sql`refresh_token_hash IS NOT NULL`),
+    index("idx_agent_grants_previous_refresh").on(t.previousRefreshHash),
+  ]
+);
+
+export const agentCalls = sqliteTable(
+  "agent_calls",
+  {
+    id: integer("id").primaryKey(),
+    grantId: integer("grant_id").references(() => agentGrants.id, {
+      onDelete: "set null",
+    }),
+    tool: text("tool").notNull(),
+    // The validated arguments, as called. Never a token.
+    argsJson: text("args_json").notNull(),
+    // 'success' | 'error' | 'refused'
+    status: text("status").notNull(),
+    error: text("error"),
+    // One line for the activity page: "Logged an email to Ana Silva".
+    summary: text("summary"),
+    // The person the call was about, when it was about one.
+    contactId: integer("contact_id").references(() => contacts.id, {
+      onDelete: "set null",
+    }),
+    // Null for a read. For a write: [{table, id, op, before?}] — what it
+    // changed and what undoing it needs.
+    writesJson: text("writes_json"),
+    // Caller-supplied; a repeat of a successful call is answered from the
+    // first one instead of writing twice.
+    idempotencyKey: text("idempotency_key"),
+    durationMs: integer("duration_ms"),
+    createdAt: integer("created_at").notNull(),
+    undoneAt: integer("undone_at"),
+  },
+  (t) => [
+    index("idx_agent_calls_time").on(t.createdAt),
+    index("idx_agent_calls_contact").on(t.contactId, t.createdAt),
+    index("idx_agent_calls_writes")
+      .on(t.createdAt)
+      .where(sql`writes_json IS NOT NULL`),
+    uniqueIndex("uq_agent_calls_idempotency")
+      .on(t.tool, t.idempotencyKey)
+      .where(sql`idempotency_key IS NOT NULL AND status = 'success'`),
+  ]
 );
 
 export type Contact = typeof contacts.$inferSelect;
