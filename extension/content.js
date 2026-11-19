@@ -482,6 +482,89 @@ function readProfile() {
   };
 }
 
+// ---------- career history on the page (SPEC §9c, 2026-11-19) ----------
+//
+// Experience, Education and About as the lines of text the owner can
+// see. Nothing is requested and nothing is interpreted here: which line
+// is a title, an employer or a date is decided on the server, so a
+// layout change is fixed there. A page that yields nothing says so in
+// the popup rather than passing for a profile with no history.
+
+const SECTION_HEADINGS = {
+  experience: ["experience", "expérience", "experiencia", "berufserfahrung"],
+  education: ["education", "formation", "éducation", "educación", "ausbildung"],
+  about: ["about", "infos", "à propos", "acerca de", "info"],
+};
+
+function findSection(kind) {
+  const anchor = document.getElementById(kind);
+  const viaAnchor = anchor?.closest("section");
+  if (viaAnchor) return viaAnchor;
+  for (const h of document.querySelectorAll("main section h2, main section h3")) {
+    // LinkedIn prints a heading twice (once for screen readers), so it
+    // reads "ExperienceExperience": match on how it starts.
+    const t = (h.textContent ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+    if (SECTION_HEADINGS[kind].some((w) => t.startsWith(w))) return h.closest("section");
+  }
+  return null;
+}
+
+/** The lines of one entry, leaving out what belongs to entries nested in `skip`. */
+function entryLines(node, skip) {
+  const inSkipped = (el) => skip.some((s) => s !== node && s.contains(el));
+  // Each visible line is its own aria-hidden span; the outermost ones are the lines.
+  const spans = [...node.querySelectorAll('span[aria-hidden="true"]')].filter(
+    (el) => !inSkipped(el) && !el.parentElement?.closest('span[aria-hidden="true"]') && !el.closest("button")
+  );
+  let lines = spans.map((el) => (el.textContent ?? "").replace(/\s+/g, " ").trim()).filter(Boolean);
+  if (lines.length === 0) {
+    // A layout without those spans: the text as laid out, up to where a nested entry begins.
+    const own = (node.innerText ?? "").split("\n").map((l) => l.replace(/\s+/g, " ").trim()).filter(Boolean);
+    const firstNested = skip.map((s) => ((s.innerText ?? "").split("\n").map((l) => l.trim()).find(Boolean) ?? null)).find(Boolean);
+    const cut = firstNested ? own.indexOf(firstNested) : -1;
+    lines = cut === -1 ? own : own.slice(0, cut);
+  }
+  return lines.slice(0, 60).map((l) => l.slice(0, 4000));
+}
+
+/** The entries of a list section: each top-level item, with the items nested directly under it. */
+function sectionEntries(container) {
+  if (!container) return [];
+  const items = [...container.querySelectorAll("li")];
+  const parentItem = (li) => {
+    const p = li.parentElement?.closest("li");
+    return p && container.contains(p) ? p : null;
+  };
+  const top = items.filter((li) => parentItem(li) === null);
+  return top.slice(0, 80).map((li) => {
+    const direct = items.filter((c) => parentItem(c) === li);
+    return {
+      lines: entryLines(li, direct),
+      children: direct.slice(0, 30).map((c) => ({ lines: entryLines(c, []) })),
+    };
+  });
+}
+
+function readSections() {
+  const path = location.pathname;
+  // "Show all experiences" opens a page that is only that list.
+  const details = path.match(/^\/in\/[^/]+\/details\/(experience|education)\b/);
+  if (details) {
+    const main = document.querySelector("main");
+    return {
+      experience: details[1] === "experience" ? sectionEntries(main) : [],
+      education: details[1] === "education" ? sectionEntries(main) : [],
+      about: null,
+    };
+  }
+  const about = findSection("about");
+  return {
+    experience: sectionEntries(findSection("experience")),
+    education: sectionEntries(findSection("education")),
+    about: about ? entryLines(about, []).join("\n").slice(0, 8000) : null,
+  };
+}
+
 // ---------- the open conversation (SPEC §9c messaging) ----------
 //
 // Read from the DOM of the thread the owner is looking at. Nothing is
@@ -656,7 +739,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
   if (msg?.type === "readProfile") {
     try {
-      sendResponse({ ok: true, profile: readProfile() });
+      sendResponse({ ok: true, profile: readProfile(), sections: readSections() });
     } catch (err) {
       sendResponse({ ok: false, error: String(err?.message ?? err) });
     }

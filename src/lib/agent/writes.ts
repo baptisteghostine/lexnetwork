@@ -180,6 +180,13 @@ const ARG_LABELS: Record<string, string> = {
   guide: "Voice guide",
   purpose: "Purpose",
   startedOn: "Counting from",
+  domain: "Domain",
+  pattern: "Address format",
+  basis: "Based on",
+  email: "Address",
+  outcome: "What happened",
+  firms: "Firms",
+  suggestions: "Tag suggestions",
   summary: "WhatsApp summary",
   coversThrough: "Covers messages up to",
   addTags: "Add tags",
@@ -214,7 +221,12 @@ export function describeArgs(argsJson: string): { label: string; value: string }
     // On a contact, `title` is their job; on a reminder, its name.
     const shown = key === "title" && ("firstName" in record || "lastName" in record || "company" in record) ? "Job title" : label;
     const text = Array.isArray(value)
-      ? value.map((v) => String(v)).join(", ")
+      ? value.some((v) => typeof v === "object" && v !== null)
+        ? // A list of things, one to a line: "Goldman Sachs — Bulge bracket — why".
+          value
+            .map((v) => (typeof v === "object" && v !== null ? Object.values(v as Record<string, unknown>).map((x) => String(x)).join(" — ") : String(v)))
+            .join("\n")
+        : value.map((v) => String(v)).join(", ")
       : typeof value === "boolean"
         ? value
           ? "yes"

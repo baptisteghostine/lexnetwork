@@ -92,7 +92,8 @@ Same shape: `phone_raw`, `phone_e164` (nullable — not everything parses), `lab
 
 ## work_history
 
-`id, contact_id FK CASCADE, company TEXT NOT NULL, company_normalized TEXT NOT NULL, title TEXT, start_date TEXT (ISO 'YYYY-MM' or 'YYYY'), end_date TEXT nullable, is_current INTEGER NOT NULL DEFAULT 0, source, created_at`.
+`id, contact_id FK CASCADE, company TEXT NOT NULL, company_normalized TEXT NOT NULL, title TEXT, start_date TEXT (ISO 'YYYY-MM' or 'YYYY'), end_date TEXT nullable, is_current INTEGER NOT NULL DEFAULT 0, description TEXT (added 2026-11-19, migration 0023), source, created_at`.
+- `description` is what the person wrote about the role on their profile (SPEC §9c career history), at most 1,500 characters — third-party text. Only rows with `source = 'linkedin_profile'` (read off a captured profile page) normally have one. The LinkedIn imports keep one current row with `source = 'linkedin'` from the headline; a capture converts that row to `linkedin_profile` rather than adding a second, and the imports leave a `linkedin_profile` current row at the same employer alone.
 - `idx_work_company ON work_history(company_normalized)` — powers "current OR past company" filters ("ex-Googlers").
 - Dates as TEXT because sources give partial dates ('2021', '2021-03'); lexicographic ISO ordering still sorts correctly. Flagged below.
 
@@ -263,6 +264,10 @@ Covers **both** API syncs and file imports (one lifecycle: started → stats →
   - `{table:"campaigns", op:"save", groupId, groupName, marker, createdGroup, createdCampaign}` — a save of the `outreach.campaigns` entry for that group (not a table); undo applies only while the entry still holds `marker`.
   - `{table:"settings", op:"voice_guide", marker}` — a replaced voice guide; undo applies only while `ai.voice_generated_at` still holds `marker`.
   - A `reminders` insert may carry `purpose:"call"`: the reminder marks a booked call (SPEC §16).
+  - `{table:"firms", op:"tier", key, name, before, after}` and `{table:"firms", op:"email_format", key, name, before, after}` — a firm is named by its key, not a row id; `before` and `after` are the tier (or format) columns as replaced and as set, and undo restores `before` only while the row still holds `after`.
+  - `{table:"email_guesses", op:"bounce", record}` — `record` holds the guessed address taken off the contact as it was (`retracted`), the tag added (`tagged`), and the email marked (`send: {id, occurredAt, createdAt, countedForTouch}`); each part is reversed only while still as the bounce left it, and the email only if the row is the one recorded.
+  - `{table:"email_guesses", op:"confirm", contactId, email, previous}`
+  - `{table:"ai_suggestions", op:"insert", ids, createdAt}` — tag suggestions; undo deletes those still `pending` with that creation time.
   - `{table:"contact_tags", op:"add"|"remove", tagId, tagName, contactIds, at}` and `{table:"group_members", op:"add"|"remove", groupId, groupName, contactIds, at}` — only the contacts whose membership actually flipped; `at` is when, which is how undo tells its own memberships from ones the owner re-added.
 - `undone_at` marks a reversed call; the row itself is never deleted, so the log stays honest about what happened. An `undo_agent_action` call is its own row (`writes_json = '[]'`).
 - `idempotency_key` holds the caller's key plus the contact the call was about — `<key>#contact:<id>`, or the bare key when it was about no single contact — so one message concerning two people is one write each. It is set only on a write that changed something, on a proposal, and kept on a rejection (a rejected proposal stays rejected); a refused or no-op call leaves it NULL so the corrected retry can use the key.
@@ -303,10 +308,29 @@ Covers **both** API syncs and file imports (one lifecycle: started → stats →
 
 **There is no campaigns table and no per-person outreach state.** A campaign is a `groups` row plus an entry in the `outreach.campaigns` setting; a person's stage is derived from `interactions`, `whatsapp_messages`, `calendar_events`, `reminders`, `contact_tags` and open drafts each time it is shown (`src/lib/outreach/stage.ts`).
 
+## firms  *(added 2026-11-19, migration 0023 — SPEC §17)*
+
+`id, company_key TEXT NOT NULL, name TEXT NOT NULL, tier TEXT, tier_source TEXT ('user','agent'), tier_note TEXT, email_domain TEXT, email_pattern TEXT, email_source TEXT ('user','agent'), email_basis TEXT ('seen_in_mail','published'), email_note TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL`.
+- What somebody has settled about an employer: its tier and how its email addresses are formed. **Not a companies table**: a contact belongs to a firm only through the text of `contacts.company`, and `company_key` is that text's comparison form (`normalizeForCompare('company', …)` — the folding `list_companies` uses). `uq_firms_key ON (company_key)`. `name` is the spelling shown.
+- `tier` is a short owner-chosen name; `idx_firms_tier ON (tier)`. `email_pattern` is one of `EMAIL_PATTERNS` (`lib/outreach/email-pattern.ts`), e.g. `first.last`; `email_domain` a hostname that is not a mailbox provider or a school.
+- `*_source` says who set each half. A half with source `user` is never changed by an agent. `email_basis` and the notes are an agent's account of where its value came from (agent text, cleaned on write).
+- A row with neither a tier nor a domain is deleted. Written only by `src/server/firms-core.ts`.
+
+## email_guesses  *(added 2026-11-19, migration 0023 — SPEC §17)*
+
+`id, contact_id FK → contacts ON DELETE CASCADE NOT NULL, email_normalized TEXT NOT NULL, domain TEXT NOT NULL, pattern TEXT NOT NULL, status TEXT NOT NULL ('accepted','confirmed','bounced','dismissed'), created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL`.
+- What Rolo remembers about an address it worked out for someone. **Suggestions are not stored** — they are computed when shown. A row exists once the owner has acted on one, or it bounced: `accepted` (on the contact as a `contact_emails` row with `source = 'guess'`, not yet proven), `confirmed` (they answered from it, or the owner said it works), `bounced` (taken off the contact; never offered to them again), `dismissed` (the owner said "not this").
+- `uq_email_guesses_contact_email ON (contact_id, email_normalized)`. `idx_email_guesses_domain ON (domain, status)`: bounces per shape at a domain weigh against that shape for everyone else.
+- An `accepted` row's address is excluded from the evidence a firm's format is learned from; a `confirmed` one counts.
+- Written only by `src/server/email-guess-core.ts`. Merge moves rows to the winner (`CHILD_TABLES`), dropping one the winner already has.
+
+**A bounced email** is an `interactions` row whose `meta` JSON has `"bounced": true` and whose `counts_for_touch` is 0. It stays on the timeline with a mark, and the outreach stage rule ignores it.
+
 ## ai_suggestions  *(added table — approval queue)*
 
 `id, kind TEXT NOT NULL ('tag'), contact_id FK CASCADE, payload_json TEXT NOT NULL ({tagName, isNewTag, confidence, rationale}), ai_call_id FK SET NULL, status TEXT ('pending','approved','rejected'), created_at, resolved_at`.
 - Generic enough for future suggestion types; "AI never writes directly" is enforced by making this the only path.
+- Since 2026-11-19 (SPEC §17) the connector's `suggest_tags` writes here too: `payload_json` then carries `"source": "agent"`, `rationale` is the agent's evidence (cleaned), `confidence` is 1 and not shown, and `ai_call_id` is NULL. The queue is shown whether or not the in-app AI is enabled.
 
 ## settings  *(added table)*
 

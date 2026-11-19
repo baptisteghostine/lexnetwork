@@ -24,6 +24,7 @@ import {
   type LinkedInConnection,
   type LinkedInMessage,
 } from "@/lib/imports/linkedin";
+import { PROFILE_SOURCE } from "@/lib/linkedin/profile-sections";
 import {
   isBaselineRun,
   normalizeForChange,
@@ -223,6 +224,22 @@ function upsertWorkHistory(
 ): void {
   if (!row.company) return;
   const normalized = normalizeForChange("company", row.company);
+  // A role read off the person's profile (SPEC §9c capture) is the better
+  // record of the same job: the headline neither duplicates it nor
+  // rewrites its title. It is changed only by reading the profile again.
+  const fromProfile = db
+    .select({ id: workHistory.id })
+    .from(workHistory)
+    .where(
+      and(
+        eq(workHistory.contactId, contactId),
+        eq(workHistory.isCurrent, true),
+        eq(workHistory.source, PROFILE_SOURCE),
+        eq(workHistory.companyNormalized, normalized)
+      )
+    )
+    .get();
+  if (fromProfile) return;
   const current = db
     .select()
     .from(workHistory)

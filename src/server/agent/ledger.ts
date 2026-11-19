@@ -1,5 +1,8 @@
 import "server-only";
 
+import type { BounceRecord } from "@/server/email-guess-core";
+import type { FormatState, TierState } from "@/server/firms-core";
+
 import { createHash } from "node:crypto";
 
 import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
@@ -90,6 +93,14 @@ export type WriteRecord =
   | { table: "outreach_drafts"; op: "insert"; id: number; contactId: number; createdAt: number; replacedId: number | null }
   | { table: "campaigns"; op: "save"; groupId: number; groupName: string; marker: number; createdGroup: boolean; createdCampaign: boolean }
   | { table: "settings"; op: "voice_guide"; marker: number }
+  // Firms and address guesses (SPEC §17). A firm is named by its key, not
+  // a row id; each record carries what it replaced and what it set, and
+  // undo applies only while the row still holds the latter.
+  | { table: "firms"; op: "tier"; key: string; name: string; before: TierState; after: TierState }
+  | { table: "firms"; op: "email_format"; key: string; name: string; before: FormatState; after: FormatState }
+  | { table: "email_guesses"; op: "bounce"; record: BounceRecord }
+  | { table: "email_guesses"; op: "confirm"; contactId: number; email: string; previous: string }
+  | { table: "ai_suggestions"; op: "insert"; ids: number[]; createdAt: number }
   | { table: "tags"; op: "insert"; id: number; name: string }
   // `at` is when the memberships were written: undo only takes back rows
   // created then, not a membership the owner removed and added again.

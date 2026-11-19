@@ -32,7 +32,9 @@ import {
 } from "@/server/custom-fields";
 import { requireAuth } from "@/lib/auth";
 import { agentNoteIds } from "@/server/agent/ledger";
+import { guessStates, suggestionFor } from "@/server/email-guess-core";
 import { collectorLastSeenAt, getWhatsAppLink, whatsAppOverview } from "@/server/whatsapp-core";
+import { EmailGuess, GuessMark } from "@/components/email-guess";
 import { formatWaId } from "@/lib/whatsapp/chat";
 import { WhatsAppPanel } from "@/components/whatsapp-panel";
 import { CADENCE_PRESETS, DAY_MS } from "@/lib/cadence/engine";
@@ -91,6 +93,9 @@ export default async function ContactPage({
     workHistory,
     education,
   } = detail;
+  const guessed = guessStates(contactId);
+  // Someone with no address at all: what Rolo would suggest, if anything.
+  const emailGuess = emails.length === 0 ? (suggestionFor(contactId)?.candidates[0] ?? null) : null;
   const timeline = getContactTimeline(contactId);
   const whatsappLink = getWhatsAppLink(contactId);
   const whatsapp = whatsappLink ? whatsAppOverview(whatsappLink) : null;
@@ -467,8 +472,15 @@ export default async function ContactPage({
                         {e.label}
                       </span>
                     ) : null}
+                    {guessed.has(e.emailNormalized) ? (
+                      <GuessMark contactId={contact.id} email={e.email} confirmed={guessed.get(e.emailNormalized) === "confirmed"} />
+                    ) : null}
                   </span>
                 ))}
+              </Field>
+            ) : emailGuess ? (
+              <Field label="Email">
+                <EmailGuess contactId={contact.id} guess={{ email: emailGuess.email, strength: emailGuess.strength, evidence: emailGuess.evidence }} />
               </Field>
             ) : null}
             {phones.length > 0 ? (
@@ -522,6 +534,9 @@ export default async function ContactPage({
                           : "now"
                         : [w.startDate, w.endDate].filter(Boolean).join(" – ")}
                     </span>
+                    {w.description ? (
+                      <span className="block whitespace-pre-wrap text-[12px] leading-snug text-muted-foreground">{w.description}</span>
+                    ) : null}
                   </div>
                 ))}
               </div>

@@ -132,7 +132,7 @@ export function AiPanel({
             {suggestions.map((s) => (
               <li
                 key={s.id}
-                className="flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-md border border-border px-3 py-2 md:flex-nowrap"
+                className={`flex flex-wrap items-center gap-x-2.5 gap-y-1 rounded-md border border-border px-3 py-2 ${s.fromAgent ? "" : "md:flex-nowrap"}`}
               >
                 <Link
                   href={`/contacts/${s.contactId}`}
@@ -149,14 +149,22 @@ export function AiPanel({
                   </span>
                 )}
                 <span
-                  className="order-last line-clamp-2 basis-full text-xs text-muted-foreground md:order-none md:min-w-0 md:flex-1 md:basis-auto md:truncate"
+                  className={
+                    s.fromAgent
+                      ? // Claude's evidence is what the owner approves on: shown whole.
+                        "order-last basis-full text-xs text-muted-foreground"
+                      : "order-last line-clamp-2 basis-full text-xs text-muted-foreground md:order-none md:min-w-0 md:flex-1 md:basis-auto md:truncate"
+                  }
                   title={s.rationale}
                 >
+                  {s.fromAgent ? <span className="font-medium text-foreground">Claude: </span> : null}
                   {s.rationale}
                 </span>
-                <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-                  {(s.confidence * 100).toFixed(0)}%
-                </span>
+                {s.fromAgent ? null : (
+                  <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                    {(s.confidence * 100).toFixed(0)}%
+                  </span>
+                )}
                 <Button
                   size="sm"
                   variant="ghost"

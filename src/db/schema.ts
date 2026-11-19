@@ -281,6 +281,10 @@ export const workHistory = sqliteTable(
     isCurrent: integer("is_current", { mode: "boolean" })
       .notNull()
       .default(false),
+    // What the person wrote about the role on their profile (SPEC §9c
+    // profile capture, 2026-11-19) — where a team or coverage area is
+    // usually said when the headline does not say it. Bounded on write.
+    description: text("description"),
     source: text("source").notNull(),
     createdAt: integer("created_at").notNull(),
   },
@@ -999,6 +1003,62 @@ export const outreachDrafts = sqliteTable(
   (t) => [
     index("idx_outreach_drafts_status").on(t.status, t.createdAt),
     index("idx_outreach_drafts_contact").on(t.contactId, t.status),
+  ]
+);
+
+// ---------- Firms and address guesses (SPEC §17) ----------
+
+// What Rolo knows about an employer as a firm: its tier, and how its
+// email addresses are formed. Keyed by the same comparison form that
+// folds spellings in list_companies — there is no companies table, and
+// a contact belongs to a firm only through the text of `contacts.company`.
+export const firms = sqliteTable(
+  "firms",
+  {
+    id: integer("id").primaryKey(),
+    companyKey: text("company_key").notNull(),
+    // The spelling shown, as first recorded.
+    name: text("name").notNull(),
+    tier: text("tier"),
+    // 'user' | 'agent' — who set the tier. An agent's is one the owner approved.
+    tierSource: text("tier_source"),
+    tierNote: text("tier_note"),
+    emailDomain: text("email_domain"),
+    // One of EMAIL_PATTERNS (lib/outreach/email-pattern.ts), e.g. 'first.last'.
+    emailPattern: text("email_pattern"),
+    // 'user' | 'agent'
+    emailSource: text("email_source"),
+    // For an agent's: 'seen_in_mail' | 'published'.
+    emailBasis: text("email_basis"),
+    emailNote: text("email_note"),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [uniqueIndex("uq_firms_key").on(t.companyKey), index("idx_firms_tier").on(t.tier)]
+);
+
+// An address Rolo worked out for someone rather than was given. A row
+// exists only once the owner has acted on a suggestion (or one bounced):
+// suggestions themselves are computed, never stored.
+export const emailGuesses = sqliteTable(
+  "email_guesses",
+  {
+    id: integer("id").primaryKey(),
+    contactId: integer("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    emailNormalized: text("email_normalized").notNull(),
+    domain: text("domain").notNull(),
+    pattern: text("pattern").notNull(),
+    // 'accepted' (on the contact, unproven) | 'confirmed' (they answered
+    // from it) | 'bounced' | 'dismissed' (the owner said no)
+    status: text("status").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("uq_email_guesses_contact_email").on(t.contactId, t.emailNormalized),
+    index("idx_email_guesses_domain").on(t.domain, t.status),
   ]
 );
 

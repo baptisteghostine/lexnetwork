@@ -41,6 +41,11 @@ export type AgentTool = {
    * destructive hint, so it asks before each call.
    */
   destructive: boolean;
+  /**
+   * True for a write that is a proposal by nature: it waits for the
+   * owner's approval whatever the write mode is.
+   */
+  alwaysReview: boolean;
   input: z.ZodType;
   execute: (rawArgs: unknown, ctx: ToolContext) => ToolOutput;
 };
@@ -52,6 +57,7 @@ export function defineTool<S extends z.ZodType>(def: {
   scope: Scope;
   mutates?: boolean;
   destructive?: boolean;
+  alwaysReview?: boolean;
   input: S;
   run: (args: z.output<S>, ctx: ToolContext) => ToolOutput;
 }): AgentTool {
@@ -62,6 +68,7 @@ export function defineTool<S extends z.ZodType>(def: {
     scope: def.scope,
     mutates: def.mutates ?? false,
     destructive: def.destructive ?? false,
+    alwaysReview: def.alwaysReview ?? false,
     input: def.input,
     execute: (rawArgs, ctx) => def.run(def.input.parse(rawArgs), ctx),
   };

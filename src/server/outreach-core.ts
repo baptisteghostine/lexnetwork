@@ -37,9 +37,12 @@ import {
   type Stage,
   type StageResult,
 } from "@/lib/outreach/stage";
+import type { EmailCandidate } from "@/lib/outreach/email-pattern";
 import { getSetting, ownerTimezone, setSetting } from "@/lib/settings";
 import { fromFakeUtc } from "@/lib/time";
 import { agentCallReminders } from "@/server/agent/ledger";
+import { isBouncedMeta, topGuessForAddressless } from "@/server/email-guess-core";
+import { firmKey, tiersByKey } from "@/server/firms-core";
 import { recordInteraction } from "@/server/interaction-core";
 
 // Outreach (SPEC §16). No session and no page cache: the pages' actions
@@ -265,6 +268,10 @@ export type PipelineMember = {
   title: string | null;
   company: string | null;
   email: string | null;
+  /** The firm's tier, when the owner has approved one (SPEC §17). */
+  firmTier: string | null;
+  /** For someone with no address: the one Rolo would suggest, with its evidence. */
+  guess: EmailCandidate | null;
   openDraftId: number | null;
   callAt: number | null;
 } & StageResult;
@@ -304,11 +311,13 @@ export function stagesFor(contactIds: number[], campaign: { groupId: number | nu
     push(m.contactId, { at: m.sentAt, kind: m.direction === "outbound" ? "sent" : "received" });
   }
   for (const i of db
-    .select({ contactId: interactions.contactId, kind: interactions.kind, direction: interactions.direction, occurredAt: interactions.occurredAt, source: interactions.source })
+    .select({ contactId: interactions.contactId, kind: interactions.kind, direction: interactions.direction, occurredAt: interactions.occurredAt, source: interactions.source, meta: interactions.meta })
     .from(interactions)
     .where(inArray(interactions.contactId, contactIds))
     .all()) {
     if (i.source === "whatsapp") continue;
+    // An email that bounced was never received: nobody is waiting on a reply to it (SPEC §17).
+    if (isBouncedMeta(i.meta)) continue;
     if (i.kind === "email" || i.kind === "message") {
       if (i.direction === "outbound") push(i.contactId, { at: i.occurredAt, kind: "sent" });
       else if (i.direction === "inbound") push(i.contactId, { at: i.occurredAt, kind: "received" });
@@ -410,7 +419,7 @@ function primaryEmails(contactIds: number[]): Map<number, string> {
     .select({ contactId: contactEmails.contactId, email: contactEmails.email })
     .from(contactEmails)
     .where(inArray(contactEmails.contactId, contactIds))
-    .orderBy(desc(contactEmails.priority), asc(contactEmails.id))
+    .orderBy(asc(contactEmails.priority), asc(contactEmails.id))
     .all()) {
     if (!out.has(e.contactId)) out.set(e.contactId, e.email);
   }
@@ -432,8 +441,19 @@ export function campaignPipeline(groupId: number, now = Date.now()): { campaign:
         .where(inArray(contacts.id, ids))
         .all()
     : [];
+  const tiers = tiersByKey();
+  const guesses = topGuessForAddressless(ids.filter((id) => !emails.has(id)));
   const members = people
-    .map((p) => ({ contactId: p.id, name: p.name, title: p.title, company: p.company, email: emails.get(p.id) ?? null, ...stages.get(p.id)! }))
+    .map((p) => ({
+      contactId: p.id,
+      name: p.name,
+      title: p.title,
+      company: p.company,
+      email: emails.get(p.id) ?? null,
+      firmTier: tiers.get(firmKey(p.company)) ?? null,
+      guess: guesses.get(p.id) ?? null,
+      ...stages.get(p.id)!,
+    }))
     .sort((a, b) => a.name.localeCompare(b.name));
   return { campaign, members };
 }
@@ -540,7 +560,7 @@ export function saveDraft(input: SaveDraftInput, now = Date.now()): SaveDraftRes
     .select({ email: contactEmails.email })
     .from(contactEmails)
     .where(eq(contactEmails.contactId, who.id))
-    .orderBy(desc(contactEmails.priority), asc(contactEmails.id))
+    .orderBy(asc(contactEmails.priority), asc(contactEmails.id))
     .all()
     .map((e) => e.email);
   let toEmail: string | null = known[0] ?? null;
@@ -678,7 +698,7 @@ export type DraftRow = Draft & { contactName: string; campaignName: string | nul
 export function listDrafts(opts: { status?: "open" | "sent" | "discarded"; groupId?: number | null; limit?: number } = {}): DraftRow[] {
   reconcileDrafts();
   const status = opts.status ?? "open";
-  return db
+  const rows = db
     .select({ draft: outreachDrafts, contactName: contacts.displayName, campaignName: groups.name })
     .from(outreachDrafts)
     .innerJoin(contacts, eq(contacts.id, outreachDrafts.contactId))
@@ -688,6 +708,24 @@ export function listDrafts(opts: { status?: "open" | "sent" | "discarded"; group
     .limit(Math.min(Math.max(opts.limit ?? 100, 1), 200))
     .all()
     .map((r) => ({ ...r.draft, contactName: r.contactName, campaignName: r.campaignName }));
+  if (status !== "open" || rows.length === 0) return rows;
+  // A waiting draft goes to an address the contact has now: one written
+  // before the address was known picks it up, and one written to a guess
+  // that has since bounced does not keep pointing at it (SPEC §17).
+  const held = new Map<number, string[]>();
+  for (const e of db
+    .select({ contactId: contactEmails.contactId, email: contactEmails.email })
+    .from(contactEmails)
+    .where(inArray(contactEmails.contactId, [...new Set(rows.map((r) => r.contactId))]))
+    .orderBy(asc(contactEmails.priority), asc(contactEmails.id))
+    .all()) {
+    held.set(e.contactId, [...(held.get(e.contactId) ?? []), e.email]);
+  }
+  return rows.map((r) => {
+    const list = held.get(r.contactId) ?? [];
+    const still = r.toEmail !== null && list.some((e) => e.toLowerCase() === r.toEmail!.toLowerCase());
+    return still ? r : { ...r, toEmail: list[0] ?? null };
+  });
 }
 
 export function countOpenDrafts(): number {

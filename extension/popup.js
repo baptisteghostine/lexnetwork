@@ -222,6 +222,37 @@ function renderHint() {
 // no LinkedIn request; the lookup is one GET to Rolo.
 
 let pageProfile = null;
+// Experience, education and About as read off this page (SPEC §9c career
+// history), and whether the person is already in Rolo.
+let pageSections = null;
+let pageInRolo = false;
+
+/** "3 roles · 2 schools · about" — what the page gave, so nothing read is visible as nothing. */
+function sectionsLabel(s) {
+  if (!s) return null;
+  const roles = (s.experience ?? []).length;
+  const schools = (s.education ?? []).length;
+  const bits = [
+    roles ? `${roles} experience entr${roles === 1 ? "y" : "ies"}` : null,
+    schools ? `${schools} education entr${schools === 1 ? "y" : "ies"}` : null,
+    s.about ? "about" : null,
+  ].filter(Boolean);
+  return bits.length ? `This page: ${bits.join(" · ")}` : "This page: no experience or education could be read — scroll down so they load";
+}
+
+function careerLabel(c) {
+  if (!c) return "";
+  const bits = [
+    c.rolesAdded ? `${c.rolesAdded} role${c.rolesAdded === 1 ? "" : "s"} added` : null,
+    c.rolesUpdated ? `${c.rolesUpdated} filled in` : null,
+    c.schoolsAdded ? `${c.schoolsAdded} school${c.schoolsAdded === 1 ? "" : "s"} added` : null,
+    c.schoolsUpdated ? `${c.schoolsUpdated} school${c.schoolsUpdated === 1 ? "" : "s"} filled in` : null,
+    c.bio === "set" ? "bio updated" : c.bio === "kept" ? "your own bio kept" : null,
+  ].filter(Boolean);
+  if (bits.length) return ` Career: ${bits.join(", ")}.`;
+  const read = c.read ?? { roles: 0, schools: 0 };
+  return read.roles + read.schools > 0 ? " Career: already up to date." : " Career: nothing could be read from this page.";
+}
 
 function dueLabel(nextTouchAt, now) {
   if (!nextTouchAt) return null;
@@ -242,7 +273,7 @@ function showPage(name, role, state, kind, { open = false, add = false } = {}) {
   $("pageOpen").hidden = !open;
   $("pageAdd").hidden = !add;
   $("pageAdd").disabled = false;
-  $("pageAdd").textContent = "Add to Rolo";
+  $("pageAdd").textContent = pageInRolo ? "Update from this page" : "Add to Rolo";
   $("pageMsg").hidden = true;
 }
 
@@ -297,6 +328,8 @@ $("pageAdd").addEventListener("click", async () => {
 async function renderPage() {
   $("page").hidden = true;
   pageProfile = null;
+  pageSections = null;
+  pageInRolo = false;
   pageConversation = null;
   if (!liTab) return;
   if (/^https:\/\/www\.linkedin\.com\/messaging\/thread\//.test(liTab.url ?? "")) {
@@ -308,6 +341,8 @@ async function renderPage() {
   const profile = read?.profile;
   if (!profile) return;
   pageProfile = profile;
+  pageSections = read.sections ?? null;
+  const onPage = sectionsLabel(pageSections);
   const name = [profile.firstName, profile.lastName].filter(Boolean).join(" ") || profile.fullName || profile.publicIdentifier;
   showPage(name, profile.headline, "Checking Rolo…");
   if (!status) {
@@ -329,25 +364,29 @@ async function renderPage() {
       c.archivedAt ? "archived" : null,
     ].filter(Boolean);
     const overdue = c.cadenceDays && c.nextTouchAt && c.nextTouchAt <= now;
-    showPage(c.displayName, [c.title, c.company].filter(Boolean).join(", ") || profile.headline, bits.join(" · "), overdue ? "due" : "in", { open: true });
+    pageInRolo = true;
+    if (onPage) bits.push(onPage);
+    // "Update from this page" brings their roles, schools and About into Rolo.
+    showPage(c.displayName, [c.title, c.company].filter(Boolean).join(", ") || profile.headline, bits.join(" · "), overdue ? "due" : "in", { open: true, add: true });
     $("pageOpen").onclick = () => chrome.tabs.create({ url: `${settings.roloUrl}/contacts/${c.id}` });
   } else {
-    showPage(name, profile.headline, "Not in Rolo", "out", { add: true });
+    showPage(name, profile.headline, onPage ? `Not in Rolo · ${onPage}` : "Not in Rolo", "out", { add: true });
   }
 }
 
 $("pageAdd").addEventListener("click", async () => {
   if (!pageProfile || pageConversation) return;
+  const wasInRolo = pageInRolo;
   $("pageAdd").disabled = true;
-  $("pageAdd").textContent = "Adding…";
-  const r = await chrome.runtime.sendMessage({ type: "capture", profile: pageProfile }).catch(() => null);
+  $("pageAdd").textContent = wasInRolo ? "Updating…" : "Adding…";
+  const r = await chrome.runtime.sendMessage({ type: "capture", profile: pageProfile, sections: pageSections }).catch(() => null);
   const msg = $("pageMsg");
   msg.hidden = false;
   if (!r?.ok) {
     msg.className = "msg err";
     msg.textContent = r?.error ?? "Couldn't add.";
     $("pageAdd").disabled = false;
-    $("pageAdd").textContent = "Add to Rolo";
+    $("pageAdd").textContent = wasInRolo ? "Update from this page" : "Add to Rolo";
     return;
   }
   msg.className = "msg ok";
@@ -355,10 +394,16 @@ $("pageAdd").addEventListener("click", async () => {
     ? "Added to Rolo."
     : r.updated
       ? "Already in Rolo — updated from this page."
-      : "Already in Rolo — nothing new.";
+      : "Already in Rolo — name, headline and location unchanged.";
   if (r.jobChanges) msg.textContent += ` Job change detected.`;
   if (r.conflicts) msg.textContent += ` ${r.conflicts} field${r.conflicts > 1 ? "s" : ""} you'd edited kept as-is.`;
+  msg.textContent += careerLabel(r.career);
+  const said = msg.textContent;
   await renderPage();
+  // Re-rendering the card hides the message; what was just done stays readable.
+  msg.hidden = false;
+  msg.className = "msg ok";
+  msg.textContent = said;
   await loadStatus();
   renderStats();
 });

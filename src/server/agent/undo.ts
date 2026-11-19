@@ -30,9 +30,12 @@ import { pruneOrphanAnnotations } from "@/server/ai-annotations";
 import { noteSignature, parseWrites, reminderSignature, type WriteRecord } from "@/server/agent/ledger";
 import { restoreCadence } from "@/server/cadence-core";
 import { applyScalarWrite, syncDisplayName, upsertProvenance } from "@/server/import-engine";
+import { unconfirmGuess, undoBounce } from "@/server/email-guess-core";
+import { restoreFirmEmailFormat, restoreFirmTier } from "@/server/firms-core";
 import { setGroupMembership, setTagMembership } from "@/server/membership-core";
 import { mentionedContactIds } from "@/server/note-sync";
 import { undoCampaignSave, undoDraftSave, undoVoiceGuide } from "@/server/outreach-core";
+import { withdrawTagSuggestions } from "@/server/tag-suggestion-core";
 import { undoWhatsAppSummary } from "@/server/whatsapp-core";
 
 // Taking back what an agent wrote (SPEC §14, Phase 15).
@@ -340,6 +343,30 @@ function reverse(
       const res = undoCampaignSave(write.groupId, write.marker, write);
       if (res.ok) out.reversed.push(res.what);
       else out.skipped.push(res.error);
+      return;
+    }
+    case "firms": {
+      const res = write.op === "tier" ? restoreFirmTier(write.key, write.before, write.after, now) : restoreFirmEmailFormat(write.key, write.before, write.after, now);
+      if (res.ok) out.reversed.push(write.op === "tier" ? `put ${write.name}'s tier back` : `put ${write.name}'s address format back`);
+      else out.skipped.push(res.error);
+      return;
+    }
+    case "email_guesses": {
+      if (write.op === "confirm") {
+        const res = unconfirmGuess(write.contactId, write.email, write.previous, now);
+        if (res.ok) out.reversed.push("marked the address as unconfirmed again");
+        else out.skipped.push(res.error);
+        return;
+      }
+      const res = undoBounce(write.record, now);
+      out.reversed.push(...res.reversed);
+      out.skipped.push(...res.skipped);
+      return;
+    }
+    case "ai_suggestions": {
+      const n = withdrawTagSuggestions(write.ids, write.createdAt);
+      if (n > 0) out.reversed.push(`withdrew ${n} tag suggestion${n === 1 ? "" : "s"}`);
+      if (n < write.ids.length) out.skipped.push(`${write.ids.length - n} tag suggestion${write.ids.length - n === 1 ? " was" : "s were"} already answered`);
       return;
     }
     case "settings": {

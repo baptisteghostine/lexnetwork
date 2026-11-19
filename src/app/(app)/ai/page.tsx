@@ -11,7 +11,9 @@ export default async function AiPage() {
   // Pages guard themselves — see contacts/page.tsx for why.
   await requireAuth();
   const enabled = aiEnabled();
-  const suggestions = enabled ? await readSuggestions() : [];
+  // The review queue is the owner's whether or not the in-app AI is on:
+  // Claude suggests tags through the connector too (SPEC §17).
+  const suggestions = await readSuggestions();
   const voice = enabled ? await readVoice() : null;
   const audit = await readAiAudit();
 

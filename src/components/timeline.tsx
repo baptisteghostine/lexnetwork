@@ -21,6 +21,16 @@ import { useFormatDate } from "@/components/timezone-context";
 
 /** SPEC §2/§9: email rows carry an "open in Gmail" link built from the
  * stored thread id — there is no body to show, only a way back to it. */
+/** An email that came back undelivered (SPEC §17). */
+function isBounced(meta: string | null): boolean {
+  if (!meta || !meta.includes('"bounced"')) return false;
+  try {
+    return (JSON.parse(meta) as { bounced?: unknown }).bounced === true;
+  } catch {
+    return false;
+  }
+}
+
 function gmailThreadUrl(meta: string | null): string | null {
   if (!meta) return null;
   try {
@@ -277,6 +287,14 @@ export function Timeline({
                   Open in Gmail
                 </a>
               )}
+            {isBounced(item.interaction.meta) && (
+              <span
+                className="rounded border border-destructive/40 px-1 text-[10px] uppercase tracking-wide text-destructive"
+                title="This email came back undelivered. It does not count as contact, and nobody is waiting on a reply to it."
+              >
+                bounced
+              </span>
+            )}
             {item.interaction.source === "agent" && <ByClaude />}
             <span className="flex-1" />
             <When at={item.at} />

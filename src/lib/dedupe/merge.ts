@@ -130,6 +130,12 @@ const CHILD_TABLES: { name: string; conflictSql: string | null }[] = [
   },
   // Drafts to send (SPEC §16) follow the person.
   { name: "outreach_drafts", conflictSql: null },
+  {
+    // What Rolo remembers about guessed addresses (SPEC §17) follows the person.
+    name: "email_guesses",
+    conflictSql: `SELECT l.id FROM email_guesses l WHERE l.contact_id = @loser AND EXISTS (
+      SELECT 1 FROM email_guesses w WHERE w.contact_id = @winner AND w.email_normalized = l.email_normalized)`,
+  },
   { name: "contact_changes", conflictSql: null },
   { name: "work_history", conflictSql: null },
   { name: "education", conflictSql: null },

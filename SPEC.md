@@ -369,6 +369,14 @@ Re-running any import with the same file: 100% unchanged, zero writes. An identi
 
 - **Profile capture (owner request 2026-09-04).** On any `/in/<id>` page the popup reads the profile off the page the owner already loaded — LinkedIn's embedded API blobs first, the visible heading/headline/location as fallback — and asks `GET /api/linkedin/extension/lookup?id=` whether they're in Rolo: *In Rolo since Mar 2026 · last spoke 12d ago · due Thu → Open in Rolo*, or **Add to Rolo**, which posts the profile to `/api/linkedin/extension/capture`. Capture is one `LinkedInConnection` row (`lib/linkedin/capture.ts`) through `executeLinkedInRows` with `runKind = 'linkedin_profile_capture'` — same identity ladder (profile URL), same provenance rules, same job-change detector; a headline that moved is a Today card like any other. Zero extra LinkedIn requests: nothing is fetched that the owner's own page view didn't.
 
+- **Career history with the capture (owner request 2026-11-19, PLAN Phase 18a).** The same click also reads the profile's **Experience**, **Education** and **About** off the page — where a team or sector is usually said when the headline does not say it. Still zero extra LinkedIn requests, and still only on the owner's click: for someone already in Rolo the popup's button reads **Update from this page**.
+  - *The extension does no parsing.* It sends each list entry as the lines of text a reader sees (each line is an `aria-hidden` span; the screen-reader copies are left out), with the entries nested directly under it kept apart, and the About text. Which line is a title, an employer or a date is decided on the server (`lib/linkedin/profile-sections.ts`, pure), so a layout change is fixed by a deploy rather than by reloading the extension. Sections are found by their anchor (`#experience`, `#education`, `#about`) and, failing that, by heading text in English, French, Spanish or German. On a "show all experiences" page (`/in/<id>/details/experience/`) the whole list is read.
+  - *Reading an entry.* An entry is a role when it has a date line (`Jan 2022 - Present · 2 yrs`, `sept. 2020 - aujourd’hui`, `2015 – 2019`): title, employer (the text before ` · Full-time`), dates, then — skipping a place line — what the person wrote, including text in entries nested under the role; `Skills:` lines and "see more" are dropped. An employer with several roles under it yields one role each. An entry with no date line is not a role. Education gives school, degree, field (split at the first comma) and years. Descriptions are cut at 1,500 characters, About at 2,000.
+  - *Fitting it to what Rolo holds* (`planWorkHistory`, `planEducation`, pure; applied by `server/linkedin-profile.ts`). Roles are added with source `linkedin_profile` and **never removed** — a profile page shows only its first few. A role matches a stored row at the same employer by start date; failing that the current row the imports keep from the headline, which **becomes** the real role (title, dates, description, source) instead of sitting beside it; failing that an undated row with the same title. A row from any other source is only filled in where it is empty. The imports' own `upsertWorkHistory` then leaves a profile-read current role at the same employer alone, so the next connection sync neither duplicates it nor puts the headline back as its title. A captured role is changed only by capturing the profile again.
+  - *What is deliberately not changed:* `contacts.title` and `contacts.company` stay as the imports set them (from the headline), so capturing a profile never produces a job-change card. About fills an empty `bio` or refreshes one LinkedIn wrote; a bio from anywhere else — the owner's above all — is kept.
+  - *Fail loud.* The popup says what the page gave ("This page: 4 experience entries · 2 education entries · about") before anything is sent, and what the capture changed after; a page that yields nothing says "no experience or education could be read", and the endpoint's answer carries the counts it read. A request whose sections are malformed is refused whole.
+  - **Not verified against LinkedIn itself.** The reader is tested on a page built the way LinkedIn's profile page is documented to be laid out; the build sandbox cannot open LinkedIn. The owner's first capture is the check, and the popup's counts are how a mismatch shows.
+
 - **Scheduled weekly sync (owner request 2026-09-04, off by default).** A `chrome.alarms` alarm (weekly, first run a minute after the toggle) runs the connection sync in a LinkedIn tab — an open one, else a background tab at the connections page that it closes again on success. Pacing is the content script's, unchanged; a second run never stacks on one in progress, and a run the owner started by hand is left alone. Logged out means the missing session cookie fails the run and the badge goes red; nothing retries or works around it. Re-armed from the stored toggle on every worker start.
 - **Messaging capture (owner request 2026-09-04).** On a `/messaging/thread/<id>` page the popup reads the open thread off the DOM — who it's with (header profile link, else the title), and for each message on screen its direction (the sender link vs the counterpart), timestamp (LinkedIn's date heading plus the per-message time, in the tab's timezone), and a first line — and offers **Log in Rolo**, which posts to `/api/linkedin/extension/messages`. Server-side the text is cut to the same `MESSAGE_SNIPPET_MAX` the ZIP uses and the rows go through `insertLinkedInMessages` keyed by conversation + timestamp, so a later ZIP import of the same thread lands on the same rows. The counterpart is matched like messages.csv (profile URL, then a unique LinkedIn-sourced name); someone not in Rolo is created from the thread header when it carries a profile link, else the popup says to open their profile first. This reverses the extension README's original "no messages" term on the owner's instruction: it still reads only the owner's own conversations, only the one on screen, with **zero** extra requests, and stores snippets, never the thread. Zero messages read is an error — a layout change must look like one.
 
@@ -377,6 +385,11 @@ Re-running any import with the same file: 100% unchanged, zero writes. An identi
 - [ ] Unit: `publicIdentifierFromPath` reads the identifier from a path, a full URL, or a locale subdomain and rejects company/feed URLs; a captured profile lowercases the identifier, falls back from structured name to the page heading, and maps to the shared row with the profile URL as identity; a nameless capture is refused.
 - [ ] Unit: a raw Voyager page forwarded verbatim (JSON round-tripped) parses to connections; company entities in the same payload are not contacts; a drifted shape yields zero, which the endpoint reports as failure.
 - [ ] Unit: the pairing token is compared in constant time; a wrong or absent token gets 401.
+- [ ] Career history, pure: month-and-year and year-only dates in English and French; a range with "Present"/"aujourd’hui", a single month, and nine lines that only look like dates; one role with place and description; description found in nested entries; an employer with several roles; a French profile; what is not a role is left out and a role read twice is one; long text is bounded; schools with degree, field and years; About loses its heading and "see more"; the wire format accepts what the extension sends and refuses what it could not have.
+- [ ] Career history, fitting: an empty history takes every role; the headline's row becomes the real role; the same capture again changes nothing; a promotion is a new row and the old one gets its end date; a typed or imported row is only filled in; nothing is removed for being absent; schools once each.
+- [ ] Career history, against a database through the real endpoint: a new person arrives with three roles (one of them the headline's row, converted), a school and a bio; a second capture changes nothing; a capture without sections afterwards neither duplicates the role nor rewrites its title; an owner-written bio is kept; a details page with no name updates an existing contact and cannot create one; malformed sections and a missing token are refused; an empty page reports zero.
+- [ ] Career history, E2E: the extension's content script, as shipped, run in a real browser on a page laid out like a LinkedIn profile, returns each entry's lines without the screen-reader copies and with nested entries apart; posting what it read creates the contact, and the contact page shows the roles with their descriptions, the school and the bio, once each.
+- [ ] Manual, the owner's: reload the extension (0.4.0), open a profile of someone in Rolo, check the popup's counts, click **Update from this page**, and see their roles on their Rolo page.
 - [ ] Manual: with the extension loaded and a linkedin.com tab open, "Sync connections" imports the owner's connections, and re-running is idempotent. **Verified live 2026-08-22**, after a paging fix (a page adding nobody new ended the run after the first one) and an explicit `stopReason` so "that's everyone" is distinguishable from "paging broke".
 
 ---
@@ -716,9 +729,13 @@ On the activity page each proposal shows everything it would write, in full, wit
 
 Campaigns, the derived pipeline, "Drafts to send" and the six tools that drive them are specified in §16. The connector now has fourteen read tools and twelve write tools.
 
-### Phases 17–18 (not built)
+### Phase 18 — better data to aim with (built: a, c, d)
 
-Unattended runs (17), richer targeting data (18). Scope and acceptance criteria are in PLAN.md until each phase starts.
+Fuller profiles from captured pages (§9c), suggested addresses and firm tiers (§17), and five tools: `suggest_emails` (read); `record_email_format`, `record_email_outcome`, `propose_firm_tiers`, `suggest_tags` (write). The connector now has fifteen read tools and sixteen write tools. `propose_firm_tiers` introduces a tool that **always** waits for the owner (`alwaysReview`), whatever the write mode. Part (b) of the plan — capturing people from a LinkedIn search page — was dropped by the owner on 2026-11-19: a results page does not carry the team, which is the fact that was missing.
+
+### Phase 17 (not built)
+
+Unattended runs. Scope and acceptance criteria are in PLAN.md until it starts.
 
 ### Acceptance criteria (Phase 15)
 
@@ -965,6 +982,91 @@ A draft follows a merge to the winner and is deleted with its contact. A draft w
 - [ ] Merge: a draft moves to the winner; deleting the contact deletes it.
 - [ ] E2E in a real browser: create a campaign from the form (a duplicate name is refused); a draft Claude wrote shows its address and an Outlook link whose only parameters are `to`, `subject` and `body`; editing the subject changes the link; Sent empties the list, puts the edited subject on the timeline once and moves the person to "Awaiting reply"; nine days on they are on Today once the start date is moved back; a drafted follow-up takes them off; Discard takes two clicks and logs nothing; archiving the campaign clears Today.
 - [ ] Manual, the owner's: (1) one draft → Open in Outlook on the school account: recipient, subject and text arrive intact; with a BCC set, check the copy lands in Gmail. (2) In Claude: "set up a campaign for …, pick ten, draft them" → ten cards → send and click Sent → a week later the non-repliers are on Today.
+
+---
+
+## 17. Firms and addresses
+
+*Added 2026-11-19 (PLAN.md Phase 18c and 18d, owner request "start C D A"). It serves §16: "the top firms" has to mean something exact, and a person Rolo holds no address for has to be reachable without Rolo, or Claude, inventing one.*
+
+### Firms
+
+A **firm** is an employer of at least one contact, identified by the comparison form of `contacts.company` — the same folding `list_companies` uses, so "Goldman Sachs" and "Goldman Sachs Ltd" are one firm and "Goldman Sachs International" is another. There is no companies table; the `firms` table (SCHEMA.md) holds only what somebody has settled about a firm:
+
+- a **tier** — a short name the owner chooses ("Bulge bracket", "Elite boutique"); a name already in use is reused whatever the case it is typed in;
+- an **address format** — the domain and how the part before the @ is built, one of fifteen shapes (`first.last`, `flast`, `firstl`, …, `lib/outreach/email-pattern.ts`).
+
+Each carries who set it. **What the owner set, an agent cannot change** — it is told so and the value is kept. What an agent set, the owner or an agent can. A record that says nothing is deleted.
+
+The page **Outreach → Firms** lists firms by tier with their format and where each came from, lets the owner edit both, and add a firm from the employers in Rolo. A domain must be a hostname and not a mailbox provider or a school.
+
+### Suggested addresses
+
+For a person Rolo holds no address for, Rolo can work one out. **A suggestion is computed when shown and stored nowhere.**
+
+- *Evidence.* (1) **Learned:** for each firm, the addresses Rolo was given for people there — ignoring personal domains (mailbox providers, `.edu`, `.ac.xx`, `alumni.`) — and which shape each one has given its owner's name. An address that fits no shape, or more than one (a one-letter first name), counts for none. An address that is itself an unproven guess is evidence of nothing. (2) **Recorded:** the format on the firm's record — the owner's, or one Claude recorded with where it came from (`seen_in_mail` or `published`). (3) A firm with no evidence of its own borrows from one it is part of or that is part of it ("Goldman Sachs International" from "Goldman Sachs", whole words only), and the evidence says whose it is.
+- *Ranking.* The owner's format first; then shapes by how many addresses back them, a format Claude recorded adding to its shape (more when seen in real mail than when published). Up to three candidates, each with a **strength** — *strong* (the owner's format, or three or more addresses of which three quarters agree), *fair* (two addresses, or seen in mail), *weak* (one address, or published) — and the **evidence in words**: "3 of the 4 addresses Rolo holds at gs.com are built this way".
+- *Names.* Accents, apostrophes, suffixes ("Jr.", "CFA") and bracketed asides are dropped; a hyphenated first name is one name, a second word a middle name; a family name of several words is written together. Where the name could be spelled several ways the evidence says so.
+- *Never offered:* an address the person already has, one another contact holds, one that bounced or was turned down for this person.
+- *When there is nothing to go on, Rolo says which:* no employer, no name, no address at the firm and no format, a domain without a shape, every format already tried.
+
+**Only the owner puts a guess on a contact** — "Use this address" on the person's page, the campaign page, or the draft that has no address. It is then an ordinary address with source `guess`, shown with a "guess" mark until it is proven; "Not this" means it is not offered for that person again. There is no agent tool that accepts a guess, and `save_draft`'s rule (§16) is unchanged: a draft goes only to an address already on the contact. Given that only 39 of 3,168 contacts had an address when this was built, the recorded format is what makes the feature useful, and the owner's click is what keeps a recorded format from ever addressing mail by itself.
+
+### Bounces and confirmations
+
+- **Bounced** (`recordBounce`): a *guessed* address is taken off the contact and remembered as wrong — never offered to that person again, and a mark against that shape at the firm (one bounce lowers the strength a notch; a shape with more bounces than support is dropped). An address Rolo *was given* stays, and the contact gets the tag `bad address` (§16). Either way **the email it was sent in stops counting as sent**: the latest outbound email to that person in the last three weeks — the one with the same subject, when a subject is given — is marked `{"bounced": true}` in its metadata, no longer counts as a touch, and is ignored by the outreach stage rule, so nobody shows as "awaiting reply" to an email that never arrived. The timeline shows it with a "bounced" mark.
+- **Confirmed** (`confirmGuess`): the person answered from it, or the owner clicked "it works". The guess stops being one and counts as evidence for the firm.
+- A waiting draft follows the address: one written before the address was known picks it up; one addressed to a guess that has since bounced lets go of it.
+
+### Tags Claude suggests
+
+A team or sector is rarely in a headline. When Claude finds evidence for one — a role description, a deal announcement, the owner's own mail — it proposes the tag with `suggest_tags`, one line of evidence each. The proposals join the queue the in-app tagger uses (`ai_suggestions`, §11), shown under **AI → Suggestions to review** as "Claude: …" whether or not the in-app AI is switched on, and **nothing is tagged until the owner approves each one**.
+
+### What Claude can see and do (§14)
+
+- `suggest_emails` (read) — up to 25 people: each one's guesses with strength and evidence, or why there are none.
+- `list_companies` now carries each firm's tier and address format and the tier names in use, and filters by tier (`"none"` for firms without one). `search_contacts` gains `firmTiers`, `education` and `careerContains` (role titles and descriptions, and the bio). `get_contacts` shows the firm's tier, each role's description, and which addresses are unconfirmed guesses. `get_pipeline` shows the tier and whether a guess is available.
+- `record_email_format` (write) — a firm's domain and shape, with `basis` and a note saying where it comes from. Refused over the owner's.
+- `record_email_outcome` (write) — `bounced` or `confirmed`, as above.
+- `propose_firm_tiers` (write, **always waits for the owner**) — up to 40 firms and six tiers a call, one line of reasoning each. It is rehearsed and refused at once if it would be refused (an unknown employer); otherwise it sits on the activity page, one firm to a line, until approved. Firms the owner already tiered are reported back, not changed.
+- `suggest_tags` (write) — up to 40 suggestions a call; skips a tag the person has, one already waiting, an unknown person; changes nothing but the queue.
+
+All four writes are ledgered and undoable, each part only while it is still as the write left it: a format or tier returns to what it replaced unless changed since; a bounce puts the address, the tag and the email back; a confirmation is withdrawn; unanswered tag suggestions are withdrawn and answered ones left.
+
+**Data flow.** Nothing new leaves Rolo: no lookup service, no verification probe, no outbound request. A format Claude records is Claude's reading of the owner's own mail or of a public page, stated with its basis.
+
+### Merging and deleting contacts
+
+What Rolo remembers about a person's guesses follows a merge to the winner and is deleted with the contact. The firm records are keyed by employer name and are untouched by either.
+
+### Decided while building, cheap to reverse
+
+- One bounce costs a shape one and a half addresses of support and a notch of strength; the bounce may be the person (they left, they spell their name another way) and not the format.
+- Personal domains are a fixed list plus the academic patterns; a firm's own domain that happens to be on it cannot be recorded.
+- A related firm's evidence is borrowed only when the firm has none of its own.
+- The Firms page lists firms that have a record; the 400 largest other employers are offered when adding one.
+- Fixed in passing, from §16: a draft now defaults to the contact's primary address; it used to take the last one listed.
+
+### Not built
+
+- Any outside lookup or address-verification service.
+- Accepting a guess for many people at once.
+- Capturing people from a LinkedIn search page (plan 18b) — dropped, see §14.
+
+### Acceptance criteria
+
+- [ ] Pure, names and shapes: accents, apostrophes, suffixes and asides; hyphenated and two-word first names; multi-word family names with their other spellings; a whole name in one field; no family name → nothing. Every shape has an example and reads back off its own address; tags and trailing digits are ignored; an address not built from the name matches nothing; one a name cannot tell apart counts for nothing.
+- [ ] Pure, domains: providers and schools are personal, look-alikes are not; a hostname is accepted and nine things that are more than a hostname are refused.
+- [ ] Pure, learning and suggesting: counts per firm and domain; commonest shape first with its count; strong only on three that mostly agree; the owner's format wins and sets the domain; Claude's is labelled with its basis and ranks below real addresses; agreeing evidence becomes one candidate; a bounced or dismissed address is not offered and the next moves up; a shape that bounced once is a notch weaker and says so, and one with more bounces than support is gone; nothing is offered without a name, a domain or a shape, and the reason says which; at most three; a compound name is flagged.
+- [ ] Firms, against a database: an unknown employer is refused; spellings fold to one firm; tier names are reused case-insensitively; an emptied record is deleted; an agent cannot replace the owner's tier or format and can replace an agent's; a bad domain, a personal domain and an unknown shape are refused.
+- [ ] Guesses: the format is learned across spellings; a part-of firm borrows and says from whom; the reason is given when there is nothing; the owner's format is enough alone; an address another contact holds is never offered. Accepting takes only a current suggestion, stores it as `guess`, and cannot be repeated; an unproven guess is evidence of nothing and a confirmed one counts; "not this" is remembered for that person only.
+- [ ] Bounces: of a guess — the address goes, the email is marked and stops counting for the stage and the keep-in-touch clock, the next guess is offered, the shape is weaker for others, and undo restores all of it; a subject that does not match leaves the timeline alone; of a given address — it stays, the tag is added, a second report changes nothing, an email older than three weeks is out of reach; an address that was never theirs is refused; undo leaves an unrelated row that inherited the id.
+- [ ] Drafts: the primary address, not the last listed; a draft picks up an accepted guess and lets go of a bounced one.
+- [ ] Connector: `suggest_emails` returns the documented shape in the order asked, writes nothing, and a draft to a guess is still refused; no tool name accepts a guess; `record_email_format` needs a note and a real firm domain, sanitises, is undoable and refused over the owner's; `record_email_outcome` confirms and bounces, answers a repeated key from the first call, and each is undoable; `propose_firm_tiers` refuses an unknown employer and a seventh tier without queueing, is queued in "apply" mode with nothing changed, applies on approval, keeps the owner's, and its undo restores only what is still the proposal's; `suggest_tags` needs evidence, skips duplicates, tags nobody, appears in the queue as Claude's with a sanitised name, and its undo withdraws only what is unanswered; tiers, schools and role text filter `search_contacts`; `list_companies`, `get_contacts` and `get_pipeline` carry the new fields exactly as documented.
+- [ ] The widest call of `suggest_emails` stays under the size cap on 10,000 contacts, and no tool output contains a planted secret.
+- [ ] Merge moves a guess record to the winner; deleting the contact deletes it.
+- [ ] E2E in a real browser: the Firms page refuses an unknown employer and a mailbox provider, then lists the firm under its tier with its format "set by you"; the contact page shows the guess, its strength and its evidence, and nothing is stored until "Use this address"; the address then shows a "guess" mark, and "it works" confirms it; a bounced email shows its mark on the timeline.
+- [ ] Manual, the owner's: set the format for one firm you know, accept a guess for someone there, send, and see what happens; ask Claude to "propose tiers for my banks" and approve it on the activity page.
 
 ---
 

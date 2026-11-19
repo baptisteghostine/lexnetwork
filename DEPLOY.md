@@ -322,6 +322,23 @@ settings. Before the first batch, send yourself one draft: Outreach →
 *Open in Outlook* on your school account, and check the recipient,
 subject and text arrive intact (and the BCC, if you set one).
 
+**Firms, address guesses and fuller profiles (SPEC §17, §9c).** Three
+things to do once after this update:
+
+- *Reload the browser extension* (it is now 0.4.0): open
+  `chrome://extensions`, find Rolo LinkedIn Sync and press the reload
+  arrow — or "Load unpacked" again from the updated `extension/` folder.
+  Then open the LinkedIn profile of someone in Rolo: the popup should say
+  how many experience and education entries the page shows, and
+  **Update from this page** brings them in. If it says nothing could be
+  read, LinkedIn's page is laid out differently from what was built
+  against; say so and it is fixed on the server.
+- *Refresh the connector in Claude* so the five new tools appear.
+- *Tell Rolo one firm's address format* (Outreach → Firms) and look at a
+  person there who has no email: a suggested address appears on their
+  page with the evidence. Nothing is put on anyone until you click
+  **Use this address**.
+
 ## Forgot the password
 
 The reset script only needs Node and the data directory — run it from a

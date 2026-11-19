@@ -352,6 +352,8 @@ export type SuggestionRow = {
   isNewTag: boolean;
   confidence: number;
   rationale: string;
+  /** True for a suggestion Claude made through the connector, with its evidence as the rationale. */
+  fromAgent: boolean;
   createdAt: number;
 };
 
@@ -379,6 +381,7 @@ export async function readSuggestions(): Promise<SuggestionRow[]> {
         isNewTag: boolean;
         confidence: number;
         rationale: string;
+        source?: string;
       };
       out.push({
         id: r.id,
@@ -388,6 +391,7 @@ export async function readSuggestions(): Promise<SuggestionRow[]> {
         isNewTag: p.isNewTag,
         confidence: p.confidence,
         rationale: p.rationale,
+        fromAgent: p.source === "agent",
         createdAt: r.createdAt,
       });
     } catch {

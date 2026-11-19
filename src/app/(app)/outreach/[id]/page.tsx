@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { Markdown } from "@/components/markdown";
+import { EmailGuess } from "@/components/email-guess";
 import { CampaignEditor } from "@/components/outreach-forms";
 import { requireAuth } from "@/lib/auth";
 import { STAGE_LABEL, STAGE_ORDER, type Stage } from "@/lib/outreach/stage";
@@ -105,7 +106,13 @@ export default async function CampaignPage({ params }: PageProps<"/outreach/[id]
                     <span className="min-w-0 truncate text-xs text-muted-foreground">
                       {[m.title, m.company].filter(Boolean).join(" · ")}
                     </span>
-                    {m.email === null ? <span className="text-[11px] text-amber-600 dark:text-amber-400">no email</span> : null}
+                    {m.firmTier ? <span className="rounded border border-border px-1 text-[10px] uppercase tracking-wide text-muted-foreground">{m.firmTier}</span> : null}
+                    {m.email === null && !m.guess ? <span className="text-[11px] text-amber-600 dark:text-amber-400">no email</span> : null}
+                    {m.email === null && m.guess ? (
+                      <span className="basis-full text-[11px]">
+                        <EmailGuess contactId={m.contactId} guess={{ email: m.guess.email, strength: m.guess.strength, evidence: m.guess.evidence }} compact />
+                      </span>
+                    ) : null}
                     <span className="flex-1" />
                     <span className="text-[11px] text-muted-foreground">{detail(m, zone)}</span>
                   </li>

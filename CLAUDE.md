@@ -50,7 +50,8 @@ src/
     sync/           #   gmail metadata + calendar incremental sync
     ai/             #   prompt builders, filter-compiler, call logging
     agent/          #   agent connector: OAuth rules, answer shaping (pure)
-    outreach/       #   outreach: the derived stage rule, compose links (pure)
+    outreach/       #   outreach: the derived stage rule, compose links, address formats (pure)
+    linkedin/       #   capture, enrichment and profile-section parsing (pure)
     whatsapp/       #   per-person WhatsApp: identity, export parser, day rows, retention rule
   jobs/             # job definitions + the scheduler loop
   server/           # server actions and route-handler helpers (thin; logic lives in lib/)
@@ -161,6 +162,15 @@ Path 3 was added on the owner's explicit instruction — requested once before P
 - **A draft is addressed only to an address already on the contact.** Never to an address an agent supplies. Compose links are built by `lib/outreach/compose.ts` and nowhere else; `isEmailAddress` is what keeps a recipient from carrying a second parameter.
 - **A group id is not an identity either.** A campaign entry is its group's only while the group's `created_at` matches the one stored with it.
 - **Drafts and campaigns are written only by `src/server/outreach-core.ts`**; agent text goes through the same sanitisers as every other agent write, and each save is ledgered and undoable.
+
+**Firms and addresses** (owner request 2026-11-19, SPEC §17) — the terms they are built under, not preferences:
+
+- **A guess is not an address.** A suggested address is computed, never stored, and reaches a contact only by the owner's click (`acceptGuess`, behind `requireAuth`). Do not add an agent tool that accepts one, a bulk "accept all", or any path that drafts to an address that is not on the contact.
+- **No outside lookup.** Formats are learned from addresses Rolo holds or recorded with their basis. Do not add an email-finder or verification service, an SMTP probe, or any request to a firm's servers.
+- **The owner's word stands.** A tier or address format with source `user` is never changed by an agent; the tool reports it and leaves it.
+- **Some agent writes are proposals by nature.** `propose_firm_tiers` is `alwaysReview`: it waits for the owner in every write mode. `suggest_tags` only fills the review queue. Do not turn either into a direct write, and never let a team or sector be tagged without evidence the owner can read.
+- **An unproven guess is evidence of nothing**, and a bounce is a fact about an email as well as an address: the email stops counting as sent (`meta.bounced`), in the stage rule and the keep-in-touch clock alike.
+- **The extension reads; the server decides.** Career sections arrive as lines of text from the page the owner opened, on the owner's click, with zero extra LinkedIn requests (the §9c terms). Parsing lives in `lib/linkedin/profile-sections.ts`. Captured roles are added and filled in, never deleted, and never change `contacts.title` or `contacts.company`.
 
 **Outbound HTTP** goes through `src/lib/net/fetch.ts` (`outboundFetch`) — a host allowlist enforcing the privacy invariant. Never call `fetch` directly for external hosts; add a host to the allowlist only alongside an owner-configurable integration.
 

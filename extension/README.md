@@ -80,6 +80,17 @@ else: if they were already in Rolo under that profile URL, it updates
 rather than duplicates, keeps anything you'd typed by hand, and a changed
 headline shows up as a job change on Today.
 
+**Career history (0.4.0).** The same click also reads the profile's
+Experience, Education and About off the page — the place a team or
+sector is usually said. For someone already in Rolo the button reads
+**Update from this page**. The popup says what the page gave ("This
+page: 4 experience entries · 2 education entries · about") before you
+click and what changed after. Nothing is requested from LinkedIn: only
+what is on the page you opened is read, so scroll down first if the
+sections have not loaded, or open "Show all experiences" for the whole
+list. If the popup says nothing could be read, LinkedIn has changed its
+layout — tell Rolo's maintainer; the fix is on the server.
+
 ### In a conversation
 
 Open a thread under Messaging and the popup offers **Log in Rolo**: the

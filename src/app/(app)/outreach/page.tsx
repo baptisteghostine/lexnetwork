@@ -7,6 +7,7 @@ import { DRAFT_KINDS, type DraftKind } from "@/lib/outreach/compose";
 import { STAGE_LABEL, STAGE_ORDER } from "@/lib/outreach/stage";
 import { ownerTimezone } from "@/lib/settings";
 import { formatInZone, now as currentTime } from "@/lib/time";
+import { topGuessForAddressless } from "@/server/email-guess-core";
 import { listCampaigns, listDrafts, outreachSettings } from "@/server/outreach-core";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +23,7 @@ export default async function OutreachPage() {
   const drafts = listDrafts({ status: "open" });
   const campaigns = listCampaigns(now);
   const settings = outreachSettings();
+  const guesses = topGuessForAddressless(drafts.filter((d) => d.toEmail === null).map((d) => d.contactId));
   const live = campaigns.filter((c) => c.archivedAt === null);
   const archived = campaigns.filter((c) => c.archivedAt !== null);
 
@@ -32,6 +34,10 @@ export default async function OutreachPage() {
         <span className="text-xs text-muted-foreground">
           {drafts.length} draft{drafts.length === 1 ? "" : "s"} to send · {live.length} campaign{live.length === 1 ? "" : "s"}
         </span>
+        <span className="flex-1" />
+        <Link href="/outreach/firms" className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
+          Firms: tiers and address formats →
+        </Link>
       </header>
       <div className="max-w-3xl space-y-8 px-5 py-4">
         <section className="space-y-2">
@@ -47,6 +53,7 @@ export default async function OutreachPage() {
                 <DraftCard
                   key={d.id}
                   bcc={settings.bcc}
+                  guess={guesses.get(d.contactId) ?? null}
                   draft={{
                     id: d.id,
                     contactId: d.contactId,

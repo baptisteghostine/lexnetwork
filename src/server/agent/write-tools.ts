@@ -63,6 +63,10 @@ import {
   VOICE_GUIDE_MAX,
   VOICE_GUIDE_MIN,
 } from "@/server/outreach-core";
+import { EMAIL_PATTERN_EXAMPLE, EMAIL_PATTERNS } from "@/lib/outreach/email-pattern";
+import { confirmGuess, recordBounce } from "@/server/email-guess-core";
+import { FIRM_NOTE_MAX, setFirmEmailFormat, setFirmTier, TIER_NAME_MAX } from "@/server/firms-core";
+import { suggestTags, TAG_EVIDENCE_MAX } from "@/server/tag-suggestion-core";
 import { saveWhatsAppSummary, WA_SUMMARY_MAX, WA_SUMMARY_MIN } from "@/server/whatsapp-core";
 
 // The connector's write tools (SPEC §14, Phase 15). What an agent may do
@@ -1085,6 +1089,184 @@ const saveCampaignTool = defineTool({
   },
 });
 
+// ---------- firms and address guesses (SPEC §17) ----------
+
+const recordEmailFormatTool = defineTool({
+  name: "record_email_format",
+  title: "Record how a firm forms its email addresses",
+  description:
+    "Tell Rolo how a firm builds its addresses, so it can suggest one for people it has none for (suggest_emails). Record only what you have evidence for: `basis: \"seen_in_mail\"` when you have read real addresses at that firm in the owner's mail (say how many, and that they agree, in `note` — never paste the addresses of people who are not in Rolo), `basis: \"published\"` when a public source states the format (name the source in `note`). `company` is the employer as list_companies spells it; `domain` is what follows the @. `pattern` describes the part before it, shown here for \"Ana Silva\": " +
+    EMAIL_PATTERNS.map((p) => `${p} → ${EMAIL_PATTERN_EXAMPLE[p]}`).join(", ") +
+    ". A format the owner set themselves is never replaced. This puts no address on anyone: the owner accepts each guess in Rolo.",
+  scope: "write",
+  mutates: true,
+  input: z.strictObject({
+    company: z.string().trim().min(1).max(200),
+    domain: z.string().trim().min(3).max(253),
+    pattern: z.enum(EMAIL_PATTERNS),
+    basis: z.enum(["seen_in_mail", "published"]),
+    note: z.string().trim().min(1).max(FIRM_NOTE_MAX).describe("Where this comes from, in one line."),
+    idempotencyKey: idempotencyKeyArg.optional(),
+  }),
+  run: (args, ctx) => {
+    const res = setFirmEmailFormat({ company: args.company, domain: args.domain, pattern: args.pattern, basis: args.basis, note: args.note, source: "agent" }, ctx.now);
+    if (!res.ok) throw new ToolRefusal(res.error);
+    const shown = `${EMAIL_PATTERN_EXAMPLE[args.pattern]}@${res.after.emailDomain}`;
+    return {
+      summary: res.changed ? `Recorded ${clip(res.name, 60)}'s address format as ${shown}` : `${clip(res.name, 60)}'s address format was already ${shown}`,
+      writes: res.changed ? [{ table: "firms", op: "email_format", key: res.key, name: res.name, before: res.before, after: res.after }] : [],
+      data: {
+        recorded: res.changed,
+        firm: res.name,
+        format: shown,
+        note: "Rolo will now suggest addresses at this firm as guesses. The owner accepts each one in Rolo; you cannot.",
+      },
+    };
+  },
+});
+
+const recordEmailOutcomeTool = defineTool({
+  name: "record_email_outcome",
+  title: "Record that an address bounced, or that it works",
+  description:
+    "What happened to an email the owner sent, as you saw it in their mail. `outcome: \"bounced\"` when a delivery failure came back for that address: if the address was a guess, Rolo takes it off the contact, remembers it as wrong and offers the next one; if it was an address Rolo was given, it stays and the contact is tagged \"bad address\". Either way the email it was sent in stops counting as sent, so nobody shows as waiting on a reply to it — give its `subject` so Rolo marks the right one. `outcome: \"confirmed\"` when the person answered from that address: a guess stops being a guess, and counts as evidence for the firm's format. Report only what a message actually shows; an out-of-office is neither.",
+  scope: "write",
+  mutates: true,
+  input: z.strictObject({
+    contactId: z.number().int().positive(),
+    email: z.string().trim().email().max(320),
+    outcome: z.enum(["bounced", "confirmed"]),
+    subject: z.string().trim().min(1).max(300).optional().describe("For a bounce: the subject of the email that came back."),
+    idempotencyKey: idempotencyKeyArg.optional(),
+  }),
+  run: (args, ctx) => {
+    const who = person(args.contactId);
+    if (args.outcome === "confirmed") {
+      const res = confirmGuess(who.id, args.email, ctx.now);
+      if (!res.ok) throw new ToolRefusal(res.error);
+      return {
+        summary: res.changed ? `Confirmed ${clip(who.name, 60)}'s address` : `${clip(who.name, 60)}'s address needed no confirming`,
+        contactId: who.id,
+        writes: res.changed ? [{ table: "email_guesses", op: "confirm", contactId: who.id, email: normalizeEmail(args.email), previous: res.previous ?? "accepted" }] : [],
+        data: {
+          confirmed: res.changed,
+          ...(res.changed ? {} : { note: res.wasGuess ? "It was already confirmed." : "That address was not a guess, so there was nothing to confirm." }),
+        },
+      };
+    }
+    const res = recordBounce({ contactId: who.id, email: args.email, subject: args.subject ?? null }, ctx.now);
+    if (!res.ok) throw new ToolRefusal(res.error);
+    const r = res.record;
+    const changed = r.retracted !== null || r.tagged !== null || r.send !== null;
+    const did = [
+      r.retracted ? "took the guessed address off the contact" : null,
+      r.tagged ? `tagged them "${r.tagged.tagName}"` : null,
+      r.send ? "stopped counting the email as sent" : null,
+    ].filter(Boolean);
+    return {
+      summary: changed ? `Recorded a bounce for ${clip(who.name, 60)}: ${did.join(", ")}` : `A bounce for ${clip(who.name, 60)} was already recorded`,
+      contactId: who.id,
+      writes: changed ? [{ table: "email_guesses", op: "bounce", record: r }] : [],
+      data: {
+        recorded: changed,
+        guessRemoved: r.retracted !== null,
+        taggedBadAddress: r.tagged !== null,
+        emailNoLongerCountsAsSent: r.send !== null ? clip(res.sendTitle, 200) : null,
+        ...(r.send === null ? { note: "No email to this person in the last three weeks matched, so nothing on the timeline was changed." } : {}),
+        ...(res.next.length > 0
+          ? { nextGuess: { email: res.next[0].email, strength: res.next[0].strength, evidence: clip(res.next[0].evidence, 400) }, tellTheOwner: "Another address can be tried. The owner accepts it in Rolo; you cannot." }
+          : {}),
+      },
+    };
+  },
+});
+
+const MAX_TIERS_PER_CALL = 6;
+
+const proposeFirmTiersTool = defineTool({
+  name: "propose_firm_tiers",
+  title: "Propose tiers for firms",
+  description:
+    "Propose which tier each firm belongs to — for investment banks, say, \"Bulge bracket\", \"Elite boutique\", \"Mid-market\" — so that \"the top firms\" means something exact in searches and campaigns. This is always a proposal: it waits on Rolo's activity page until the owner approves or rejects it, and changes nothing before. Use tier names already in use where they fit (list_companies returns them), at most six different tiers in a call, and give one line of reasoning per firm. `company` is the employer as list_companies spells it; other spellings of the same firm are covered by it. A tier the owner set themselves is never replaced. Do this when the owner asks for firms to be ranked or grouped.",
+  scope: "write",
+  mutates: true,
+  alwaysReview: true,
+  input: z.strictObject({
+    firms: z
+      .array(
+        z.strictObject({
+          company: z.string().trim().min(1).max(200),
+          tier: z.string().trim().min(1).max(TIER_NAME_MAX),
+          why: z.string().trim().min(1).max(FIRM_NOTE_MAX),
+        })
+      )
+      .min(1)
+      .max(40),
+    idempotencyKey: idempotencyKeyArg.optional(),
+  }),
+  run: (args, ctx) => {
+    const distinct = new Set(args.firms.map((f) => cleanName(f.tier, TIER_NAME_MAX).toLowerCase()));
+    if (distinct.size > MAX_TIERS_PER_CALL) throw new ToolRefusal(`At most ${MAX_TIERS_PER_CALL} different tiers in one proposal.`);
+    const writes: WriteRecord[] = [];
+    const set: { firm: string; tier: string }[] = [];
+    const kept: { firm: string; why: string }[] = [];
+    for (const f of args.firms) {
+      const res = setFirmTier({ company: f.company, tier: f.tier, note: f.why, source: "agent" }, ctx.now);
+      if (!res.ok) {
+        // One the owner decided is reported, not fought over; anything else stops the proposal.
+        if (res.conflict) {
+          kept.push({ firm: clip(f.company, 120) ?? "", why: res.error });
+          continue;
+        }
+        throw new ToolRefusal(res.error);
+      }
+      if (!res.changed) continue;
+      writes.push({ table: "firms", op: "tier", key: res.key, name: res.name, before: res.before, after: res.after });
+      set.push({ firm: res.name, tier: res.after.tier ?? "" });
+    }
+    return {
+      summary: `Set the tier of ${set.length} firm${set.length === 1 ? "" : "s"}`,
+      writes,
+      data: { firmsSet: set.length, set, ...(kept.length ? { keptAsTheOwnerSetThem: kept } : {}) },
+    };
+  },
+});
+
+const suggestTagsTool = defineTool({
+  name: "suggest_tags",
+  title: "Suggest tags for people, with the evidence",
+  description:
+    "Propose a tag for a person when you have evidence for something their headline does not say — above all the team or sector they cover (\"TMT\", \"Healthcare\"), read from a role description, a deal announcement or the owner's own mail. Each suggestion waits in Rolo (AI → Suggestions to review) with your evidence beside it, and nothing is tagged until the owner approves it there. `evidence` is one line the owner can check: what you read and where. No evidence, no suggestion — do not infer a team from the firm alone. Use tag names already in use where they fit (rolo_overview lists them). For a fact the owner has told you directly, use tag_contacts instead.",
+  scope: "write",
+  mutates: true,
+  input: z.strictObject({
+    suggestions: z
+      .array(
+        z.strictObject({
+          contactId: z.number().int().positive(),
+          tag: z.string().trim().min(1).max(50),
+          evidence: z.string().trim().min(8).max(TAG_EVIDENCE_MAX),
+        })
+      )
+      .min(1)
+      .max(40),
+    idempotencyKey: idempotencyKeyArg.optional(),
+  }),
+  run: (args, ctx) => {
+    const res = suggestTags(args.suggestions, ctx.now);
+    return {
+      summary: `Suggested ${res.created.length} tag${res.created.length === 1 ? "" : "s"} for the owner to review`,
+      contactId: res.created.length === 1 ? res.created[0].contactId : undefined,
+      writes: res.created.length > 0 ? [{ table: "ai_suggestions", op: "insert", ids: res.created.map((c) => c.id), createdAt: ctx.now }] : [],
+      data: {
+        suggested: res.created.length,
+        ...(res.skipped.length ? { leftOut: res.skipped.slice(0, 40) } : {}),
+        note: "Nothing is tagged yet. The suggestions are in Rolo under AI → Suggestions to review; tell the owner they are there.",
+      },
+    };
+  },
+});
+
 const saveDraftTool = defineTool({
   name: "save_draft",
   title: "Save a draft for the owner to send",
@@ -1196,5 +1378,9 @@ export const WRITE_TOOLS: AgentTool[] = [
   saveCampaignTool,
   saveDraftTool,
   updateVoiceGuideTool,
+  recordEmailFormatTool,
+  recordEmailOutcomeTool,
+  proposeFirmTiersTool,
+  suggestTagsTool,
   undoTool,
 ];

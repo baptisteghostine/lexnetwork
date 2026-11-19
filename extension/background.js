@@ -68,7 +68,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
   if (msg?.type === "capture") {
-    callRolo("/api/linkedin/extension/capture", { body: { profile: msg.profile } }).then(sendResponse);
+    callRolo("/api/linkedin/extension/capture", { body: { profile: msg.profile, ...(msg.sections ? { sections: msg.sections } : {}) } }).then(sendResponse);
     return true;
   }
   if (msg?.type === "logConversation") {

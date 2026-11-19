@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 
+import { EmailGuess, type GuessView } from "@/components/email-guess";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -31,7 +32,7 @@ function bodyRows(body: string): number {
   return Math.min(24, Math.max(6, lines + 1));
 }
 
-export function DraftCard({ draft, bcc }: { draft: DraftCardData; bcc: string | null }) {
+export function DraftCard({ draft, bcc, guess = null }: { draft: DraftCardData; bcc: string | null; guess?: GuessView | null }) {
   const [pending, start] = useTransition();
   const [subject, setSubject] = useState(draft.subject);
   const [body, setBody] = useState(draft.body);
@@ -61,10 +62,17 @@ export function DraftCard({ draft, bcc }: { draft: DraftCardData; bcc: string | 
           {draft.toEmail ? (
             <>To: <span className="font-mono">{draft.toEmail}</span></>
           ) : (
-            <span className="text-amber-600 dark:text-amber-400">No email address in Rolo — add one on their page, or paste it in Outlook.</span>
+            <span className="text-amber-600 dark:text-amber-400">
+              No email address in Rolo — {guess ? "accept the guess below, " : ""}add one on their page, or paste it in Outlook.
+            </span>
           )}
         </p>
       </div>
+      {!draft.toEmail && guess ? (
+        <p className="text-[11px]">
+          <EmailGuess contactId={draft.contactId} guess={guess} />
+        </p>
+      ) : null}
       <Input aria-label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={300} className="h-8 text-[13px]" />
       <Textarea aria-label="Email text" value={body} onChange={(e) => setBody(e.target.value)} rows={bodyRows(body)} className="text-[13px] leading-relaxed" />
       <div className="flex flex-wrap items-center gap-1.5">

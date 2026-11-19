@@ -840,6 +840,7 @@ function widestCalls(ids: number[]): [string, unknown][] {
     ["get_pipeline", { campaignId: id.campaign, limit: 200 }],
     ["list_drafts", { limit: 100 }],
     ["list_drafts", { status: "sent", limit: 100 }],
+    ["suggest_emails", { contactIds: ids.slice(0, 25) }],
   ];
 }
 
@@ -861,19 +862,19 @@ describe("nothing secret leaves, nothing is changed", () => {
     for (const marker of Object.values(SECRETS)) expect(log.includes(marker)).toBe(false);
   });
 
-  it("a read-only grant has fourteen tools, none of which can write; what can never be done has no tool at all", () => {
+  it("a read-only grant has fifteen tools, none of which can write; what can never be done has no tool at all", () => {
     const readable = tools.AGENT_TOOLS.filter((t) => t.scope === "read");
     expect(readable.map((t) => t.name)).toEqual([
       "rolo_overview", "search_contacts", "list_companies", "get_contacts", "find_contact",
       "get_timeline", "search_notes", "get_today", "get_voice_guide",
       "list_whatsapp_chats", "get_whatsapp_chat",
-      "list_campaigns", "get_pipeline", "list_drafts",
+      "list_campaigns", "get_pipeline", "list_drafts", "suggest_emails",
     ]);
     expect(readable.every((t) => !t.mutates && !t.destructive)).toBe(true);
     expect(tools.AGENT_TOOLS.filter((t) => t.scope === "write").map((t) => t.name)).toEqual([
       "log_interaction", "add_note", "create_reminder", "complete_reminder", "upsert_contact",
       "tag_contacts", "set_cadence", "save_whatsapp_summary", "save_campaign", "save_draft",
-      "update_voice_guide", "undo_agent_action",
+      "update_voice_guide", "record_email_format", "record_email_outcome", "propose_firm_tiers", "suggest_tags", "undo_agent_action",
     ]);
     expect(tools.AGENT_TOOLS.filter((t) => t.scope === "write").every((t) => t.mutates)).toBe(true);
     for (const forbidden of [
