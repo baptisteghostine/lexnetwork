@@ -3,13 +3,7 @@ import "server-only";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { getSetting, setSetting } from "@/lib/settings";
-import {
-  LOGIN_THROTTLE_KEY,
-  NO_FAILURES,
-  parseThrottleState,
-  type LoginThrottleState,
-} from "./login-throttle";
+import { getPasswordHash } from "./password-gate";
 import {
   createSessionToken,
   SESSION_COOKIE,
@@ -17,31 +11,18 @@ import {
   verifySessionToken,
 } from "./session";
 
-const PASSWORD_HASH_KEY = "auth.password_hash";
-
 export { getSessionSecret } from "./secret";
 import { getSessionSecret } from "./secret";
 
-export function getPasswordHash(): string | undefined {
-  return getSetting<string>(PASSWORD_HASH_KEY);
-}
-
-/** A new password starts with a clean slate: any login lockout is lifted. */
-export function setPasswordHash(hash: string): void {
-  setSetting(PASSWORD_HASH_KEY, hash);
-  setLoginThrottle(NO_FAILURES);
-}
-
-// Read from the database on every attempt, never cached: the state has to
-// survive a restart, and `npm run reset-password` clears it from another
-// process while the server is up.
-export function getLoginThrottle(): LoginThrottleState {
-  return parseThrottleState(getSetting<unknown>(LOGIN_THROTTLE_KEY));
-}
-
-export function setLoginThrottle(state: LoginThrottleState): void {
-  setSetting(LOGIN_THROTTLE_KEY, state);
-}
+// The password and its throttle live in password-gate.ts, which has no
+// next/headers dependency; re-exported so callers keep one import.
+export {
+  attemptPassword,
+  getLoginThrottle,
+  getPasswordHash,
+  setLoginThrottle,
+  setPasswordHash,
+} from "./password-gate";
 
 export async function isAuthenticated(): Promise<boolean> {
   const jar = await cookies();
