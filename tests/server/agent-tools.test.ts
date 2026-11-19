@@ -253,6 +253,31 @@ describe("rolo_overview", () => {
   });
 });
 
+describe("rolo_overview at scale", () => {
+  it("thousands of tags and groups cannot make the first call too large to answer", () => {
+    const insertTag = rawDb.prepare("INSERT INTO tags (name, color, created_at) VALUES (?, '#000000', ?)");
+    const insertGroup = rawDb.prepare("INSERT INTO groups (name, created_at) VALUES (?, ?)");
+    rawDb.transaction(() => {
+      for (let i = 0; i < 3000; i++) {
+        insertTag.run(`zz bulk tag ${i} ${"padding ".repeat(5)}`, NOW);
+        insertGroup.run(`zz bulk group ${i} ${"padding ".repeat(6)}`, NOW);
+      }
+    })();
+    try {
+      const res = call("rolo_overview");
+      expect(res.isError).toBe(false);
+      expect(res.text.length).toBeLessThanOrEqual(60_000);
+      expect(res.data).toMatchObject({ tagCount: 3002, groupCount: 3002, timezone: "Europe/London" });
+      expect(res.data.tags).toHaveLength(150);
+      expect(res.data.groups).toHaveLength(150);
+      expect(res.data).not.toHaveProperty("error");
+    } finally {
+      rawDb.prepare("DELETE FROM tags WHERE name LIKE 'zz bulk tag %'").run();
+      rawDb.prepare("DELETE FROM groups WHERE name LIKE 'zz bulk group %'").run();
+    }
+  });
+});
+
 describe("search_contacts", () => {
   it("with no arguments lists active contacts by name, with compact rows", () => {
     const out = ok("search_contacts");

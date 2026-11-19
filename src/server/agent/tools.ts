@@ -180,6 +180,10 @@ function compactContacts(ids: number[], now: number): CompactContact[] {
 
 // ---------- rolo_overview ----------
 
+/** Tags and groups listed in the overview. 150 of each, with names cut to
+ * 48 characters, is under half the answer cap whatever the owner named them. */
+const OVERVIEW_LIST_MAX = 150;
+
 const overview = defineTool({
   name: "rolo_overview",
   title: "Overview of the CRM",
@@ -217,6 +221,8 @@ const overview = defineTool({
       .all() as { kind: string; status: string; startedAt: number; finishedAt: number | null }[];
     const voice = readVoiceSettings();
     const total = count(`SELECT count(*) AS n FROM contacts WHERE ${active}`);
+    const allTags = listTags();
+    const allGroups = listGroups();
     return {
       summary: "Read the CRM overview",
       data: {
@@ -243,10 +249,19 @@ const overview = defineTool({
           notes: count("SELECT count(*) AS n FROM notes WHERE body_md <> ''"),
           openReminders: count("SELECT count(*) AS n FROM reminders WHERE completed_at IS NULL AND rrule IS NULL"),
         },
-        tags: listTags().map((t) => ({ id: t.id, name: t.name, contacts: tagCounts.get(t.id) ?? 0 })),
-        groups: listGroups().map((g) => ({
+        // Lists the owner grows by hand are capped so this answer can never
+        // outgrow its size limit and lock the first call out; the counts
+        // say when there are more.
+        tagCount: allTags.length,
+        tags: allTags.slice(0, OVERVIEW_LIST_MAX).map((t) => ({
+          id: t.id,
+          name: clip(t.name, 48),
+          contacts: tagCounts.get(t.id) ?? 0,
+        })),
+        groupCount: allGroups.length,
+        groups: allGroups.slice(0, OVERVIEW_LIST_MAX).map((g) => ({
           id: g.id,
-          name: g.name,
+          name: clip(g.name, 48),
           parentId: g.parentId,
           contacts: groupCounts.get(g.id) ?? 0,
         })),
@@ -254,7 +269,9 @@ const overview = defineTool({
           .select({ id: customFields.id, name: customFields.name, kind: customFields.kind })
           .from(customFields)
           .orderBy(asc(customFields.sortOrder), asc(customFields.name))
-          .all(),
+          .limit(100)
+          .all()
+          .map((f) => ({ id: f.id, name: clip(f.name, 60), kind: f.kind })),
         lastSyncs: lastRuns.map((r) => ({
           kind: r.kind,
           status: r.status,
@@ -543,14 +560,18 @@ function fullContact(id: number, now: number, budget: ReturnType<typeof budgets>
     starred: c.starred,
     archived: c.archivedAt !== null,
     addedAt: iso(c.createdAt),
-    emails: detail.emails.map((e) => ({ email: e.email, label: e.label })),
-    phones: detail.phones.map((p) => ({ phone: p.phoneRaw, label: p.label })),
-    links: detail.socials.map((s) => ({ platform: s.platform, url: s.url })),
-    tags: detail.tagIds.map((t) => tagNames.get(t)).filter((n): n is string => Boolean(n)),
+    emails: detail.emails.slice(0, 20).map((e) => ({ email: clip(e.email, 320), label: clip(e.label, 40) })),
+    phones: detail.phones.slice(0, 20).map((p) => ({ phone: clip(p.phoneRaw, 40), label: clip(p.label, 40) })),
+    links: detail.socials.slice(0, 20).map((s) => ({ platform: s.platform, url: clip(s.url, 400) })),
+    tags: detail.tagIds
+      .map((t) => tagNames.get(t))
+      .filter((n): n is string => Boolean(n))
+      .slice(0, 50),
     groups: getContactGroupIds(id)
       .map((g) => groupNames.get(g))
-      .filter((n): n is string => Boolean(n)),
-    customFields: customFieldPairs(id),
+      .filter((n): n is string => Boolean(n))
+      .slice(0, 50),
+    customFields: customFieldPairs(id).slice(0, 40),
     workHistory: detail.workHistory.slice(0, 12).map((w) => ({
       company: clip(w.company, 120),
       title: clip(w.title, 120),
