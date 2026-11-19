@@ -3,7 +3,11 @@ services:
   rolo:
     build: .
     ports:
-      - "${ROLO_PORT:-3000}:3000"
+      # ROLO_BIND=127.0.0.1 keeps the app reachable only through the
+      # reverse proxy on this machine (recommended on a VPS: a published
+      # Docker port is open to the internet even behind ufw). Unset, it
+      # listens on every interface, as before.
+      - "${ROLO_BIND:-0.0.0.0}:${ROLO_PORT:-3000}:3000"
     volumes:
       # Everything worth keeping lives here: rolo.db, attachments/, backups/.
       - ./data:/app/data
