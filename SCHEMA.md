@@ -259,6 +259,10 @@ Covers **both** API syncs and file imports (one lifecycle: started → stats →
   - `{table:"contacts", op:"update", id, createdAt, fields:[{field, before, beforeSource, after}], emails, socialUrls, changeIds}` — each field's previous value and who had set it; the normalized addresses and profile URLs the call added; the `contact_changes` rows it produced.
   - `{table:"contacts", op:"cadence", id, createdAt, before, after}` — the keep-in-touch state replaced and the one set, each `{cadenceDays, cadenceAssignedAt, cadenceReviewedAt, snoozedUntil}`; undo restores `before` only while the row still holds `after`.
   - `{table:"tags", op:"insert", id, name}`
+  - `{table:"outreach_drafts", op:"insert", id, contactId, createdAt, replacedId}` — undo removes the draft only while it is open and `updated_at` still equals `createdAt`, and reopens `replacedId` if that draft is still as this write left it (discarded at the same moment).
+  - `{table:"campaigns", op:"save", groupId, groupName, marker, createdGroup, createdCampaign}` — a save of the `outreach.campaigns` entry for that group (not a table); undo applies only while the entry still holds `marker`.
+  - `{table:"settings", op:"voice_guide", marker}` — a replaced voice guide; undo applies only while `ai.voice_generated_at` still holds `marker`.
+  - A `reminders` insert may carry `purpose:"call"`: the reminder marks a booked call (SPEC §16).
   - `{table:"contact_tags", op:"add"|"remove", tagId, tagName, contactIds, at}` and `{table:"group_members", op:"add"|"remove", groupId, groupName, contactIds, at}` — only the contacts whose membership actually flipped; `at` is when, which is how undo tells its own memberships from ones the owner re-added.
 - `undone_at` marks a reversed call; the row itself is never deleted, so the log stays honest about what happened. An `undo_agent_action` call is its own row (`writes_json = '[]'`).
 - `idempotency_key` holds the caller's key plus the contact the call was about — `<key>#contact:<id>`, or the bare key when it was about no single contact — so one message concerning two people is one write each. It is set only on a write that changed something, on a proposal, and kept on a rejection (a rejected proposal stays rejected); a refused or no-op call leaves it NULL so the corrected retry can use the key.
@@ -285,6 +289,20 @@ Covers **both** API syncs and file imports (one lifecycle: started → stats →
 - Retention: `purge_after` is set when the text is both older than 90 days and at or before the link's `summary_covers_through`; the text is cleared (`body = NULL`, `body_purged_at` set) once that time passes and it is still covered. **The row is kept**: counts hold, and a re-import matches it by time and direction and cannot bring the text back.
 - The timeline does not read this table: each day's messages are folded into one `interactions` row — `source = 'whatsapp'`, `source_key = 'wa-day:<YYYY-MM-DD>'` in the owner's timezone, `kind = 'message'`, `counts_for_touch = 1` only when the day holds an outbound message, `meta = {channel, day, count, sent, received, body?}` — which is **derived**: rebuilt whenever these rows change and never hand-written.
 
+## outreach_drafts  *(added 2026-11-19, migration 0022 — SPEC §16)*
+
+`id, contact_id FK → contacts ON DELETE CASCADE NOT NULL, group_id FK → groups ON DELETE SET NULL, kind TEXT NOT NULL ('first','nudge','reply','other'), to_email TEXT, subject TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open' ('open','sent','discarded'), source TEXT NOT NULL ('agent','user'), interaction_id FK → interactions ON DELETE SET NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, sent_at INTEGER, discarded_at INTEGER`.
+- One row per email written for the owner to send from their own mail account — "Drafts to send". Rolo never sends it.
+- `group_id` is the campaign it was written for (a campaign is a group, below); NULL for a draft outside any campaign, or once that group is deleted.
+- `to_email` is always one of the contact's own addresses at the time of writing, or NULL when they had none. `body` is plain text.
+- At most one `open` row per `(contact_id, group_id)`, enforced in `outreach-core.ts` (a replacement discards the old row in the same transaction).
+- `interaction_id` is the timeline row that records the send: the one the "Sent" click wrote (`source_key = 'draft:<id>'`), or the one logged another way that the draft was matched to.
+- `updated_at` moves on an owner edit, which is how undo tells an untouched draft from the owner's.
+- `idx_outreach_drafts_status ON (status, created_at)` (the list), `idx_outreach_drafts_contact ON (contact_id, status)` (the one-open rule, the pipeline).
+- Written only by `src/server/outreach-core.ts`. Merge moves rows to the winner (`CHILD_TABLES`).
+
+**There is no campaigns table and no per-person outreach state.** A campaign is a `groups` row plus an entry in the `outreach.campaigns` setting; a person's stage is derived from `interactions`, `whatsapp_messages`, `calendar_events`, `reminders`, `contact_tags` and open drafts each time it is shown (`src/lib/outreach/stage.ts`).
+
 ## ai_suggestions  *(added table — approval queue)*
 
 `id, kind TEXT NOT NULL ('tag'), contact_id FK CASCADE, payload_json TEXT NOT NULL ({tagName, isNewTag, confidence, rationale}), ai_call_id FK SET NULL, status TEXT ('pending','approved','rejected'), created_at, resolved_at`.
@@ -295,6 +313,9 @@ Covers **both** API syncs and file imports (one lifecycle: started → stats →
 `key TEXT PRIMARY KEY, value TEXT NOT NULL (JSON)`. Timezone, digest hour, SMTP config, snooze-all params, password hash, failed-login throttle state (`auth.login_throttle`), birthday-Feb-29 rule, my-addresses default, geocoder config. A settings table beats env vars for anything the UI should edit.
 
 - `whatsapp_collector.token` → the laptop collector's bearer token (SPEC §15). Absent until the collector's Settings card exists, which keeps `/api/whatsapp/collector` closed. `whatsapp_collector.last_seen_at` → epoch ms of the collector's last call.
+- `outreach.campaigns` → `{ "<group id>": { goal, briefMd, startedAt, createdAt, updatedAt, archivedAt, marker, prev, groupCreatedAt } }` (SPEC §16). `startedAt`: only exchanges from then on count towards the campaign. `marker` is strictly increasing per campaign and names the save an undo may reverse; `prev` is the goal, brief and start before that save. `groupCreatedAt` is the group's `created_at`: an entry whose group has a different one belongs to a deleted group that had the same id, and is ignored.
+- `outreach.nudge_after_days` (default 7), `outreach.dormant_after_days` (default 30), `outreach.bcc` (an address added to every compose link, or empty).
+- `ai.voice_guide_prev` → `{guide, generatedAt}`: the voice guide before the agent's last `update_voice_guide`, for one undo. `ai.voice_generated_at` doubles as that update's marker (strictly increasing).
 - `agent.write_mode` → `'apply'` (default, also when absent) or `'review'`: whether the connector's writes apply at once or wait on the activity page for the owner's approval (SPEC §14, Phase 15).
 - `linkedin_voyager.session` / `linkedin_voyager.enabled` → **retired 2026-09-19** with SPEC §9b; no code reads them any more (a Disconnect before the retirement cleared the session). Historical note: the owner's pasted LinkedIn cookie pair (SPEC §9b), boxed with `lib/crypto` `encryptToken` (same at-rest encryption as OAuth tokens — a live LinkedIn login must not sit plaintext in backups; rotating the session secret invalidates it, surfaced as "reconnect"). `linkedin_voyager.enabled` → boolean, the weekly-sync opt-in toggle.
 

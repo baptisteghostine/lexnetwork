@@ -50,6 +50,7 @@ src/
     sync/           #   gmail metadata + calendar incremental sync
     ai/             #   prompt builders, filter-compiler, call logging
     agent/          #   agent connector: OAuth rules, answer shaping (pure)
+    outreach/       #   outreach: the derived stage rule, compose links (pure)
     whatsapp/       #   per-person WhatsApp: identity, export parser, day rows, retention rule
   jobs/             # job definitions + the scheduler loop
   server/           # server actions and route-handler helpers (thin; logic lives in lib/)
@@ -110,7 +111,7 @@ Multi-user auth, roles/permissions, teams, deal pipelines/stages/revenue, email 
 
 ~~browser extension that scrapes or automates LinkedIn~~ — **owner-amended 2026-08-20.** Path 3 below (server-side Voyager sync) proved structurally impossible: LinkedIn is behind Cloudflare bot management, which fingerprints the TLS handshake before a single header is sent, so a Node process is refused no matter how it presents itself. The commercial products solve this by running inside the browser, and the owner directed Rolo to do the same. `extension/` is an unpacked Chrome extension (SPEC §9c) that pages the owner's own connection list from a real linkedin.com tab and posts it to Rolo. Same ToS breach and same account-restriction risk as path 3, explicitly re-accepted; same pacing and fail-loud terms; no fingerprint spoofing, because inside a real browser there is nothing to spoof.
 
-~~public third-party API~~ — **owner-amended 2026-11-19.** One owner-only MCP endpoint (the "agent connector", SPEC §14) lets the owner's own Claude read and update Rolo. It is not an API for third parties: it authenticates as the owner (OAuth with the Rolo password as the consent step), every token is revocable in Settings, and it exposes no delete, merge, archive, export, settings or token tools. Anything beyond that — other users, API keys handed to other products, webhooks out — is still a non-goal. The other non-goals bind it too: Rolo never sends mail (drafts only), and a person's outreach stage is derived from interactions, never a pipeline stage someone drags.
+~~public third-party API~~ — **owner-amended 2026-11-19.** One owner-only MCP endpoint (the "agent connector", SPEC §14) lets the owner's own Claude read and update Rolo. It is not an API for third parties: it authenticates as the owner (OAuth with the Rolo password as the consent step), every token is revocable in Settings, and it exposes no delete, merge, archive, export, settings or token tools (one text is writable, as planned for Phase 16: the voice guide drafts are written from — not configuration). Anything beyond that — other users, API keys handed to other products, webhooks out — is still a non-goal. The other non-goals bind it too: Rolo never sends mail (drafts only), and a person's outreach stage is derived from interactions, never a pipeline stage someone drags.
 
 **Privacy invariants:** Gmail sync is `gmail.metadata` scope only — sender/recipients, subject, thread id, timestamp. Never fetch, store, or log message bodies. No third-party network calls except integrations the owner explicitly configured (Google APIs, Anthropic API, geocoding if configured; owner-amended 2026-08-24: Mapbox tiles load in the owner's browser when they paste their own token in Settings — the bundled SVG map remains the default and the no-token fallback).
 
@@ -152,6 +153,14 @@ Path 3 was added on the owner's explicit instruction — requested once before P
 - **Text is never cleared on age alone.** Exact text is cleared only when it is older than 90 days AND inside the saved rolling summary, and then a week later. The row stays. Deleting a person's WhatsApp data is a separate, confirmed action that touches nothing else of theirs.
 - **Summaries are Claude's, through the connector.** WhatsApp text is not sent to the in-app AI providers (§11); do not add an in-app model call over it without asking the owner.
 - **Timeline rows are derived.** One `interactions` row per day per chat, rebuilt from `whatsapp_messages` by `whatsapp-core.ts`; never write or edit them elsewhere. Only outbound messages count as a touch.
+
+**Outreach** (owner decisions 2026-11-19, SPEC §16) — the terms it is built under, not preferences:
+
+- **Rolo never sends mail.** A draft is a row the owner opens in their own mail program; "Sent" is the owner's click. Do not add a send path, an SMTP call for outreach, or a `send` argument to any tool.
+- **A stage is derived, never stored.** `deriveStage` (`lib/outreach/stage.ts`) reads the timeline, the calendar, reminders, two tags and open drafts each time. Do not add a stage column, a per-person campaign row, or anything the owner drags. A campaign is a group plus one entry in the `outreach.campaigns` setting.
+- **A draft is addressed only to an address already on the contact.** Never to an address an agent supplies. Compose links are built by `lib/outreach/compose.ts` and nowhere else; `isEmailAddress` is what keeps a recipient from carrying a second parameter.
+- **A group id is not an identity either.** A campaign entry is its group's only while the group's `created_at` matches the one stored with it.
+- **Drafts and campaigns are written only by `src/server/outreach-core.ts`**; agent text goes through the same sanitisers as every other agent write, and each save is ledgered and undoable.
 
 **Outbound HTTP** goes through `src/lib/net/fetch.ts` (`outboundFetch`) — a host allowlist enforcing the privacy invariant. Never call `fetch` directly for external hosts; add a host to the allowlist only alongside an owner-configurable integration.
 

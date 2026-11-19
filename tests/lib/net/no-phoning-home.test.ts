@@ -19,6 +19,7 @@ const UI_LINK_HOSTS = new Set([
   "mail.google.com", // Gmail compose links (Today `o`, contact page)
   "www.linkedin.com", // "Get a copy of your data" export-page link
   "account.mapbox.com", // "where to find your token" link in Settings
+  "outlook.office.com", // "Open in Outlook" on a draft to send (SPEC §16): the owner's browser opens their own mailbox
   "localhost", // app_url default
   // The agent connector's sign-in (SPEC §14): the only addresses an
   // authorization code may be sent to. The owner's browser is redirected

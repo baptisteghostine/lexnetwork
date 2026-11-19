@@ -47,6 +47,10 @@ export default async function TodayPage() {
       `${data.agenda.length} meeting${data.agenda.length > 1 ? "s" : ""}`,
     data.followups.length > 0 &&
       `${data.followups.length} to debrief`,
+    data.awaitingReply.length > 0 &&
+      `${data.awaitingReply.length} awaiting reply`,
+    data.draftsToSend > 0 &&
+      `${data.draftsToSend} draft${data.draftsToSend > 1 ? "s" : ""} to send`,
     data.resurface.length > 0 &&
       `${data.resurface.length} to reconnect`,
     suggestions.total > 0 &&
@@ -107,6 +111,39 @@ export default async function TodayPage() {
               now={now}
               aiEnabled={aiEnabled()}
             />
+          </section>
+        )}
+        {(data.awaitingReply.length > 0 || data.draftsToSend > 0) && (
+          <section className="space-y-2">
+            <h2 className="flex items-baseline justify-between text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <span>Awaiting reply</span>
+              {data.draftsToSend > 0 ? (
+                <Link href="/outreach" className="font-normal normal-case tracking-normal underline-offset-2 hover:text-foreground hover:underline">
+                  {data.draftsToSend} draft{data.draftsToSend === 1 ? "" : "s"} to send →
+                </Link>
+              ) : null}
+            </h2>
+            {data.awaitingReply.length > 0 ? (
+              <ol className="space-y-1">
+                {data.awaitingReply.map((a) => (
+                  <li key={a.contactId}>
+                    <Link
+                      href={`/contacts/${a.contactId}`}
+                      className="flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 rounded-md border border-border/60 px-3 py-2 transition-colors hover:bg-accent/50"
+                    >
+                      <span className="text-[13px] font-medium">{a.name}</span>
+                      <span className="min-w-0 truncate text-xs text-muted-foreground">
+                        {[a.company, a.campaignName].filter(Boolean).join(" · ")}
+                      </span>
+                      <span className="flex-1" />
+                      <span className="text-[11px] text-muted-foreground">
+                        {a.daysWaiting} days since your {a.sentSinceReply > 1 ? "follow-up" : "email"}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ol>
+            ) : null}
           </section>
         )}
         {data.birthdays.length > 0 && (

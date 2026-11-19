@@ -26,6 +26,7 @@ import {
   isSameExchange,
   linkedinProfileUrl,
   NEAR_DUPLICATE_WINDOW_MS,
+  normalizeSubject,
   PERSONAL_CATEGORIES,
   sanitizeAgentMarkdown,
 } from "@/lib/agent/writes";
@@ -50,6 +51,18 @@ import { addNote, recordInteraction } from "@/server/interaction-core";
 import { findOrCreateTag, setGroupMembership, setTagMembership } from "@/server/membership-core";
 import { completeReminder, createReminder } from "@/server/reminder-core";
 import { findContactsPrecisely } from "@/server/search";
+import { DRAFT_BODY_MAX, DRAFT_KINDS, DRAFT_SUBJECT_MAX } from "@/lib/outreach/compose";
+import {
+  CAMPAIGN_BRIEF_MAX,
+  CAMPAIGN_GOAL_MAX,
+  getCampaign,
+  startOfLocalDay,
+  saveCampaign,
+  saveDraft,
+  saveVoiceGuide,
+  VOICE_GUIDE_MAX,
+  VOICE_GUIDE_MIN,
+} from "@/server/outreach-core";
 import { saveWhatsAppSummary, WA_SUMMARY_MAX, WA_SUMMARY_MIN } from "@/server/whatsapp-core";
 
 // The connector's write tools (SPEC §14, Phase 15). What an agent may do
@@ -69,6 +82,8 @@ import { saveWhatsAppSummary, WA_SUMMARY_MAX, WA_SUMMARY_MIN } from "@/server/wh
 // ledger them for undo.
 
 const MINUTE = 60 * 1000;
+/** How far the owner's "Sent" click may be from when the email really left. */
+const DRAFT_SEND_WINDOW_MS = 3 * 24 * 60 * MINUTE;
 const NOTE_MAX = 5000;
 
 function person(contactId: number): { id: number; name: string } {
@@ -195,8 +210,30 @@ const logInteractionTool = defineTool({
       )
       .all();
     const sameKey = nearby.find((r) => r.source === "agent" && r.sourceKey === args.idempotencyKey);
+    // An email the owner sent from "Drafts to send" was logged when they
+    // clicked Sent — which can be hours from when it really left. The
+    // forwarded copy is that same email: found by its subject, within
+    // three days, rather than by the ten-minute window.
+    const fromDraft =
+      kind === "email" && direction === "outbound" && title
+        ? db
+            .select({ id: interactions.id, title: interactions.title })
+            .from(interactions)
+            .where(
+              and(
+                eq(interactions.contactId, who.id),
+                eq(interactions.kind, "email"),
+                eq(interactions.direction, "outbound"),
+                sql`${interactions.sourceKey} LIKE 'draft:%'`,
+                gte(interactions.occurredAt, occurredAt - DRAFT_SEND_WINDOW_MS),
+                lte(interactions.occurredAt, occurredAt + DRAFT_SEND_WINDOW_MS)
+              )
+            )
+            .all()
+            .find((r) => normalizeSubject(r.title) === normalizeSubject(title))
+        : undefined;
     const twin =
-      sameKey ?? nearby.find((r) => isSameExchange(r, { kind, direction, occurredAt, title }));
+      sameKey ?? fromDraft ?? nearby.find((r) => isSameExchange(r, { kind, direction, occurredAt, title }));
     if (twin) {
       return {
         summary: `Already on ${who.name}'s timeline — not logged twice`,
@@ -308,7 +345,7 @@ const createReminderTool = defineTool({
   name: "create_reminder",
   title: "Create a reminder",
   description:
-    "Set a reminder for the owner, optionally attached to a contact: \"follow up if no reply\", \"send the deck\", \"call booked with Ana\". It appears on Rolo's Today page when due. One-off only.",
+    "Set a reminder for the owner, optionally attached to a contact: \"follow up if no reply\", \"send the deck\". It appears on Rolo's Today page when due. One-off only. When a call or meeting has been arranged, set the reminder at the time of the call with `purpose: \"call\"`.",
   scope: "write",
   mutates: true,
   input: z.strictObject({
@@ -316,9 +353,16 @@ const createReminderTool = defineTool({
     dueAt: dateArg.describe("When it is due: ISO-8601 with timezone offset, or YYYY-MM-DD."),
     contactId: z.number().int().positive().optional(),
     details: z.string().trim().min(1).max(1000).optional(),
+    purpose: z
+      .enum(["call"])
+      .optional()
+      .describe("Set to \"call\" when this reminder is the time of a call or meeting that has been arranged with the contact. Their campaign stage then reads \"call booked\"."),
     idempotencyKey: idempotencyKeyArg.optional(),
   }),
   run: (args, ctx) => {
+    if (args.purpose === "call" && args.contactId === undefined) {
+      throw new ToolRefusal("A call reminder has to be attached to the contact the call is with.");
+    }
     const who = args.contactId !== undefined ? person(args.contactId) : null;
     const dueAt = parseDate(args.dueAt);
     if (dueAt === null) throw new ToolRefusal("dueAt is not a date.");
@@ -338,7 +382,7 @@ const createReminderTool = defineTool({
     return {
       summary: `Set a reminder${who ? ` about ${who.name}` : ""} — ${clip(args.title, 80)}`,
       contactId: who?.id ?? null,
-      writes: [{ table: "reminders", op: "insert", id: res.reminderId, ...mark }],
+      writes: [{ table: "reminders", op: "insert", id: res.reminderId, ...mark, ...(args.purpose ? { purpose: args.purpose } : {}) }],
       data: { created: true, reminderId: res.reminderId, dueAt: iso(dueAt), contactId: who?.id ?? null },
     };
   },
@@ -974,6 +1018,144 @@ const saveWhatsAppSummaryTool = defineTool({
   },
 });
 
+// ---------- outreach (SPEC §16) ----------
+
+const saveCampaignTool = defineTool({
+  name: "save_campaign",
+  title: "Create or update a campaign",
+  description:
+    "A campaign is a goal the owner is reaching out to people for — \"tech investment banking, top firms\" — with a brief and a list of people. In Rolo it is a group plus that brief; where each person stands is worked out from what has actually been sent and answered, never set by hand. Without `campaignId` this creates a new campaign called `name`; with it, it updates the goal and brief (or turns an existing group into a campaign). `brief` is markdown: who fits and why, the angle of the first email, what the owner is asking for, anything to avoid. Only what was sent since the campaign began counts towards it, so if the owner started writing to these people before today, say when with `startedOn`. `addContactIds` puts people in (up to 50 a call); use tag_contacts to take someone out. Create or change a campaign only when the owner asks.",
+  scope: "write",
+  mutates: true,
+  input: z
+    .strictObject({
+      campaignId: z.number().int().positive().optional().describe("The campaign (group) to update. Omit to create a new one."),
+      name: z.string().trim().min(1).max(80).optional().describe("Name for a new campaign."),
+      goal: z.string().trim().min(1).max(CAMPAIGN_GOAL_MAX).describe("One line: what this outreach is for."),
+      brief: z.string().trim().min(1).max(CAMPAIGN_BRIEF_MAX).optional(),
+      startedOn: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/)
+        .optional()
+        .describe("YYYY-MM-DD. The day this outreach began, if before today: emails sent from that day count towards it. Defaults to the day the campaign is created."),
+      addContactIds: idList(50).optional(),
+      idempotencyKey: idempotencyKeyArg.optional(),
+    })
+    .refine((v) => v.campaignId !== undefined || v.name !== undefined, "Give a name for a new campaign, or campaignId to update one."),
+  run: (args, ctx) => {
+    const existing = args.campaignId !== undefined ? getCampaign(args.campaignId) : null;
+    const startedAt = args.startedOn !== undefined ? startOfLocalDay(args.startedOn) : undefined;
+    if (startedAt === null) throw new ToolRefusal(`"${args.startedOn}" is not a date.`);
+    const res = saveCampaign(
+      {
+        startedAt,
+        groupId: args.campaignId,
+        name: args.name ? cleanName(args.name, 80) : undefined,
+        goal: cleanLine(args.goal, CAMPAIGN_GOAL_MAX),
+        briefMd: args.brief !== undefined ? sanitizeAgentMarkdown(args.brief) : (existing?.briefMd ?? ""),
+      },
+      ctx.now
+    );
+    if (!res.ok) throw new ToolRefusal(res.error);
+    const writes: WriteRecord[] = [
+      { table: "campaigns", op: "save", groupId: res.groupId, groupName: res.name, marker: res.marker, createdGroup: res.createdGroup, createdCampaign: res.createdCampaign },
+    ];
+    let added = 0;
+    let unknown: number[] = [];
+    if (args.addContactIds) {
+      const membership = setGroupMembership([...new Set(args.addContactIds)], res.groupId, true);
+      if (!membership.ok) throw new ToolRefusal(membership.error);
+      added = membership.changedContactIds.length;
+      unknown = membership.unknownContactIds;
+      if (added > 0) {
+        writes.push({ table: "group_members", op: "add", groupId: res.groupId, groupName: res.name, contactIds: membership.changedContactIds, at: Date.now() });
+      }
+    }
+    return {
+      summary: `${res.createdCampaign ? "Created" : "Updated"} the campaign "${clip(res.name, 60)}"${added ? ` and added ${added} ${added === 1 ? "person" : "people"}` : ""}`,
+      writes,
+      data: {
+        campaignId: res.groupId,
+        name: res.name,
+        created: res.createdCampaign,
+        peopleAdded: added,
+        ...(unknown.length ? { unknownContactIds: unknown } : {}),
+      },
+    };
+  },
+});
+
+const saveDraftTool = defineTool({
+  name: "save_draft",
+  title: "Save a draft for the owner to send",
+  description:
+    "Put an email in Rolo's \"Drafts to send\" for the owner to send from their own mail account. Rolo never sends anything: the owner opens the draft in Outlook, sends it, and clicks Sent. Write it in the owner's voice (get_voice_guide) and from what Rolo knows about the person (get_contacts). `kind`: `first` for a first email, `nudge` for the follow-up after no reply, `reply` for an answer to something they wrote. Plain text, no markdown; no placeholders — if something is unknown, leave it out. It is addressed to the contact's own email in Rolo; a contact with none can still have a draft, and the owner is told the address is missing. One open draft per person per campaign: to change one, pass `replaceDraftId`. Do not draft for someone who is already waiting on the owner's reply, or whose campaign stage is \"not pursuing\".",
+  scope: "write",
+  mutates: true,
+  input: z.strictObject({
+    contactId: z.number().int().positive(),
+    campaignId: z.number().int().positive().optional(),
+    kind: z.enum(DRAFT_KINDS),
+    subject: z.string().trim().min(1).max(DRAFT_SUBJECT_MAX),
+    body: z.string().trim().min(1).max(DRAFT_BODY_MAX).describe("The email as plain text, greeting to sign-off."),
+    toEmail: z.string().trim().email().max(320).optional().describe("Only an address already on the contact. Defaults to their first."),
+    replaceDraftId: z.number().int().positive().optional(),
+    idempotencyKey: idempotencyKeyArg.optional(),
+  }),
+  run: (args, ctx) => {
+    const who = person(args.contactId);
+    const res = saveDraft(
+      {
+        contactId: who.id,
+        groupId: args.campaignId ?? null,
+        kind: args.kind,
+        subject: cleanLine(args.subject, DRAFT_SUBJECT_MAX),
+        body: args.body,
+        toEmail: args.toEmail ?? null,
+        source: "agent",
+        replaceDraftId: args.replaceDraftId ?? null,
+      },
+      ctx.now
+    );
+    if (!res.ok) throw new ToolRefusal(res.error);
+    return {
+      summary: `Drafted ${args.kind === "nudge" ? "a follow-up" : args.kind === "reply" ? "a reply" : "an email"} to ${who.name} — ${clip(res.draft.subject, 80)}`,
+      contactId: who.id,
+      writes: [{ table: "outreach_drafts", op: "insert", id: res.draft.id, contactId: who.id, createdAt: res.draft.createdAt, replacedId: res.replacedId }],
+      data: {
+        saved: true,
+        draftId: res.draft.id,
+        contactId: who.id,
+        to: res.draft.toEmail,
+        ...(res.draft.toEmail ? {} : { note: `Rolo has no email address for ${who.name}. The draft is saved; the owner will need the address before sending.` }),
+        ...(res.replacedId !== null ? { replacedDraftId: res.replacedId } : {}),
+      },
+    };
+  },
+});
+
+const updateVoiceGuideTool = defineTool({
+  name: "update_voice_guide",
+  title: "Update the voice guide",
+  description:
+    "Replace the owner's voice guide: the description of how they write that every draft is written from. Build it from emails the owner really sent (read them through the mail connector): how they open and sign off, sentence length, formality, how they introduce themselves and their school, how they make the ask, phrases they use and ones they never do, the usual length. Write it as instructions another writer could follow, with two or three short examples of their own phrasing. One guide, rewritten whole each time. Do this when the owner asks.",
+  scope: "write",
+  mutates: true,
+  input: z.strictObject({
+    guide: z.string().trim().min(VOICE_GUIDE_MIN).max(VOICE_GUIDE_MAX),
+    idempotencyKey: idempotencyKeyArg.optional(),
+  }),
+  run: (args, ctx) => {
+    const res = saveVoiceGuide(sanitizeAgentMarkdown(args.guide), ctx.now);
+    if (!res.ok) throw new ToolRefusal(res.error);
+    return {
+      summary: "Updated the voice guide",
+      writes: [{ table: "settings", op: "voice_guide", marker: res.marker }],
+      data: { saved: true },
+    };
+  },
+});
+
 // ---------- undo_agent_action ----------
 
 const undoTool = defineTool({
@@ -1011,5 +1193,8 @@ export const WRITE_TOOLS: AgentTool[] = [
   tagContactsTool,
   setCadenceTool,
   saveWhatsAppSummaryTool,
+  saveCampaignTool,
+  saveDraftTool,
+  updateVoiceGuideTool,
   undoTool,
 ];

@@ -187,7 +187,7 @@ test("Claude's handshake, the tool list and a real search work over HTTP", async
   expect(init.message).toMatchObject({ result: { serverInfo: { name: "rolo" } } });
 
   const list = await mcp(request, shared.accessToken, { jsonrpc: "2.0", id: 2, method: "tools/list" });
-  expect((list.message!.result as { tools: unknown[] }).tools).toHaveLength(11);
+  expect((list.message!.result as { tools: unknown[] }).tools).toHaveLength(14);
 
   // "Zara Quicklog" was created by the quick-log spec earlier in this run.
   const search = await mcp(request, shared.accessToken, {
@@ -313,7 +313,7 @@ test("asked for write, the consent screen makes it the owner's choice", async ({
   // A read-only connection is not even shown the write tools; calling one
   // anyway is a protocol error, never a write.
   const readList = await mcp(request, readOnly.access_token, { jsonrpc: "2.0", id: 1, method: "tools/list" });
-  expect((readList.message!.result as { tools: unknown[] }).tools).toHaveLength(11);
+  expect((readList.message!.result as { tools: unknown[] }).tools).toHaveLength(14);
   const refused = await mcp(request, readOnly.access_token, {
     jsonrpc: "2.0",
     id: 2,
@@ -327,7 +327,7 @@ test("asked for write, the consent screen makes it the owner's choice", async ({
   expect(full.scope).toBe("read write");
   writer.accessToken = full.access_token;
   const list = await mcp(request, writer.accessToken, { jsonrpc: "2.0", id: 2, method: "tools/list" });
-  expect((list.message!.result as { tools: unknown[] }).tools).toHaveLength(20);
+  expect((list.message!.result as { tools: unknown[] }).tools).toHaveLength(26);
 
   await page.goto("/settings?tab=connector");
   await expect(page.getByText(/Read and add · connected/)).toBeVisible();

@@ -48,7 +48,9 @@ export type WriteRecord =
       snoozedBefore?: number | null;
     }
   | { table: "notes"; op: "insert"; id: number; contactId: number | null; createdAt: number; sig: string }
-  | { table: "reminders"; op: "insert"; id: number; createdAt: number; sig: string }
+  // `purpose: "call"` marks a reminder set for a call that was arranged:
+  // the outreach stage reads it as "call booked" (SPEC §16).
+  | { table: "reminders"; op: "insert"; id: number; createdAt: number; sig: string; purpose?: "call" }
   | {
       table: "reminders";
       op: "complete";
@@ -83,6 +85,11 @@ export type WriteRecord =
   // `updatedAt` is the summary_updated_at this call wrote: undo restores
   // the previous summary only while this one is still the latest.
   | { table: "whatsapp_links"; op: "summary"; id: number; contactId: number; updatedAt: number }
+  // Outreach (SPEC §16). `marker` is the value the save wrote; undo acts
+  // only while it is still the latest.
+  | { table: "outreach_drafts"; op: "insert"; id: number; contactId: number; createdAt: number; replacedId: number | null }
+  | { table: "campaigns"; op: "save"; groupId: number; groupName: string; marker: number; createdGroup: boolean; createdCampaign: boolean }
+  | { table: "settings"; op: "voice_guide"; marker: number }
   | { table: "tags"; op: "insert"; id: number; name: string }
   // `at` is when the memberships were written: undo only takes back rows
   // created then, not a membership the owner removed and added again.
@@ -359,6 +366,33 @@ export function agentNoteIds(contactId: number): number[] {
     .all()
     .filter((n) => written.get(n.id) === n.createdAt)
     .map((n) => n.id);
+}
+
+/**
+ * Reminders an agent set for a call it saw being arranged, as
+ * id → creation time. The creation time travels with the id because ids
+ * are reused: a later reminder that inherited the number is not a call.
+ */
+export function agentCallReminders(): Map<number, number> {
+  const out = new Map<number, number>();
+  const rows = db
+    .select({ writesJson: agentCalls.writesJson })
+    .from(agentCalls)
+    .where(
+      and(
+        eq(agentCalls.tool, "create_reminder"),
+        eq(agentCalls.status, "success"),
+        sql`${agentCalls.undoneAt} IS NULL`,
+        sql`${agentCalls.writesJson} LIKE '%"purpose":"call"%'`
+      )
+    )
+    .all();
+  for (const r of rows) {
+    for (const w of parseWrites(r.writesJson)) {
+      if (w.table === "reminders" && w.op === "insert" && w.purpose === "call") out.set(w.id, w.createdAt);
+    }
+  }
+  return out;
 }
 
 export type AgentCallRow = {

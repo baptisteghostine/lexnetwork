@@ -508,7 +508,7 @@ All features: model from the provider's env var; every call logged to `ai_calls`
 ## 12. Today / Triage UI
 
 ### Behavior
-- Home = one prioritized queue: (1) reminders due, (2) today's calendar agenda — with the pre-meeting brief inline (§9e), (3) keep-in-touch due (starred first, then overdue-ness), (4) job changes — a screenful (20) with "Show all", so a backlog never pushes the rest off the page, (5) birthdays this week, (6) worth reconnecting (§3, owner request 2026-09-04), (7) people you met (§9f). Section order fixed; counts in header. *(Agenda moved from fifth to second on 2026-09-20: a meeting in two hours is the most time-sensitive item, and the owner could not find it under 2,500 job-change cards.)*
+- Home = one prioritized queue: (1) reminders due, (2) today's calendar agenda — with the pre-meeting brief inline (§9e), (3) keep-in-touch due (starred first, then overdue-ness), (4) job changes — a screenful (20) with "Show all", so a backlog never pushes the rest off the page, (4a) awaiting reply — campaign people a follow-up is due for, with the count of drafts to send (§16, added 2026-11-19), (5) birthdays this week, (6) worth reconnecting (§3, owner request 2026-09-04), (7) people you met (§9f). Section order fixed; counts in header. *(Agenda moved from fifth to second on 2026-09-20: a meeting in two hours is the most time-sensitive item, and the owner could not find it under 2,500 job-change cards.)*
 - Every item dispatchable via one keystroke while focused: `l` log interaction (with optional note), `s` snooze (then 1/3/7/m picks duration), `n` note, `o` open in Gmail (compose to primary email) / `L` open LinkedIn, `d` dismiss, `Enter` open contact.
   - v1 deviation (Phase 4): `d` is implemented as snooze-to-tomorrow — a due keep-in-touch item has no separate "dismissed" state yet, and the queue hint labels it "dismiss to tomorrow". Revisit when reminders land (Phase 5).
 - Command palette (Cmd+K): jump to contact (fuzzy), create note/reminder, run a saved view, trigger a sync, jump to any screen. Also reachable without a keyboard (owner request 2026-09-26, phone use): a Search row at the top of the nav, a search icon in the phone top bar, and a Search button on the Contacts header open the same palette.
@@ -712,9 +712,13 @@ On the activity page each proposal shows everything it would write, in full, wit
 - The 50-a-day ceiling on new contacts and the two-new-tags-per-call cap are constants, not settings.
 - A rejected proposal's key stays burned, so an unattended agent does not re-propose it every run.
 
-### Phases 16–18 (not built)
+### Phase 16 — the outreach loop (built)
 
-Campaigns, derived outreach stage and "Drafts to send" (16), unattended runs (17), richer targeting data (18). Scope and acceptance criteria are in PLAN.md until each phase starts.
+Campaigns, the derived pipeline, "Drafts to send" and the six tools that drive them are specified in §16. The connector now has fourteen read tools and twelve write tools.
+
+### Phases 17–18 (not built)
+
+Unattended runs (17), richer targeting data (18). Scope and acceptance criteria are in PLAN.md until each phase starts.
 
 ### Acceptance criteria (Phase 15)
 
@@ -856,6 +860,111 @@ A linked chat follows a merge to the winner with its messages and day rows, and 
 - [ ] Merge: a linked chat moves with its messages and day rows and returns on undo; both-linked is refused with neither changed.
 - [ ] E2E in a real browser: link by number and saved name (a non-number is refused); upload an export and see one row per day with the day's words behind it; upload it again and nothing is added; a group export is refused; the saved name, sync toggle and history date are remembered; Delete WhatsApp data removes the WhatsApp rows and leaves a hand-logged interaction.
 - [ ] Manual, the owner's: run the probe on the Windows laptop and send the report; upload a real iPhone export for one contact and check the dates.
+
+---
+
+## 16. Outreach
+
+*Added 2026-11-19 (PLAN.md Phase 16, owner decisions of the same day). It builds on §14: Claude chooses and writes, Rolo remembers and shows. Two non-goals bind it and are not amended: Rolo sends no mail, and there is no pipeline stage anyone sets or drags.*
+
+**What it is for.** From a goal — "coffee chats with tech bankers at the top firms" — to emails sent in the owner's own words from the owner's own Outlook, with the follow-ups surfacing by themselves a week later.
+
+### Campaigns
+
+A campaign is a Rolo **group** plus a goal, a brief and a start date. The people in it are the group's members, managed exactly like any other group (bulk actions on the contact list, `tag_contacts`, `save_campaign`'s `addContactIds`). The goal, brief and start date live in one settings value, `outreach.campaigns`, keyed by group id — no new table, and **nothing is stored per person** (owner decision 7).
+
+- A stored brief belongs to its group only while the group's `created_at` matches the one recorded with it: SQLite gives a deleted group's id to the next group made, and that group must not inherit a campaign.
+- **Start date.** Only what was sent or received from that day on counts towards the campaign; anything earlier shows as "last in touch". It defaults to the day the campaign is created and the owner can move it back ("Count what was sent since").
+- Archiving a campaign takes its people off Today and nothing else. Deleting the group ends the campaign.
+
+### Where each person stands
+
+Derived every time it is shown, by `deriveStage` (`src/lib/outreach/stage.ts`, pure) from what Rolo already holds. First match wins:
+
+| Stage | When |
+|---|---|
+| Not pursuing | the contact has the tag `not pursuing` |
+| Call booked | a future calendar event has them as an attendee (not cancelled), or an open reminder an agent created with `purpose: "call"` is due in the future |
+| Met | a meeting or call with them since the campaign started |
+| Bad address | the tag `bad address`, and they have not written since the campaign started |
+| Draft ready / Not contacted | nothing sent since the start; "draft ready" when a draft is waiting |
+| Your move | the last message since the start is theirs |
+| No reply | the last message is the owner's and it is at least 30 days old |
+| Awaiting reply | the last message is the owner's; a follow-up is **due** after 7 days unless a draft is already waiting |
+
+- "Sent" and "received" are the timeline's own rows: emails and messages with a direction, whoever logged them. For a linked WhatsApp chat (§15) the individual messages are used rather than the one-row-per-day summary, so a reply later the same day counts as a reply.
+- The two tags are ordinary tags, matched case-insensitively, set by the owner or by Claude with `tag_contacts`. They are the only facts no message carries.
+- 7 and 30 days are the owner's to change (Outreach → Settings).
+
+### Drafts to send
+
+`outreach_drafts` (SCHEMA.md): one row per email written for the owner to send — by Claude through `save_draft`. Each open draft is a card under **Outreach** with the subject and text editable in place and:
+
+- **Open in Outlook** — `https://outlook.office.com/mail/deeplink/compose` with `to`, `subject`, `body` (and `bcc` when set), each percent-encoded. Offered while the link is under 7,500 characters.
+- **Open in mail app** — a `mailto:` link, offered under 2,000 characters.
+- **Copy** — recipient, subject and text as plain text; always available, and the fallback when the email is too long for a link.
+- **Sent** — saves any edit, writes an outbound email to the person's timeline (`source = 'user'`, `source_key = 'draft:<id>'`, counts as a touch), and marks the draft sent. This click is the record: Rolo cannot see the owner's Outlook.
+- **Discard…** then **Discard** — two clicks; nothing reaches the timeline.
+
+Rules, enforced in `outreach-core.ts`:
+
+- **The address must already be on the contact.** A draft can name one of the contact's addresses or default to their first; any other address is refused. A contact with none can still have a draft, and the card says the address is missing. The links are built in the browser from a validated address (`isEmailAddress` admits no character that could add a second parameter).
+- **One open draft per person per campaign.** A second is refused unless it names the one it replaces, which is then discarded.
+- **A draft retires itself** when an outbound email to the same person with the same subject (ignoring `Re:`/`Fw:`) is logged some other way, dated no earlier than five minutes before the draft was written — the owner sent it without clicking, and Claude or the Gmail sync recorded it. Checked whenever drafts are listed.
+- **The forwarded copy is not logged twice.** `log_interaction` treats a `draft:` row for the same person and subject within three days as the same exchange.
+- **BCC (optional setting).** An address added to every compose link, so each email also arrives in the mailbox Claude reads, with its real recipient and time.
+
+Nothing here sends mail, and no host is contacted by Rolo: the links open in the owner's browser. `outlook.office.com` is listed in the no-phoning-home test as a link the UI may show.
+
+### Today
+
+A section **Awaiting reply** lists people in live campaigns for whom a follow-up is due, longest wait first, each once (the campaign they have waited longest in), with a link to "Drafts to send" when any are waiting. A person with a follow-up already drafted is not listed.
+
+### What Claude can see and do (§14)
+
+- `list_campaigns` (read) — campaigns with their goal, brief, start date and a count per stage; how many drafts are waiting.
+- `get_pipeline` (read) — one campaign's people with stage, days waiting, whether a follow-up is due, how many emails are unanswered, whether Rolo holds an address; filterable by stage, paged.
+- `list_drafts` (read) — drafts by status, with their text.
+- `get_today` now includes `awaitingReply` and `draftsToSend`.
+- `save_campaign` (write) — create a campaign (a new group) or update the goal, brief and start date of one; add up to 50 people. The brief is sanitised like every text an agent writes.
+- `save_draft` (write) — put an email in "Drafts to send", under the rules above. There is no send argument.
+- `update_voice_guide` (write) — replace the voice guide (§11's `ai.voice_guide`), keeping one earlier version for undo.
+- `create_reminder` gains `purpose: "call"` (needs a contact): the reminder that marks a call as booked.
+
+All four are ledgered, queued in "ask me first" mode, and undoable: a draft is removed while it is still open and unedited (and the one it replaced comes back); a campaign save returns the previous goal, brief and start, or removes a campaign it created — and its group while that group is still empty; a voice guide returns to the previous version. In each case only the latest save can be undone, and anything the owner has changed since is left alone.
+
+**The playbook** is `.claude/skills/rolo-outreach/SKILL.md`: how to choose people (fit, warmth, one per team at a time, nobody already in motion), how to read an Outlook forward, how to write the first email and the one-week follow-up, what to log and what never to. Claude Code reads it from the repository; zipped, the same folder uploads to claude.ai as a Skill. It is instructions, not code — Rolo enforces the rules above whether or not the playbook is followed.
+
+### Merging and deleting contacts
+
+A draft follows a merge to the winner and is deleted with its contact. A draft whose campaign group is deleted is kept, without a campaign.
+
+### Decided while building, cheap to reverse
+
+- Campaign details in a settings value rather than a table: a handful of campaigns, no per-person state, no migration to change their shape.
+- "Met" is any meeting or call since the start, whoever logged it.
+- The owner cannot write a draft from scratch in Rolo — drafts come from Claude; the owner edits them. Rolo's existing "open Gmail compose" on Today is unchanged.
+- A second follow-up becomes due a week after the first. The playbook tells Claude not to write it unasked.
+
+### Not built
+
+- Sending. Not a stub: a non-goal.
+- Seeing the owner's Sent Items. The record is the Sent click, the BCC, or the forwarded copy Claude reads.
+- Unattended runs (Phase 17) and suggested addresses (Phase 18).
+
+### Acceptance criteria
+
+- [ ] Pure, stage: each row of the table above; a reply after a follow-up is "your move"; a bounce tag yields to a later reply; events before the start feed only "last in touch"; a follow-up is due on day 7 and not on day 6, and not while a draft waits; "no reply" from day 30; "not pursuing" outranks everything; a past call books nothing.
+- [ ] Pure, compose: the Outlook link and the `mailto:` link carry recipient, subject and a 250-word body intact, with line breaks; punctuation, accents and line breaks survive a round trip, and a space is never a `+`; a link over its limit is not offered; an address that could carry a second parameter is refused; a BCC is added only when valid.
+- [ ] Against a migrated database, campaigns: a campaign is a group plus a settings entry and no table; no goal, a taken name, a missing group and a future start are refused; a deleted group takes its campaign, and a new group reusing its id is not a campaign and starts clean; moving the start date back brings earlier mail in; archiving takes people off Today and back.
+- [ ] Pipeline: one person walks nothing → draft → sent → follow-up due → followed up → reply → call booked → met; a cancelled event books nothing; both tags work case-insensitively; a WhatsApp reply later the same day is "your move" though the day's row is the owner's; archived contacts are left out.
+- [ ] Drafts: addressed to the contact's own address, with a foreign address refused and none stored; a second draft is refused without `replaceDraftId` and replaces with it; empty, control-character-only and oversized text, an unknown person and an unknown campaign are refused; Sent writes one outbound email with the edited subject, moves the keep-in-touch clock, and cannot be repeated, edited or discarded afterwards; a draft retires on a matching logged send and not on an older email, another subject or an inbound one; Discard leaves the timeline untouched.
+- [ ] Today: people due a follow-up are listed longest-wait first and once across two campaigns; inside the week, outside any campaign, or with a follow-up drafted they are not; the two waits and the BCC are saved and validated.
+- [ ] Connector: `save_campaign` creates, sanitises the brief, reports unknown ids, honours `startedOn`, and keeps the brief on a goal-only update; `get_pipeline` returns exactly the documented shape and filters by stage; `save_draft` cleans subject and line endings, answers a repeated key from the first call, refuses a second draft, a foreign address, an unknown kind, an extra `send` argument and a read-only grant, and reports a missing address; undo removes a draft and restores the one it replaced, and keeps an edited or sent one; a forwarded copy of an email sent from a draft is not logged again while a different email the same day is; `purpose: "call"` needs a contact, books the call, and undoing it unbooks it; campaign undo restores the last edit, removes an empty created campaign with its group, and leaves a campaign changed since; the voice guide is replaced, length-checked and undone one version back; in review mode a draft and a campaign wait and apply on approval; `get_today` carries who is waiting and how many drafts are unsent.
+- [ ] The widest call of each new read tool stays under the size cap on 10,000 contacts, and no tool output contains a planted secret.
+- [ ] Merge: a draft moves to the winner; deleting the contact deletes it.
+- [ ] E2E in a real browser: create a campaign from the form (a duplicate name is refused); a draft Claude wrote shows its address and an Outlook link whose only parameters are `to`, `subject` and `body`; editing the subject changes the link; Sent empties the list, puts the edited subject on the timeline once and moves the person to "Awaiting reply"; nine days on they are on Today once the start date is moved back; a drafted follow-up takes them off; Discard takes two clicks and logs nothing; archiving the campaign clears Today.
+- [ ] Manual, the owner's: (1) one draft → Open in Outlook on the school account: recipient, subject and text arrive intact; with a BCC set, check the copy lands in Gmail. (2) In Claude: "set up a campaign for …, pick ten, draft them" → ten cards → send and click Sent → a week later the non-repliers are on Today.
 
 ---
 

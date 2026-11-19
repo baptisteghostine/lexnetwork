@@ -797,6 +797,25 @@ describe("every call is recorded, and none can be made without the scope", () =>
   });
 });
 
+/** A campaign with a draft waiting, for the sweeps that call every tool. Removed again so other tests see their own groups. */
+function seedCampaign(): void {
+  const first = (rawDb.prepare("SELECT min(id) AS id FROM contacts").get() as { id: number }).id;
+  id.campaign = Number(rawDb.prepare("INSERT INTO groups (name, created_at) VALUES ('Sweep campaign', ?)").run(NOW).lastInsertRowid);
+  rawDb.prepare("INSERT INTO group_members (group_id, contact_id, created_at) VALUES (?, ?, ?)").run(id.campaign, first, NOW);
+  rawDb
+    .prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('outreach.campaigns', ?)")
+    .run(JSON.stringify({ [id.campaign]: { goal: "Coffee chats", briefMd: "b".repeat(8000), startedAt: NOW - 30 * DAY, createdAt: NOW - 30 * DAY, updatedAt: NOW, archivedAt: null, marker: NOW, prev: null } }));
+  rawDb
+    .prepare("INSERT INTO outreach_drafts (contact_id, group_id, kind, to_email, subject, body, status, source, created_at, updated_at) VALUES (?, ?, 'first', NULL, 'Hello', ?, 'open', 'agent', ?, ?)")
+    .run(first, id.campaign, "d".repeat(6000), NOW, NOW);
+}
+
+function dropCampaign(): void {
+  rawDb.prepare("DELETE FROM outreach_drafts").run();
+  rawDb.prepare("DELETE FROM groups WHERE id = ?").run(id.campaign);
+  rawDb.prepare("DELETE FROM settings WHERE key = 'outreach.campaigns'").run();
+}
+
 /** Every tool, called the widest way it allows. */
 function widestCalls(ids: number[]): [string, unknown][] {
   return [
@@ -817,10 +836,17 @@ function widestCalls(ids: number[]): [string, unknown][] {
     ["get_voice_guide", {}],
     ["list_whatsapp_chats", {}],
     ["get_whatsapp_chat", { contactId: ids[0], limit: 200 }],
+    ["list_campaigns", { includeArchived: true }],
+    ["get_pipeline", { campaignId: id.campaign, limit: 200 }],
+    ["list_drafts", { limit: 100 }],
+    ["list_drafts", { status: "sent", limit: 100 }],
   ];
 }
 
 describe("nothing secret leaves, nothing is changed", () => {
+  beforeAll(seedCampaign);
+  afterAll(dropCampaign);
+
   it("no tool output contains a credential, a token hash, or another table's private text", () => {
     const everyone = (rawDb.prepare("SELECT id FROM contacts ORDER BY id").all() as { id: number }[]).map((r) => r.id);
     let seen = "";
@@ -835,17 +861,19 @@ describe("nothing secret leaves, nothing is changed", () => {
     for (const marker of Object.values(SECRETS)) expect(log.includes(marker)).toBe(false);
   });
 
-  it("a read-only grant has eleven tools, none of which can write; what can never be done has no tool at all", () => {
+  it("a read-only grant has fourteen tools, none of which can write; what can never be done has no tool at all", () => {
     const readable = tools.AGENT_TOOLS.filter((t) => t.scope === "read");
     expect(readable.map((t) => t.name)).toEqual([
       "rolo_overview", "search_contacts", "list_companies", "get_contacts", "find_contact",
       "get_timeline", "search_notes", "get_today", "get_voice_guide",
       "list_whatsapp_chats", "get_whatsapp_chat",
+      "list_campaigns", "get_pipeline", "list_drafts",
     ]);
     expect(readable.every((t) => !t.mutates && !t.destructive)).toBe(true);
     expect(tools.AGENT_TOOLS.filter((t) => t.scope === "write").map((t) => t.name)).toEqual([
       "log_interaction", "add_note", "create_reminder", "complete_reminder", "upsert_contact",
-      "tag_contacts", "set_cadence", "save_whatsapp_summary", "undo_agent_action",
+      "tag_contacts", "set_cadence", "save_whatsapp_summary", "save_campaign", "save_draft",
+      "update_voice_guide", "undo_agent_action",
     ]);
     expect(tools.AGENT_TOOLS.filter((t) => t.scope === "write").every((t) => t.mutates)).toBe(true);
     for (const forbidden of [
@@ -886,6 +914,7 @@ describe("a 10,000-contact network", () => {
   const firstBig = { id: 0 };
 
   beforeAll(() => {
+    seedCampaign();
     const longNote = "Long note about a long conversation. ".repeat(120);
     const longBody = "A long message with many words in it. ".repeat(100);
     const insertContact = rawDb.prepare(
@@ -918,6 +947,14 @@ describe("a 10,000-contact network", () => {
             NOW
           ).lastInsertRowid
         );
+        if (i < 300) {
+          rawDb.prepare("INSERT INTO group_members (group_id, contact_id, created_at) VALUES (?, ?, ?)").run(id.campaign, cid, NOW);
+          if (i < 150) {
+            rawDb
+              .prepare("INSERT INTO outreach_drafts (contact_id, group_id, kind, to_email, subject, body, status, source, created_at, updated_at, sent_at) VALUES (?, ?, 'first', NULL, ?, ?, ?, 'agent', ?, ?, ?)")
+              .run(cid, id.campaign, "s".repeat(300), "d".repeat(6000), i % 2 ? "open" : "sent", NOW, NOW, i % 2 ? null : NOW);
+          }
+        }
         if (i === 0) {
           firstBig.id = cid;
           // A linked WhatsApp chat at its largest: a full summary and
@@ -944,6 +981,7 @@ describe("a 10,000-contact network", () => {
 
   afterAll(() => {
     rawDb.prepare("DELETE FROM contacts WHERE id >= ?").run(firstBig.id);
+    dropCampaign();
   });
 
   it("no answer outgrows the cap, however wide the question", () => {

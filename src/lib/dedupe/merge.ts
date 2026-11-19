@@ -128,6 +128,8 @@ const CHILD_TABLES: { name: string; conflictSql: string | null }[] = [
     conflictSql: `SELECT l.id FROM whatsapp_links l WHERE l.contact_id = @loser AND EXISTS (
       SELECT 1 FROM whatsapp_links w WHERE w.contact_id = @winner)`,
   },
+  // Drafts to send (SPEC §16) follow the person.
+  { name: "outreach_drafts", conflictSql: null },
   { name: "contact_changes", conflictSql: null },
   { name: "work_history", conflictSql: null },
   { name: "education", conflictSql: null },

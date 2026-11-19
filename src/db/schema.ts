@@ -966,6 +966,42 @@ export const whatsappMessages = sqliteTable(
   ]
 );
 
+// ---------- Outreach (SPEC §16) ----------
+
+// "Drafts to send": an email written for the owner to send themselves.
+// Rolo never sends mail; a draft ends when the owner says it was sent
+// (or a matching send is logged), or discards it.
+export const outreachDrafts = sqliteTable(
+  "outreach_drafts",
+  {
+    id: integer("id").primaryKey(),
+    contactId: integer("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    // The campaign this draft belongs to — a campaign is a group (SPEC §16).
+    groupId: integer("group_id").references(() => groups.id, { onDelete: "set null" }),
+    // 'first' | 'nudge' | 'reply' | 'other'
+    kind: text("kind").notNull(),
+    toEmail: text("to_email"),
+    subject: text("subject").notNull(),
+    body: text("body").notNull(),
+    // 'open' | 'sent' | 'discarded'
+    status: text("status").notNull().default("open"),
+    // 'agent' | 'user'
+    source: text("source").notNull(),
+    // The timeline row that records the send, once there is one.
+    interactionId: integer("interaction_id").references(() => interactions.id, { onDelete: "set null" }),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+    sentAt: integer("sent_at"),
+    discardedAt: integer("discarded_at"),
+  },
+  (t) => [
+    index("idx_outreach_drafts_status").on(t.status, t.createdAt),
+    index("idx_outreach_drafts_contact").on(t.contactId, t.status),
+  ]
+);
+
 export type Contact = typeof contacts.$inferSelect;
 export type NewContact = typeof contacts.$inferInsert;
 export type ContactEmail = typeof contactEmails.$inferSelect;

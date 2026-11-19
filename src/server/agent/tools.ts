@@ -35,6 +35,8 @@ import {
   type ToolOutput,
 } from "@/server/agent/tool-kit";
 import { WRITE_TOOLS } from "@/server/agent/write-tools";
+import { STAGES } from "@/lib/outreach/stage";
+import { campaignPipeline, countOpenDrafts, listCampaigns, listDrafts } from "@/server/outreach-core";
 import {
   contactIdsBySavedName,
   getWhatsAppLink,
@@ -907,7 +909,7 @@ const getTodayTool = defineTool({
   name: "get_today",
   title: "What needs attention today",
   description:
-    "What Rolo's Today page shows right now: reminders due, today's meetings with the contacts in them, meetings that just ended and await a debrief, people whose keep-in-touch cadence is due (most overdue first), open job changes worth a message, birthdays this week, and the day's \"worth reconnecting\" picks. Lists are capped; each carries its true total.",
+    "What Rolo's Today page shows right now: reminders due, today's meetings with the contacts in them, meetings that just ended and await a debrief, people whose keep-in-touch cadence is due (most overdue first), campaign people still awaiting a reply after a week, how many drafts are waiting to be sent, open job changes worth a message, birthdays this week, and the day's \"worth reconnecting\" picks. Lists are capped; each carries its true total.",
   scope: "read",
   input: z.strictObject({}),
   run: (_args, ctx) => {
@@ -979,6 +981,21 @@ const getTodayTool = defineTool({
           inDays: b.daysUntil,
           turns: b.turns,
         })),
+        awaitingReply: {
+          note: "People in a campaign the owner wrote to and has not heard back from, long enough that a follow-up is due.",
+          total: today.awaitingReply.length,
+          items: today.awaitingReply.slice(0, 30).map((a) => ({
+            contactId: a.contactId,
+            name: a.name,
+            company: clip(a.company, 100),
+            campaignId: a.campaignId,
+            campaign: clip(a.campaignName, 80),
+            daysWaiting: a.daysWaiting,
+            lastSentAt: iso(a.lastSentAt),
+            followUpsAlreadySent: Math.max(0, a.sentSinceReply - 1),
+          })),
+        },
+        draftsToSend: today.draftsToSend,
         worthReconnecting: today.resurface.map((p) => ({
           contactId: p.contactId,
           name: p.displayName,
@@ -1015,6 +1032,128 @@ const getVoiceGuideTool = defineTool({
         ...(voice.guide || sent.length || voice.examples
           ? {}
           : { note: "No voice guide and no sent messages yet — write in a plain, neutral register and say so." }),
+      },
+    };
+  },
+});
+
+// ---------- outreach (SPEC §16) ----------
+
+const listCampaignsTool = defineTool({
+  name: "list_campaigns",
+  title: "Campaigns",
+  description:
+    "The owner's outreach campaigns: each a goal, a brief, and a group of people, with how many of them stand at each stage. Stages are worked out from what was actually sent and answered: not_contacted, drafted (a draft is waiting to be sent), awaiting_reply, your_move (they wrote last), call_booked, met, dormant (no reply for a month), bad_address, not_pursuing. Archived campaigns are left out unless asked for.",
+  scope: "read",
+  input: z.strictObject({ includeArchived: z.boolean().optional() }),
+  run: (args, ctx) => {
+    const campaigns = listCampaigns(ctx.now)
+      .filter((c) => args.includeArchived || c.archivedAt === null)
+      .map((c) => ({
+        campaignId: c.groupId,
+        name: clip(c.name, 80),
+        goal: clip(c.goal, 200),
+        startedAt: iso(c.startedAt),
+        archived: c.archivedAt !== null,
+        people: c.members,
+        byStage: Object.fromEntries(Object.entries(c.byStage).filter(([, n]) => n > 0)),
+      }));
+    return {
+      summary: `Listed campaigns (${campaigns.length})`,
+      shrink: "campaigns",
+      data: { total: campaigns.length, draftsToSend: countOpenDrafts(), campaigns },
+    };
+  },
+});
+
+const getPipelineTool = defineTool({
+  name: "get_pipeline",
+  title: "Where a campaign stands",
+  description:
+    "One campaign in full: its goal and brief, and every person in it with where they stand and why — the stage, days waiting since the owner's last message, how many messages the owner has sent since they last wrote, whether a follow-up is due, when they were last in touch before the campaign began, whether Rolo has an email address for them, and any draft waiting to be sent. `stage` keeps only people at those stages. This is the place to decide who to write to next: never someone at your_move without reading what they wrote, never someone awaiting_reply before a follow-up is due, never not_pursuing.",
+  scope: "read",
+  input: z.strictObject({
+    campaignId: z.number().int().positive(),
+    stage: z.array(z.enum(STAGES)).min(1).max(STAGES.length).optional(),
+    limit: z.number().int().min(1).max(200).optional().describe("Default 100."),
+    offset: z.number().int().min(0).max(100_000).optional(),
+  }),
+  run: (args, ctx) => {
+    const pipeline = campaignPipeline(args.campaignId, ctx.now);
+    if (!pipeline) throw new ToolRefusal(`There is no campaign with id ${args.campaignId}. See list_campaigns.`);
+    const wanted = args.stage ? new Set<string>(args.stage) : null;
+    const members = pipeline.members.filter((m) => !wanted || wanted.has(m.stage));
+    const offset = args.offset ?? 0;
+    const page = members.slice(offset, offset + (args.limit ?? 100));
+    const byStage: Record<string, number> = {};
+    for (const m of pipeline.members) byStage[m.stage] = (byStage[m.stage] ?? 0) + 1;
+    return {
+      summary: `Read the campaign "${clip(pipeline.campaign.name, 60)}" (${page.length} of ${members.length} people)`,
+      shrink: "people",
+      data: {
+        note: DATA_NOTE,
+        campaignId: pipeline.campaign.groupId,
+        name: pipeline.campaign.name,
+        goal: pipeline.campaign.goal,
+        brief: clipBody(pipeline.campaign.briefMd, 6000),
+        startedAt: iso(pipeline.campaign.startedAt),
+        byStage,
+        total: members.length,
+        offset,
+        people: page.map((m) => ({
+          contactId: m.contactId,
+          name: m.name,
+          title: clip(m.title, 120),
+          company: clip(m.company, 100),
+          hasEmail: m.email !== null,
+          stage: m.stage,
+          ...(m.daysWaiting !== null ? { daysWaiting: m.daysWaiting } : {}),
+          ...(m.nudgeDue ? { followUpDue: true } : {}),
+          ...(m.sentSinceReply > 0 ? { sentSinceTheyLastWrote: m.sentSinceReply } : {}),
+          ...(m.lastSentAt !== null ? { lastSentAt: iso(m.lastSentAt) } : {}),
+          ...(m.lastReceivedAt !== null ? { lastReceivedAt: iso(m.lastReceivedAt) } : {}),
+          ...(m.callAt !== null ? { callAt: iso(m.callAt) } : {}),
+          ...(m.lastContactBefore !== null ? { lastContactBeforeCampaign: iso(m.lastContactBefore) } : {}),
+          ...(m.openDraftId !== null ? { openDraftId: m.openDraftId } : {}),
+        })),
+      },
+    };
+  },
+});
+
+const listDraftsTool = defineTool({
+  name: "list_drafts",
+  title: "Drafts to send",
+  description:
+    "The emails written for the owner that they have not sent yet (`status: \"open\"`, the default), or ones already `sent` or `discarded`. Each has who it is to, the subject and the full text. Read the open ones before drafting, so nobody is drafted twice.",
+  scope: "read",
+  input: z.strictObject({
+    status: z.enum(["open", "sent", "discarded"]).optional(),
+    campaignId: z.number().int().positive().optional(),
+    limit: z.number().int().min(1).max(100).optional().describe("Default 50."),
+  }),
+  run: (args) => {
+    const drafts = listDrafts({ status: args.status ?? "open", groupId: args.campaignId ?? null, limit: args.limit ?? 50 });
+    return {
+      summary: `Listed ${args.status ?? "open"} drafts (${drafts.length})`,
+      shrink: "drafts",
+      data: {
+        note: DATA_NOTE,
+        status: args.status ?? "open",
+        total: drafts.length,
+        drafts: drafts.map((d) => ({
+          draftId: d.id,
+          contactId: d.contactId,
+          name: d.contactName,
+          campaignId: d.groupId,
+          campaign: clip(d.campaignName, 80),
+          kind: d.kind,
+          to: d.toEmail,
+          subject: d.subject,
+          body: clipBody(d.body, 3000),
+          writtenAt: iso(d.createdAt),
+          ...(d.sentAt !== null ? { sentAt: iso(d.sentAt) } : {}),
+        })),
       },
     };
   },
@@ -1129,6 +1268,9 @@ const READ_TOOLS: AgentTool[] = [
   getVoiceGuideTool,
   listWhatsAppChatsTool,
   getWhatsAppChatTool,
+  listCampaignsTool,
+  getPipelineTool,
+  listDraftsTool,
 ];
 
 export const AGENT_TOOLS: AgentTool[] = [...READ_TOOLS, ...WRITE_TOOLS];

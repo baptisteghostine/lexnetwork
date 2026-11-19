@@ -1,3 +1,4 @@
+import { awaitingReply, countOpenDrafts, type AwaitingReply } from "@/server/outreach-core";
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 
 import { db } from "@/db/client";
@@ -102,6 +103,10 @@ export type TodayData = {
   agenda: AgendaItem[];
   /** "Worth reconnecting" (SPEC §3): today's picks from the un-cadenced tail. */
   resurface: ResurfacePick[];
+  /** Outreach (SPEC §16): campaign people a follow-up is now due for. */
+  awaitingReply: AwaitingReply[];
+  /** Outreach: drafts written and not yet sent. */
+  draftsToSend: number;
 };
 
 export { ownerTimezone };
@@ -328,6 +333,8 @@ export function getTodayData(now: number): TodayData {
     followups,
     agenda,
     resurface,
+    awaitingReply: awaitingReply(now),
+    draftsToSend: countOpenDrafts(),
     reminders: reminderRows.map((r) => ({
       id: r.id,
       title: r.title,

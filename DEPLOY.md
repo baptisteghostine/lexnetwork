@@ -313,6 +313,15 @@ network. **If it says "Authorization failed"** after you allowed it,
 check that the address you pasted is the one in Settings, character for
 character, and that nothing in front of Rolo redirects it.
 
+**Outreach (SPEC §16).** After an update that adds tools, Claude may
+still show the old list: open the connector in Claude's settings and
+refresh or reconnect it. The playbook Claude follows is in the repository
+at `.claude/skills/rolo-outreach/` — Claude Code reads it there; for
+claude.ai, zip that folder and upload it as a Skill in Claude's
+settings. Before the first batch, send yourself one draft: Outreach →
+*Open in Outlook* on your school account, and check the recipient,
+subject and text arrive intact (and the BCC, if you set one).
+
 ## Forgot the password
 
 The reset script only needs Node and the data directory — run it from a

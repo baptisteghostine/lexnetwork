@@ -685,10 +685,59 @@ the owner; see that section before revisiting them.
     owner's "message him and see it" check. **Step 3:** a scheduled
     Claude routine that keeps the rolling summaries current.
 
-**Next: Phase 16 — the outreach loop.** Worth doing first: a week of real
-use of write-back. Which exchanges Claude logs, what it leaves out and
-what gets undone is the best input to "Drafts to send" and the campaign
-page.
+- ✅ **Phase 16 — The outreach loop** (2026-11-19, SPEC §16; migration
+  0022: `outreach_drafts`; no new dependency).
+  - **Campaigns:** a group plus a goal, a brief and a start date, kept in
+    one settings value — no campaign table and nothing stored per person
+    (decision 7). `/outreach` lists them with a count per stage;
+    `/outreach/<id>` shows the people by stage.
+  - **Stage, derived** (`lib/outreach/stage.ts`, pure): not contacted,
+    draft ready, awaiting reply (follow-up due after 7 days), your move,
+    call booked, met, no reply (30 days), bad address, not pursuing —
+    read from the timeline, per-message WhatsApp for linked chats, future
+    calendar events, call reminders, two tags and open drafts.
+  - **Drafts to send:** cards with the text editable in place, *Open in
+    Outlook* (web deep link), *Open in mail app* (`mailto:`), *Copy*,
+    *Sent* (logs the outbound email, resets the clock, retires the
+    draft) and two-click *Discard*. A draft is addressed only to an
+    address already on the contact; one open draft per person per
+    campaign; a draft sent without clicking retires when the send is
+    logged another way; the forwarded copy is not logged twice. Optional
+    BCC on every link.
+  - **Today:** "Awaiting reply", with the count of drafts to send.
+  - **Six connector tools** — `list_campaigns`, `get_pipeline`,
+    `list_drafts` (read); `save_campaign`, `save_draft`,
+    `update_voice_guide` (write) — plus `purpose: "call"` on
+    `create_reminder` and outreach in `get_today`. All ledgered, queued
+    in "ask me first", undoable. Fourteen read tools, twelve write.
+  - **The playbook:** `.claude/skills/rolo-outreach/SKILL.md`.
+  - **Changed from the plan:** "Outbox" is called "Drafts to send"
+    (decision 6); a campaign has a start date, because the first database
+    test showed that mail sent before the campaign was created would
+    otherwise never count — it defaults to creation day and can be moved
+    back in the editor or with `startedOn`.
+  - **Found by the tests while building:** an address containing `&`
+    could add a parameter to the compose link (addresses are now matched
+    strictly); a campaign's brief survived its group being deleted and
+    would have attached itself to the next group given that id (an entry
+    is now tied to its group's creation time); a long email's last line
+    was clipped in the card.
+  - **Verified:** `npm run check` clean with 1,019 unit tests (955
+    before); Playwright 38 of 38 (3 new); `next build` succeeds, and the
+    pages were run on the standalone production build and looked at,
+    desktop and phone width.
+  - **Not verifiable here:** whether the school's Outlook accepts the
+    compose link and keeps the BCC (the owner's 15-minute check), and the
+    live run from claude.ai. The playbook is instructions for Claude, not
+    code; what Rolo enforces is tested, how well Claude follows the
+    playbook is only seen in use.
+  - **Known stubs:** none.
+
+**Next: a week of real use, then Phase 17 — Autopilot.** Phase 17 needs
+Rolo's write tools on "always allow", so it should follow supervised use
+of drafts and campaigns: what Claude picks, what the owner rewrites and
+what gets undone is the input. The iPhone-backup WhatsApp probe can run
+alongside whenever the backup exists.
 
 ---
 

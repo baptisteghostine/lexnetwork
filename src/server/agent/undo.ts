@@ -32,6 +32,7 @@ import { restoreCadence } from "@/server/cadence-core";
 import { applyScalarWrite, syncDisplayName, upsertProvenance } from "@/server/import-engine";
 import { setGroupMembership, setTagMembership } from "@/server/membership-core";
 import { mentionedContactIds } from "@/server/note-sync";
+import { undoCampaignSave, undoDraftSave, undoVoiceGuide } from "@/server/outreach-core";
 import { undoWhatsAppSummary } from "@/server/whatsapp-core";
 
 // Taking back what an agent wrote (SPEC §14, Phase 15).
@@ -327,6 +328,24 @@ function reverse(
         pruneOrphanAnnotations("change_triage");
       }
       syncDisplayName(write.id);
+      return;
+    }
+    case "outreach_drafts": {
+      const res = undoDraftSave(write);
+      if (res.ok) out.reversed.push(res.what);
+      else out.skipped.push(res.error);
+      return;
+    }
+    case "campaigns": {
+      const res = undoCampaignSave(write.groupId, write.marker, write);
+      if (res.ok) out.reversed.push(res.what);
+      else out.skipped.push(res.error);
+      return;
+    }
+    case "settings": {
+      const res = undoVoiceGuide(write.marker, now);
+      if (res.ok) out.reversed.push("put the previous voice guide back");
+      else out.skipped.push(res.error);
       return;
     }
     case "whatsapp_links": {

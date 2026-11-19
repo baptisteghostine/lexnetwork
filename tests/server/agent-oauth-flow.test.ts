@@ -946,6 +946,9 @@ describe("the protocol, through the gate", () => {
       "get_voice_guide",
       "list_whatsapp_chats",
       "get_whatsapp_chat",
+      "list_campaigns",
+      "get_pipeline",
+      "list_drafts",
     ]);
     for (const tool of tools) {
       expect(tool.annotations, tool.name).toMatchObject({ readOnlyHint: true, destructiveHint: false });
@@ -965,11 +968,12 @@ describe("the protocol, through the gate", () => {
 
     const list = await mcp(tokens.access_token, { jsonrpc: "2.0", id: 3, method: "tools/list" }, LEGACY);
     const tools = (list.message!.result as { tools: { name: string; annotations: Record<string, unknown>; inputSchema: Record<string, unknown> }[] }).tools;
-    expect(tools).toHaveLength(20);
+    expect(tools).toHaveLength(26);
     const writers = tools.filter((t) => t.annotations.readOnlyHint === false);
     expect(writers.map((t) => t.name)).toEqual([
       "log_interaction", "add_note", "create_reminder", "complete_reminder", "upsert_contact",
-      "tag_contacts", "set_cadence", "save_whatsapp_summary", "undo_agent_action",
+      "tag_contacts", "set_cadence", "save_whatsapp_summary", "save_campaign", "save_draft",
+      "update_voice_guide", "undo_agent_action",
     ]);
     expect(writers.filter((t) => t.annotations.destructiveHint).map((t) => t.name)).toEqual(["undo_agent_action"]);
     for (const tool of tools) {
@@ -1020,7 +1024,7 @@ describe("the protocol, through the gate", () => {
     // A read-only grant on the same server cannot see or use any of it.
     const reader = await connect();
     const list = await mcp(reader.tokens.access_token, { jsonrpc: "2.0", id: 50, method: "tools/list" }, LEGACY);
-    expect((list.message!.result as { tools: unknown[] }).tools).toHaveLength(11);
+    expect((list.message!.result as { tools: unknown[] }).tools).toHaveLength(14);
     const res = await mcp(
       reader.tokens.access_token,
       { jsonrpc: "2.0", id: 51, method: "tools/call", params: { name: "add_note", arguments: { contactId, text: "no" } } },
@@ -1100,7 +1104,7 @@ describe("the protocol, through the gate", () => {
     );
     expect(list.status, list.text).toBe(200);
     expect(list.headers.get("content-type")).toContain("application/json");
-    expect((list.message!.result as { tools: unknown[] }).tools).toHaveLength(11);
+    expect((list.message!.result as { tools: unknown[] }).tools).toHaveLength(14);
     const call = await mcp(
       tokens.access_token,
       { jsonrpc: "2.0", id: 8, method: "tools/call", params: { name: "get_today", arguments: {}, _meta: envelope } },
