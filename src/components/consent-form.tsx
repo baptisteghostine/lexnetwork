@@ -15,11 +15,14 @@ import { authorizeAction, type ConsentState } from "@/server/agent/consent";
 export function ConsentForm({
   params,
   denyHref,
+  offerWrite,
 }: {
   /** The authorization request exactly as it arrived. */
   params: Record<string, string>;
   /** Where "Deny" goes: the client's own redirect, with access_denied. */
   denyHref: string;
+  /** The app asked to change things too; the owner chooses whether it may. */
+  offerWrite: boolean;
 }) {
   const [state, formAction, pending] = useActionState<ConsentState, FormData>(authorizeAction, {});
   return (
@@ -28,6 +31,23 @@ export function ConsentForm({
         <input key={name} type="hidden" name={name} value={value} />
       ))}
       <input type="hidden" name="decision" value="allow" />
+      {offerWrite ? (
+        <label className="flex items-start gap-2 rounded-md border border-border p-3 text-xs">
+          <input
+            type="checkbox"
+            name="allow_write"
+            defaultChecked
+            className="mt-0.5 size-3.5 accent-primary"
+          />
+          <span>
+            <span className="font-medium">Also let it add to Rolo</span>
+            <span className="mt-0.5 block text-muted-foreground">
+              Log exchanges, write notes, set reminders, add people and tag them. Every change is
+              listed in Rolo and can be undone. Untick to connect read-only.
+            </span>
+          </span>
+        </label>
+      ) : null}
       <div className="space-y-1.5">
         <Label htmlFor="password">Your Rolo password</Label>
         <Input

@@ -247,13 +247,22 @@ Covers **both** API syncs and file imports (one lifecycle: started → stats →
 
 ## agent_calls  *(added 2026-11-19, migration 0020 — SPEC §14)*
 
-`id, grant_id FK → agent_grants ON DELETE SET NULL, tool TEXT NOT NULL, args_json TEXT NOT NULL, status TEXT NOT NULL ('success','error','refused'), error TEXT, summary TEXT, contact_id FK → contacts ON DELETE SET NULL, writes_json TEXT, idempotency_key TEXT, duration_ms INTEGER, created_at INTEGER NOT NULL, undone_at INTEGER`.
+`id, grant_id FK → agent_grants ON DELETE SET NULL, tool TEXT NOT NULL, args_json TEXT NOT NULL, status TEXT NOT NULL ('success','error','refused','queued','rejected'), error TEXT, summary TEXT, contact_id FK → contacts ON DELETE SET NULL, writes_json TEXT, idempotency_key TEXT, duration_ms INTEGER, created_at INTEGER NOT NULL, undone_at INTEGER`.
 - One row per tool call the connector serves, reads included — the agent's equivalent of `ai_calls`, and the source of the activity page and of undo. `args_json` is the validated arguments as called; `summary` is the one line the activity page shows; `contact_id` is the person the call was about when it was about one (a call touching several lists them in `writes_json`).
-- `writes_json` is NULL for a read. For a write it is `[{table, id, op, before?}]`: the rows the call created or changed and what reversing them needs. `undone_at` marks a reversed call; the row itself is never deleted, so the log stays honest about what happened.
+- `status` (plain TEXT, so the two Phase 15 values needed no migration): `success`; `refused` (bad arguments, a rule said no, or an approved proposal that no longer made sense); `error` (it broke inside Rolo — the message is here for the owner, never returned to the caller); `queued` (review mode: a valid write waiting for the owner, nothing run yet); `rejected` (the owner turned a proposal down).
+- `writes_json` is NULL for a read, a refusal and a proposal. For a write that ran it is the list of what it changed, ids only, in the order written — `[]` when the call found nothing to do (a duplicate, an already-complete reminder). Shapes (`WriteRecord`, `src/server/agent/ledger.ts`):
+  - `{table:"interactions", op:"insert", id, contactId}`
+  - `{table:"notes", op:"insert", id, contactId, stamp}` and `{table:"reminders", op:"insert", id, stamp}` — `stamp` is the row's `updated_at` as written; undo leaves the row alone if it has moved.
+  - `{table:"reminders", op:"complete", id, nextOccurrenceId}`
+  - `{table:"contacts", op:"insert", id}`
+  - `{table:"contacts", op:"update", id, fields:[{field, before, beforeSource, after}], emailIds, socialIds, changeIds}` — each field's previous value and who had set it, and the ids of the email, link and `contact_changes` rows the call added.
+  - `{table:"tags", op:"insert", id}`, `{table:"contact_tags", op:"add"|"remove", tagId, contactIds}`, `{table:"group_members", op:"add"|"remove", groupId, contactIds}` — only the contacts whose membership actually flipped.
+- `undone_at` marks a reversed call; the row itself is never deleted, so the log stays honest about what happened. An `undo_agent_action` call is its own row (`writes_json = '[]'`).
+- `idempotency_key` holds the caller's key plus the contact the call was about — `<key>#contact:<id>`, or the bare key when it was about no single contact — so one message concerning two people is one write each. It is set only on a write that changed something, on a proposal, and kept on a rejection (a rejected proposal stays rejected); a refused or no-op call leaves it NULL so the corrected retry can use the key.
 - `uq_agent_calls_idempotency ON (tool, idempotency_key) WHERE idempotency_key IS NOT NULL AND status = 'success'` — a repeated call is answered from the first instead of writing twice; a failed attempt does not burn its key.
 - `idx_agent_calls_time ON (created_at)`, `idx_agent_calls_contact ON (contact_id, created_at)` (a contact's "added by Claude" rows), `idx_agent_calls_writes ON (created_at) WHERE writes_json IS NOT NULL` (the activity page, which lists writes).
-- Both FKs are SET NULL: the log outlives a revoked-and-deleted grant and a deleted contact. Read rows (`writes_json IS NULL`) are pruned after 90 days, at most once a day, on the back of a call being recorded; write rows are the audit trail and stay.
-- Written by the tool dispatcher (`callAgentTool`, Phase 14) for every call that reaches a tool; `args_json` is stubbed past 4,000 characters and never holds a token.
+- Both FKs are SET NULL: the log outlives a revoked-and-deleted grant and a deleted contact. Rows that changed nothing (`writes_json` NULL, or `'[]'` on anything but an undo) are pruned after 90 days, at most once a day, on the back of a call being recorded — except proposals still `queued`. Rows that wrote something, and undos, are the audit trail and stay.
+- Written only by the tool dispatcher (`callAgentTool`) and the owner's Approve / Reject / Undo; a write tool's row is inserted in the same transaction as the write. `args_json` is stubbed past 4,000 characters and never holds a token.
 
 ## ai_suggestions  *(added table — approval queue)*
 
@@ -264,6 +273,7 @@ Covers **both** API syncs and file imports (one lifecycle: started → stats →
 
 `key TEXT PRIMARY KEY, value TEXT NOT NULL (JSON)`. Timezone, digest hour, SMTP config, snooze-all params, password hash, failed-login throttle state (`auth.login_throttle`), birthday-Feb-29 rule, my-addresses default, geocoder config. A settings table beats env vars for anything the UI should edit.
 
+- `agent.write_mode` → `'apply'` (default, also when absent) or `'review'`: whether the connector's writes apply at once or wait on the activity page for the owner's approval (SPEC §14, Phase 15).
 - `linkedin_voyager.session` / `linkedin_voyager.enabled` → **retired 2026-09-19** with SPEC §9b; no code reads them any more (a Disconnect before the retirement cleared the session). Historical note: the owner's pasted LinkedIn cookie pair (SPEC §9b), boxed with `lib/crypto` `encryptToken` (same at-rest encryption as OAuth tokens — a live LinkedIn login must not sit plaintext in backups; rotating the session secret invalidates it, surfaced as "reconnect"). `linkedin_voyager.enabled` → boolean, the weekly-sync opt-in toggle.
 
 ---

@@ -5,11 +5,11 @@ import { ConsentForm } from "@/components/consent-form";
 import { getPasswordHash } from "@/lib/auth/password-gate";
 import { getSessionSecret } from "@/lib/auth/secret";
 import {
+  asksForWrite,
   isLoopbackRedirect,
   redirectHost,
   redirectWith,
   resourceForOrigin,
-  scopeList,
   validateAuthorizeRequest,
   type AuthorizeParams,
 } from "@/lib/agent/oauth";
@@ -32,10 +32,6 @@ const PARAMS = [
   "scope",
   "resource",
 ] as const;
-
-const SCOPE_WORDS: Record<string, string> = {
-  read: "Search and read your contacts, notes, timelines, reminders and Today.",
-};
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
@@ -100,7 +96,8 @@ export default async function AuthorizePage({
     );
   }
 
-  const { client, redirectUri, state, scope } = checked.request;
+  const { client, redirectUri, state } = checked.request;
+  const offerWrite = asksForWrite(checked.request.scope);
   const loopback = isLoopbackRedirect(redirectUri);
   const denyHref = redirectWith(redirectUri, {
     error: "access_denied",
@@ -124,16 +121,24 @@ export default async function AuthorizePage({
         <div>
           <p className="font-medium">It will be able to</p>
           <ul className="mt-1 list-disc space-y-0.5 pl-4 text-muted-foreground">
-            {scopeList(scope).map((s) => (
-              <li key={s}>{SCOPE_WORDS[s] ?? s}</li>
-            ))}
+            <li>Search and read your contacts, notes, timelines, reminders and Today.</li>
+            {offerWrite ? (
+              <li>
+                If you leave the box below ticked: log exchanges, write notes, set reminders, add
+                people and tag them — each change listed in Rolo and undoable.
+              </li>
+            ) : null}
           </ul>
         </div>
         <div>
-          <p className="font-medium">It will not be able to</p>
+          <p className="font-medium">It will never be able to</p>
           <ul className="mt-1 list-disc space-y-0.5 pl-4 text-muted-foreground">
-            <li>Change, add or delete anything.</li>
-            <li>See your password, settings or connected accounts.</li>
+            <li>
+              {offerWrite
+                ? "Delete, merge or archive anything, or overwrite what you typed."
+                : "Change, add or delete anything."}
+            </li>
+            <li>Send a message, or see your password, settings or connected accounts.</li>
           </ul>
         </div>
         <p className="border-t border-border pt-2 text-muted-foreground">
@@ -156,7 +161,7 @@ export default async function AuthorizePage({
         brought you here unexpectedly, close this page.
       </p>
 
-      <ConsentForm params={raw} denyHref={denyHref} />
+      <ConsentForm params={raw} denyHref={denyHref} offerWrite={offerWrite} />
 
       <p className="text-[11px] text-muted-foreground">
         You can disconnect it at any time in Settings → Claude connector.

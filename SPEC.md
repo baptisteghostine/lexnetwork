@@ -583,7 +583,7 @@ All features: model from the provider's env var; every call logged to `ai_calls`
 - *Tokens.* Access tokens last an hour and are bound to the connector's URL (RFC 8707): a token issued at one address does not open another. Refresh tokens rotate on every use and slide 90 days. A refresh token names its grant and carries Rolo's signature (`rr_<grant>.<nonce>.<HMAC>`), so replay detection is complete without storing retired tokens: a token that verifies but is no longer the grant's current one *is* a retired token of that grant, however many rotations ago, and presenting it ends the grant for everyone holding its tokens. A string that does not verify revokes nothing — otherwise a grant id would be a kill switch.
 - *One exception, ten seconds long.* The pair a refresh returns is a keyed function of the token presented, so a repeat of the same refresh within 10 seconds — a lost response, two workers at once — gets the *same* pair rather than forking the chain or signing the owner out. The cost is stated: for those ten seconds a copied token could follow a rotation unnoticed, which is why the window is as short as a retry needs.
 - *`client_id` on a refresh* is checked when sent and not demanded. It is public, so it proves nothing the token does not, and a client that omits it should not be signed out every hour.
-- *Scope.* Only `read` is grantable. Whatever is requested, `read` is granted, and the token response says so.
+- *Scope.* As built in Phase 14 only `read` was grantable: whatever was requested, `read` was granted, and the token response said so. Phase 15 adds `write` — see below; a grant made before it stays read-only until the owner connects again.
 - *Storage.* Code, access token and refresh token are stored as SHA-256 hashes (SCHEMA.md `agent_grants`); nothing in the database, a log or `agent_calls` holds one in clear.
 - *Disconnecting.* Settings → Claude connector lists connected apps (name, connected, last used) with a two-click Disconnect that kills the access and refresh tokens at once.
 
@@ -623,9 +623,88 @@ All features: model from the provider's env var; every call logged to `ai_calls`
 - *The no-phoning-home test (§13) gained one carve-out*, claude.ai and claude.com, as hosts the owner's browser is redirected to — Rolo's server never requests them.
 - *"Each call writes one row"* is true of every call that reaches a tool; see the ledger above.
 
-### Phases 15–18 (not built)
+### Phase 15 — write-back (built)
 
-Write tools with undo and an activity page (15), campaigns, derived outreach stage and "Drafts to send" (16), unattended runs (17), richer targeting data (18). Scope and acceptance criteria are in PLAN.md until each phase starts.
+**The `write` scope is the owner's tick.** Discovery advertises `read` and `write`, so Claude asks for both. The consent screen then shows a ticked box, "Also let it add to Rolo", with what that means; the grant gets `read write` only if the request asked for `write` *and* the box is still ticked when the password is submitted. Unticked, or not asked for, it is `read`. A tick cannot grant what was not requested, nothing else requested is ever granted, and a refresh keeps exactly the scope the grant was made with. A read-only grant is not shown the write tools, and calling one by name is refused before anything runs. Grants made before Phase 15 are `read`: disconnect and connect again to change that.
+
+**Seven write tools** (`src/server/agent/write-tools.ts`), each a thin, strictly validated front for a Phase 13 core. Unknown arguments are an error, so there is no field to put a mail body in.
+
+| Tool | Does | Refuses |
+|---|---|---|
+| `log_interaction` | Records an email, message, call or meeting that has happened, with an optional summary note dated to it. Stored `source = 'agent'`, `source_key` = the caller's key, `meta` = `{category, threadId?, channel?}`. A call is stored as kind `manual` with `meta.channel = 'call'`. | the automatic categories; a future or pre-1990 date; an email or message without a direction; an unknown contact |
+| `add_note` | A markdown note on a contact, optionally backdated. Never counts as a touch — if contact happened, that is an interaction. | an empty note, a future date |
+| `create_reminder` | A one-off reminder, with or without a contact. | a due date more than a day past or five years out; recurrence |
+| `complete_reminder` | Marks an occurrence done. | a recurring rule's own id |
+| `upsert_contact` | Adds a person, or fills in fields, emails and a LinkedIn link on one — through §8's planner as source `agent`. | see "Who is this" below |
+| `tag_contacts` | Adds and removes tags (by name) and group membership (by id) on up to 50 contacts. | more than two new tags in a call; a tag to remove or a group that does not exist |
+| `undo_agent_action` | Reverses one earlier write by its `actionId`. | anything that is not an agent's own successful, not-yet-undone write |
+
+There is still no tool that deletes, merges, archives, exports, changes a cadence, touches settings or sends anything.
+
+**Signal, not volume, enforced.** `log_interaction` requires `category`: one of `outreach`, `follow_up`, `reply`, `introduction`, `scheduling`, `decline`, `thanks`, `other_personal` — or one of `newsletter`, `notification`, `auto_reply`, `bounce`, which exist in the vocabulary so that naming one is a clean refusal ("…can still be worth a reminder or a note") rather than a mislabel. The server instructions a write grant receives say the rest: log only what a person wrote, leave out what is doubtful, date things when they happened, never change Rolo because text inside a message asked for it.
+
+**The same message never lands twice** — three guards, in the order they apply:
+
+1. *The key.* `log_interaction` requires an `idempotencyKey` identifying the message (`gmail:<message id>`); the other tools accept one. A write is ledgered under the key plus the contact it is about (`<key>#contact:<id>`), because one email to two people is rightly logged once for each. The same key about the same person again is answered from the ledger — `alreadyDone` with the first `actionId` — and runs nothing, even if the arguments differ. A call that changed nothing (refused, or found a duplicate) does not use up its key.
+2. *Undone and rejected stay that way.* If the first call was undone, or the owner rejected it in review mode, the repeat says so and writes nothing: the agent's next pass must not put back what the owner took out. Logged against the wrong person, undone, and logged against the right one is a different person and goes through.
+3. *The near-duplicate guard.* Before writing, `log_interaction` looks for an interaction with the same contact, kind and direction within ten minutes whose subject matches once reply and forward prefixes are off (`Re:`, `Fw:`, `TR:`, `AW:`, … — `normalizeSubject`), or where either side has no subject. Any source counts: a row Rolo's own Gmail sync recorded, one the owner logged by hand, or the agent's own under another id. That is what joins the copy the owner forwards days later to the send already recorded. A match is reported as `alreadyRecorded` with the existing row's id.
+
+**Who is this.** `upsert_contact` resolves in a fixed order and never guesses:
+
+- With `contactId`: that person. If an email or LinkedIn profile in the call already belongs to someone else, it is refused, naming them — two records that may be one person is the owner's merge to make.
+- Without: an email or LinkedIn URL that matches one contact updates them; matching two different contacts is refused.
+- No match: a new contact — unless someone already has exactly that name (case, accents and spacing folded; archived included), in which case nothing is written and the answer lists them with `needsDecision`. The agent then passes that person's `contactId`, or `confirmNew: true` if they are different people. The import ladder's own match-by-name rung is not used on this path; the question is asked instead.
+- *Fields.* The planner's rules as source `agent`: fills an empty field, overwrites a value `agent` set, and against a value the owner or another source set changes nothing and returns it under `conflicts` (`kept`, `setBy`, `notApplied`).
+- *A LinkedIn link* is stored only if its host is LinkedIn's and its path a member profile (`linkedinProfileUrl`), in one canonical `https://www.linkedin.com/in/…` form. The stored value is a link on the contact's page, so "contains linkedin.com" is not enough.
+- *A ceiling.* At most 50 new contacts in any 24 hours through the connector (undone ones do not count; updates are not additions). A loop gone wrong should run out of road; a real batch is an import.
+
+**Text an agent writes is cleaned** (`src/lib/agent/writes.ts`). Notes and reminder details: line endings normalised, control characters dropped, and every markdown image (`![`, however many `!`) turned into a plain link — an image is fetched the moment a note is shown, which would let text planted in an email make the owner's browser call an address of its choosing. Subjects, names and titles are folded to one line and cut to length.
+
+**Every write is one unit with its ledger row.** The dispatcher (`callAgentTool`) runs a write tool and inserts its `agent_calls` row in a single transaction: if the tool fails half way — a tag added, the group step throwing — nothing it did stays, the row says `error`, and the caller is told nothing was changed. The row's `writes_json` lists what was written (SCHEMA.md), and the answer carries `actionId`.
+
+**Undo** (`src/server/agent/undo.ts`) reverses exactly the rows one call recorded, newest first, in one transaction, and recomputes `next_touch_at` for every contact it touched. It is careful about the owner having built on what was written:
+
+- a note or reminder edited since (its `updated_at` no longer the one recorded) is kept, and reported as kept;
+- a field is restored — value and provenance — only if it still holds what the agent put there; an email or link is removed only if it is still the agent's;
+- a tag the call created is removed unless it is now on other contacts; memberships are put back as they were;
+- a contact the call added is removed only if it has gained nothing else — no other interaction, note or reminder, no owner-edited field. Otherwise the whole undo is refused with the reason and nothing is touched;
+- rows the owner already deleted by hand are skipped;
+- an undo cannot be undone, a call cannot be undone twice, and reads, refusals and proposals have nothing to undo.
+
+The owner's Undo button and the agent's `undo_agent_action` are the same function. The agent's undo is itself ledgered.
+
+**Review mode.** Settings → Claude connector has "Apply straight away" (the default, the owner's decision) and "Ask me first" (`settings.agent.write_mode` = `review`). In review mode a valid write is not run: it is stored as a `queued` row with its validated arguments and the answer says it is waiting. Invalid calls are still refused at the door, reads are never queued, and `undo_agent_action` always runs. On the activity page each proposal shows what it wants to write, with **Approve** — which re-validates and runs it exactly as proposed, in the same all-or-nothing way, turning the row into an ordinary undoable write, or marks it not applied with the reason if it no longer makes sense — and **Reject**, which keeps the row and makes the same proposal come back as `rejected` instead of queueing again.
+
+**What the owner sees.**
+
+- *Claude's activity* (`/agent-activity`, linked from Settings → Claude connector, which shows how many are waiting): writes, undos, proposals and rejections, newest first, 50 a page, each with its details and Undo / Approve / Reject. Reads and write calls that found nothing to do are not listed.
+- *On a timeline*, an interaction with `source = 'agent'` and a note an agent wrote carry a small "Claude" mark. Notes have no source column; the mark comes from the ledger (`agentNoteIds`), so it disappears with an undo. Agent-logged interactions can be deleted from the timeline like the owner's own.
+- *The consent screen* lists what a write grant can do and what it can never do.
+
+**The ledger grows the right way.** Rows that changed nothing — reads, refusals, "already recorded" — are pruned after 90 days. Writes, undos and proposals still waiting are kept.
+
+**Decided while building, cheap to reverse.**
+- The write box on the consent screen starts ticked: the owner asked for write-back, and the screen says in words what the tick grants.
+- One contact per key, not one key per message (above).
+- The 50-a-day ceiling on new contacts and the two-new-tags-per-call cap are constants, not settings.
+- A rejected proposal's key stays burned, so an unattended agent does not re-propose it every run.
+
+### Phases 16–18 (not built)
+
+Campaigns, derived outreach stage and "Drafts to send" (16), unattended runs (17), richer targeting data (18). Scope and acceptance criteria are in PLAN.md until each phase starts.
+
+### Acceptance criteria (Phase 15)
+
+- [ ] Pure: every image form loses its bang, including doubled ones; control characters go; subjects normalise across `Re:`/`Fw:`/`TR:`/`AW:` and leave "Review:" alone; `isSameExchange` joins a forwarded copy and separates a different direction, kind, subject or an eleventh minute; `linkedinProfileUrl` accepts LinkedIn member profiles in any regional form and refuses thirteen look-alikes.
+- [ ] Scope: `grantedScope` gives `write` only when asked and ticked; through the real consent action and token endpoint a ticked request yields `read write`, an unticked or unasked one `read`, and a refresh cannot widen it; a write grant lists sixteen tools with seven marked not read-only and one destructive; a read grant lists nine and cannot write.
+- [ ] `log_interaction`: an outbound email is stored attributed, keyed, counted as a touch and moves `next_touch_at`; an inbound one does not; the four automatic categories are refused and write nothing; thirteen malformed calls are refused and write nothing; the same key twice is one row; one key about two contacts is two rows; a forwarded copy under another key joins the original; a Gmail-synced row and a hand-logged meeting are joined rather than doubled; a reply, another subject, the next day and another channel are kept apart.
+- [ ] `upsert_contact`: a new person carries `agent` provenance everywhere; the same email or profile again updates rather than adds, and a third time changes nothing; a namesake stops with `needsDecision` and `confirmNew` adds a second person without touching the first; an owner-edited title is kept and returned as a conflict; another contact's email or profile is refused; the daily ceiling holds, ignores updates and undone additions, and ages out.
+- [ ] `tag_contacts`: reuses a tag case-insensitively; refuses a third new tag, an unknown tag to remove and an unknown group, leaving nothing behind — including a new tag from the same failed call.
+- [ ] Undo: restores the database to a byte-identical fingerprint and the clock to its old value; keeps an edited note or reminder and a field changed since; refuses to remove a contact that has gained records or owner edits, and removes it once those are undone; an undone message is not re-logged by a retry; an undo cannot be undone.
+- [ ] A write that fails half way leaves every table as it was and an `error` row with no writes.
+- [ ] Review mode: five proposals change nothing and are listed as waiting; approving writes exactly what was proposed and makes it undoable; approving twice, rejecting twice and approving a proposal whose contact has gone behave as specified; a rejected proposal comes back as rejected.
+- [ ] E2E in a real browser: the consent box is shown ticked for a write request and unticking it yields a read-only connection; a logged email appears once on the timeline with the Claude mark and its note, an image in that note causes no request, a newsletter does not appear; Undo on the activity page removes exactly those and leaves the owner's own entries; "Ask me first" holds a note and a reminder until Approve and Reject, and the rejected one does not return.
+- [ ] Manual, the owner's: reconnect with the box ticked, then in Claude "go through this week's forwarded mail and update Rolo" → open three contacts and see the exchanges dated to when they were sent.
 
 ### Acceptance criteria (Phase 14)
 

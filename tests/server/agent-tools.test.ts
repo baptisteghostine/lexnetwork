@@ -723,11 +723,11 @@ describe("every call is recorded, and none can be made without the scope", () =>
     for (const row of rows) expect(typeof row.duration_ms).toBe("number");
   });
 
-  it("a grant without the read scope can do nothing", () => {
+  it("a grant without a tool's scope cannot use it", () => {
     for (const tool of tools.AGENT_TOOLS) {
       const res = call(tool.name, {}, []);
       expect(res.isError, tool.name).toBe(true);
-      expect(res.data.error).toMatch(/not allowed/);
+      expect(res.data.error).toMatch(tool.scope === "write" ? /read-only/ : /not allowed/);
       // Nothing of the CRM is in a refusal.
       expect(res.text).not.toContain("Ana");
     }
@@ -748,12 +748,19 @@ describe("every call is recorded, and none can be made without the scope", () =>
     const recent = NOW - ledgerModule.READ_CALL_RETENTION_MS + 1000;
     ins("agent_calls", { tool: "search_contacts", args_json: "{}", status: "success", created_at: old });
     ins("agent_calls", { tool: "search_contacts", args_json: "{}", status: "refused", created_at: old });
+    // A write call that found nothing to do is as forgettable as a read.
     ins("agent_calls", { tool: "log_interaction", args_json: "{}", status: "success", writes_json: "[]", created_at: old });
+    ins("agent_calls", { tool: "log_interaction", args_json: "{}", status: "success", writes_json: '[{"table":"interactions","op":"insert","id":1,"contactId":1}]', created_at: old });
+    ins("agent_calls", { tool: "undo_agent_action", args_json: "{}", status: "success", writes_json: "[]", created_at: old });
+    ins("agent_calls", { tool: "add_note", args_json: "{}", status: "queued", created_at: old });
+    ins("agent_calls", { tool: "add_note", args_json: "{}", status: "rejected", created_at: old });
     ins("agent_calls", { tool: "search_contacts", args_json: "{}", status: "success", created_at: recent });
-    expect(ledgerModule.pruneOldReadCalls(NOW)).toBe(2);
-    expect(ledger().map((r) => [r.tool, r.created_at])).toEqual([
-      ["log_interaction", old],
-      ["search_contacts", recent],
+    expect(ledgerModule.pruneOldReadCalls(NOW)).toBe(4);
+    expect(ledger().map((r) => [r.tool, r.status, r.created_at])).toEqual([
+      ["log_interaction", "success", old],
+      ["undo_agent_action", "success", old],
+      ["add_note", "queued", old],
+      ["search_contacts", "success", recent],
     ]);
     expect(ledgerModule.pruneOldReadCalls(NOW)).toBe(0);
   });
@@ -810,15 +817,30 @@ describe("nothing secret leaves, nothing is changed", () => {
     for (const marker of Object.values(SECRETS)) expect(log.includes(marker)).toBe(false);
   });
 
-  it("the tool list is read-only by construction: no tool that could write exists", () => {
-    expect(tools.AGENT_TOOLS.map((t) => t.name)).toEqual([
+  it("a read-only grant has nine tools, none of which can write; what can never be done has no tool at all", () => {
+    const readable = tools.AGENT_TOOLS.filter((t) => t.scope === "read");
+    expect(readable.map((t) => t.name)).toEqual([
       "rolo_overview", "search_contacts", "list_companies", "get_contacts", "find_contact",
       "get_timeline", "search_notes", "get_today", "get_voice_guide",
     ]);
-    expect(tools.AGENT_TOOLS.every((t) => t.scope === "read")).toBe(true);
-    for (const forbidden of ["delete_contact", "merge_contacts", "export", "update_settings", "archive_contact", "log_interaction", "revoke"]) {
-      expect(call(forbidden, {}).isError).toBe(true);
+    expect(readable.every((t) => !t.mutates && !t.destructive)).toBe(true);
+    expect(tools.AGENT_TOOLS.filter((t) => t.scope === "write").map((t) => t.name)).toEqual([
+      "log_interaction", "add_note", "create_reminder", "complete_reminder", "upsert_contact",
+      "tag_contacts", "undo_agent_action",
+    ]);
+    expect(tools.AGENT_TOOLS.filter((t) => t.scope === "write").every((t) => t.mutates)).toBe(true);
+    for (const forbidden of [
+      "delete_contact", "merge_contacts", "export", "update_settings", "archive_contact",
+      "send_email", "delete_note", "delete_interaction", "revoke", "set_cadence",
+    ]) {
+      expect(call(forbidden, {}, ["read", "write"]).isError, forbidden).toBe(true);
     }
+    // A read-only grant calling a write tool: refused before anything runs.
+    const before = fingerprint();
+    const res = call("add_note", { contactId: id.ana, text: "should not land" });
+    expect(res.isError).toBe(true);
+    expect(res.data.error).toMatch(/read-only/);
+    expect(fingerprint()).toBe(before);
   });
 
   it("running every tool leaves every table but the ledger exactly as it was", () => {

@@ -6,6 +6,7 @@ import {
   cleanClientName,
   clientMayRedirectTo,
   deriveAccessToken,
+  asksForWrite,
   grantedScope,
   HOSTED_CALLBACKS,
   isAllowedRedirectUri,
@@ -350,15 +351,28 @@ describe("a registration always fits in the id that carries it", () => {
 });
 
 describe("scopes", () => {
-  it("grants read, whatever else was asked for", () => {
+  it("grants read whatever was asked for, and write only when asked", () => {
     expect(grantedScope(undefined)).toBe("read");
     expect(grantedScope("")).toBe("read");
     expect(grantedScope("read")).toBe("read");
     expect(grantedScope("read offline_access")).toBe("read");
     expect(grantedScope("offline_access")).toBe("read");
-    // Not grantable in this version: dropped, never honoured.
-    expect(grantedScope("write")).toBe("read");
-    expect(grantedScope("read write admin")).toBe("read");
+    expect(grantedScope("read write")).toBe("read write");
+    // Write never comes without read, and nothing Rolo does not know is honoured.
+    expect(grantedScope("write")).toBe("read write");
+    expect(grantedScope("read write admin delete")).toBe("read write");
+    expect(grantedScope("WRITE")).toBe("read");
+    expect(grantedScope("readwrite")).toBe("read");
+  });
+
+  it("the owner's tick is the last word on write", () => {
+    expect(grantedScope("read write", { allowWrite: false })).toBe("read");
+    expect(grantedScope("read write", { allowWrite: true })).toBe("read write");
+    // A tick cannot grant what was not asked for.
+    expect(grantedScope("read", { allowWrite: true })).toBe("read");
+    expect(asksForWrite("read write")).toBe(true);
+    expect(asksForWrite("read")).toBe(false);
+    expect(asksForWrite(null)).toBe(false);
   });
 });
 
@@ -443,7 +457,7 @@ describe("discovery documents", () => {
     expect(protectedResourceMetadata(ORIGIN)).toEqual({
       resource: RESOURCE,
       authorization_servers: [ORIGIN],
-      scopes_supported: ["read"],
+      scopes_supported: ["read", "write"],
       bearer_methods_supported: ["header"],
       resource_name: "Rolo",
     });

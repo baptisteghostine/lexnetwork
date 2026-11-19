@@ -29,8 +29,11 @@ export const AUTH_CODE_TTL_MS = 5 * 60 * 1000;
  */
 export const REFRESH_GRACE_MS = 10 * 1000;
 
-/** What a grant may carry. Phase 15 adds "write". */
-export const GRANTABLE_SCOPES = ["read"] as const;
+/**
+ * What a grant may carry. `read` is every read tool; `write` (Phase 15)
+ * adds the tools that append to Rolo — never without `read`.
+ */
+export const GRANTABLE_SCOPES = ["read", "write"] as const;
 export type Scope = (typeof GRANTABLE_SCOPES)[number];
 
 /** For "use your own OAuth client" in Claude's dialog — nothing to register. */
@@ -364,15 +367,23 @@ export function validateRegistration(body: unknown): RegistrationResult {
 
 /**
  * The scope a grant gets for what was asked. Anything Rolo does not grant
- * is dropped rather than refused (Claude appends `offline_access`, and a
- * later client may ask for `write` before this version has it); asking
- * for nothing gets the default. The token response always says what was
- * actually granted.
+ * is dropped rather than refused (Claude appends `offline_access`); asking
+ * for nothing gets `read`. `write` is granted only when it was asked for
+ * *and* the owner left it ticked on the consent screen, and it always comes
+ * with `read`. The token response says what was actually granted.
  */
-export function grantedScope(requested: string | null | undefined): string {
+export function grantedScope(
+  requested: string | null | undefined,
+  opts: { allowWrite?: boolean } = {}
+): string {
   const asked = (requested ?? "").split(/\s+/).filter(Boolean);
-  const granted = GRANTABLE_SCOPES.filter((s) => asked.includes(s));
-  return (granted.length > 0 ? granted : ["read"]).join(" ");
+  const write = asked.includes("write") && (opts.allowWrite ?? true);
+  return write ? "read write" : "read";
+}
+
+/** Did the request ask for write at all? (Decides whether the screen offers it.) */
+export function asksForWrite(requested: string | null | undefined): boolean {
+  return (requested ?? "").split(/\s+/).includes("write");
 }
 
 export function scopeList(scope: string): string[] {

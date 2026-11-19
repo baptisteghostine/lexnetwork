@@ -8,6 +8,7 @@ import { requireAuth } from "@/lib/auth";
 import { attemptPassword } from "@/lib/auth/password-gate";
 import { getSessionSecret } from "@/lib/auth/secret";
 import {
+  grantedScope,
   redirectWith,
   resourceForOrigin,
   validateAuthorizeRequest,
@@ -83,10 +84,14 @@ export async function authorizeAction(
   const attempt = attemptPassword(String(formData.get("password") ?? ""));
   if (!attempt.ok) return { error: attempt.error };
 
+  // What was asked for is the ceiling; the owner's tick decides whether
+  // the grant can change anything. No tick, read-only.
+  const scope = grantedScope(request.scope, { allowWrite: formData.get("allow_write") === "on" });
+
   const code = createPendingGrant({
     clientId: request.client.clientId,
     clientName: request.client.name,
-    scope: request.scope,
+    scope,
     resource: request.resource,
     redirectUri: request.redirectUri,
     codeChallenge: request.codeChallenge,

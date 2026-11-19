@@ -363,39 +363,39 @@ function applyPlan(
     }
   }
 
-  // Keep display_name in sync with final name/email state.
-  const final = db
-    .select()
-    .from(contacts)
-    .where(eq(contacts.id, contactId))
-    .get();
-  if (final) {
-    const primaryEmail = db
-      .select({ email: contactEmails.email })
-      .from(contactEmails)
-      .where(eq(contactEmails.contactId, contactId))
-      .orderBy(contactEmails.priority)
-      .get();
-    const primaryPhone = db
-      .select({ phoneRaw: contactPhones.phoneRaw })
-      .from(contactPhones)
-      .where(eq(contactPhones.contactId, contactId))
-      .orderBy(contactPhones.priority)
-      .get();
-    const displayName = deriveDisplayName({
-      firstName: final.firstName,
-      lastName: final.lastName,
-      primaryEmail: primaryEmail?.email ?? null,
-      primaryPhone: primaryPhone?.phoneRaw ?? null,
-    });
-    if (displayName !== final.displayName) {
-      db.update(contacts)
-        .set({ displayName })
-        .where(eq(contacts.id, contactId))
-        .run();
-    }
-  }
+  syncDisplayName(contactId);
   return contactId;
+}
+
+/**
+ * Keep `display_name` in step with the name, then the primary email, then
+ * the primary phone — after any write that could have changed one of them
+ * (an import row, or the undo of one).
+ */
+export function syncDisplayName(contactId: number): void {
+  const final = db.select().from(contacts).where(eq(contacts.id, contactId)).get();
+  if (!final) return;
+  const primaryEmail = db
+    .select({ email: contactEmails.email })
+    .from(contactEmails)
+    .where(eq(contactEmails.contactId, contactId))
+    .orderBy(contactEmails.priority)
+    .get();
+  const primaryPhone = db
+    .select({ phoneRaw: contactPhones.phoneRaw })
+    .from(contactPhones)
+    .where(eq(contactPhones.contactId, contactId))
+    .orderBy(contactPhones.priority)
+    .get();
+  const displayName = deriveDisplayName({
+    firstName: final.firstName,
+    lastName: final.lastName,
+    primaryEmail: primaryEmail?.email ?? null,
+    primaryPhone: primaryPhone?.phoneRaw ?? null,
+  });
+  if (displayName !== final.displayName) {
+    db.update(contacts).set({ displayName }).where(eq(contacts.id, contactId)).run();
+  }
 }
 
 // ---------- one row, any source ----------
@@ -421,18 +421,43 @@ export type ApplyImportRowResult =
  */
 export function applyImportRow(
   row: ImportRow,
-  opts: { source: string; runId?: number | null; dryRun?: boolean }
+  opts: {
+    source: string;
+    runId?: number | null;
+    dryRun?: boolean;
+    /**
+     * Write to this contact instead of resolving one — the caller has
+     * already decided who the row is about (the connector's "add this
+     * email to contact 12"). The ladder is skipped, and so is the
+     * needs-an-identity check: the contact is the identity.
+     */
+    contactId?: number;
+    /**
+     * Create a contact without consulting the ladder — the caller has
+     * already established that nobody matches (the connector, after its
+     * own email/profile check and a namesake the agent ruled out).
+     */
+    createNew?: boolean;
+  }
 ): ApplyImportRowResult {
   if (!opts.source) return { ok: false, error: "source is required." };
-  if (!isImportableRow(row)) {
-    return { ok: false, error: "A person needs at least a name, an email or a phone." };
-  }
   const region = phoneRegion();
   const e164 = (raw: string) => toE164(raw, region);
-  const match = matchContact(row, e164);
-  const snapshot = match ? loadSnapshot(match.contactId) : null;
+  let snapshot: StoredSnapshot | null;
+  let matchedBy: ContactMatch["matchedBy"] | null = null;
+  if (opts.contactId !== undefined) {
+    snapshot = loadSnapshot(opts.contactId);
+    if (!snapshot) return { ok: false, error: "Contact not found." };
+  } else {
+    if (!isImportableRow(row)) {
+      return { ok: false, error: "A person needs at least a name, an email or a phone." };
+    }
+    const match = opts.createNew ? null : matchContact(row, e164);
+    snapshot = match ? loadSnapshot(match.contactId) : null;
+    matchedBy = match?.matchedBy ?? null;
+  }
   const plan = planRow(row, snapshot, opts.source, e164);
-  plan.matchedBy = match?.matchedBy ?? null;
+  plan.matchedBy = matchedBy;
   if (opts.dryRun) return { ok: true, plan, contactId: plan.contactId };
   const contactId = db.transaction(() =>
     applyPlan(plan, row, opts.source, opts.runId ?? null, e164)
