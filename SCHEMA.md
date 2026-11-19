@@ -239,11 +239,11 @@ Covers **both** API syncs and file imports (one lifecycle: started → stats →
 ## agent_grants  *(added 2026-11-19, migration 0020 — SPEC §14)*
 
 `id, client_id TEXT NOT NULL, client_name TEXT, scope TEXT NOT NULL ('read' | 'read write'), resource TEXT NOT NULL (the MCP URL the tokens are bound to), code_hash TEXT, code_expires_at INTEGER, code_challenge TEXT (PKCE S256), redirect_uri TEXT, access_token_hash TEXT, access_expires_at INTEGER, refresh_token_hash TEXT, refresh_expires_at INTEGER, previous_refresh_hash TEXT, created_at INTEGER NOT NULL, last_used_at INTEGER, revoked_at INTEGER`.
-- One row per client the owner authorised through the connector's sign-in. Its life: created at consent with only the authorization-code columns set; the token endpoint exchanges the code (clearing it) for an access and a refresh token; each refresh rotates both; `revoked_at` ends it. Codes live in this table rather than in memory because the consent page and the token route are separate requests, and may be separate module instances.
-- **Every secret is stored as its SHA-256 hex and never in clear** — the code, the access token, the refresh token. The tokens are long random strings, so a plain hash is enough (no salt needed, and lookups stay a single indexed equality). `previous_refresh_hash` holds the refresh token the current one replaced: presenting it again means a rotated token was replayed, and the grant is revoked.
+- One row per client the owner authorised through the connector's sign-in. Its life: created at consent with only the authorization-code columns set; the token endpoint exchanges the code for an access and a refresh token — `code_hash` stays as the "already used" marker (a second presentation revokes the grant), `code_challenge` is cleared; each refresh rotates both tokens; `revoked_at` ends it. Rows nobody exchanged are swept a day after their code expired. Codes live in this table rather than in memory because the consent page and the token route are separate requests, and may be separate module instances.
+- **Every secret is stored as its SHA-256 hex and never in clear** — the code, the access token, the refresh token. The tokens are long random strings, so a plain hash is enough (no salt needed, and lookups stay a single indexed equality). `previous_refresh_hash` holds the refresh token the current one replaced. Presented again within 60 seconds it gets the same new pair back (the pair is a keyed function of the token presented, so nothing in clear is needed to repeat it); after that it is a replay and the grant is revoked. The rotation time is not stored: it is `access_expires_at` minus the access-token lifetime.
 - `UNIQUE(code_hash)`, `UNIQUE(access_token_hash)`, `UNIQUE(refresh_token_hash)` — each partial on NOT NULL; `idx_agent_grants_previous_refresh`.
 - Included in the full export like every table: the hashes are not credentials, and a backup restored onto the same address keeps the owner signed in.
-- Nothing reads or writes this table until Phase 14.
+- Written by the consent action and the token endpoint, read by the MCP endpoint's gate and Settings → Claude connector (`src/server/agent/grants.ts`, Phase 14). Client registrations are *not* stored anywhere: a client id is its own signed registration (SPEC §14).
 
 ## agent_calls  *(added 2026-11-19, migration 0020 — SPEC §14)*
 
@@ -252,8 +252,8 @@ Covers **both** API syncs and file imports (one lifecycle: started → stats →
 - `writes_json` is NULL for a read. For a write it is `[{table, id, op, before?}]`: the rows the call created or changed and what reversing them needs. `undone_at` marks a reversed call; the row itself is never deleted, so the log stays honest about what happened.
 - `uq_agent_calls_idempotency ON (tool, idempotency_key) WHERE idempotency_key IS NOT NULL AND status = 'success'` — a repeated call is answered from the first instead of writing twice; a failed attempt does not burn its key.
 - `idx_agent_calls_time ON (created_at)`, `idx_agent_calls_contact ON (contact_id, created_at)` (a contact's "added by Claude" rows), `idx_agent_calls_writes ON (created_at) WHERE writes_json IS NOT NULL` (the activity page, which lists writes).
-- Both FKs are SET NULL: the log outlives a revoked-and-deleted grant and a deleted contact. Read rows can be pruned by age later if the table gets fat; write rows are the audit trail and stay.
-- Nothing writes this table until Phase 14.
+- Both FKs are SET NULL: the log outlives a revoked-and-deleted grant and a deleted contact. Read rows (`writes_json IS NULL`) are pruned after 90 days, at most once a day, on the back of a call being recorded; write rows are the audit trail and stay.
+- Written by the tool dispatcher (`callAgentTool`, Phase 14) for every call that reaches a tool; `args_json` is stubbed past 4,000 characters and never holds a token.
 
 ## ai_suggestions  *(added table — approval queue)*
 

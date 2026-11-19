@@ -205,6 +205,83 @@ under "Windows (Docker Desktop)" above avoids it.
 There is also the one-click **full export** (Settings → Data): a ZIP with
 a flattened `contacts.csv`, per-table JSON, and all attachments.
 
+## Connecting Claude (the agent connector)
+
+Rolo can let your own Claude search and read it (SPEC §14). It is
+read-only, and off until you connect something.
+
+**What it needs from the deployment.** Claude calls the connector from
+Anthropic's servers, not from your computer, so the address has to be:
+
+- public HTTPS on port 443 — the Caddy setup above is exactly that;
+- a hostname with a public IPv4 `A` record. A Tailscale-only address, a
+  home address behind carrier-grade NAT, or an IPv6-only name will not
+  work. Check from a machine outside your network:
+
+  ```bash
+  dig +short rolo.example.com
+  ```
+
+  Every address it prints must be a public one.
+- the address Rolo is really served at, not one that redirects to it.
+
+No environment variable or setting is needed: Rolo works out its public
+address from the `X-Forwarded-Proto` and `X-Forwarded-Host` headers Caddy
+sends, the same way the session cookie learns it is on HTTPS.
+
+**Before connecting**, three checks from any machine:
+
+```bash
+curl -s https://rolo.example.com/.well-known/oauth-protected-resource/api/mcp
+```
+
+```bash
+curl -s https://rolo.example.com/.well-known/oauth-authorization-server
+```
+
+```bash
+curl -si -X POST https://rolo.example.com/api/mcp | head -n 12
+```
+
+The first two return JSON that names your own address. The third returns
+`401` with a `www-authenticate` header pointing at the first — that is
+Rolo asking Claude to sign in, and it is the healthy answer.
+
+**Connecting.**
+
+1. In Rolo, open Settings → Claude connector and copy the connector
+   address (it ends in `/api/mcp`).
+2. In Claude, open Settings → Connectors → Add custom connector, paste
+   the address, and leave the advanced settings alone.
+3. Claude opens Rolo's consent page. It names the app, says what it may
+   do, and asks for your Rolo password. Allow it.
+4. Ask Claude something only Rolo knows — "who do I know at …".
+
+The same connector then works in Claude on the web, desktop and phone,
+and in Claude Code. If Claude's dialog insists on an OAuth client ID, the
+Settings card shows one to paste; the secret stays empty.
+
+**Living with it.**
+
+- Settings → Claude connector lists every connected app with when it was
+  last used, the last fifteen things it asked for, and a Disconnect
+  button that takes effect at once.
+- A connection stays alive as long as it is used at least once in 90
+  days.
+- The consent password shares the login's lockout: five wrong attempts
+  on either screen lock both for a while.
+- Changing Rolo's address (a new domain) disconnects everything — tokens
+  are tied to the address they were issued for. Connect again at the new
+  one.
+- Rotating `SESSION_SECRET`, or losing `data/secret.key`, also means
+  connecting again: client registrations and refreshes are signed with it.
+
+**If Claude says "Couldn't reach the MCP server"**, it is almost always
+the address: run the `dig` and `curl` checks above from outside your
+network. **If it says "Authorization failed"** after you allowed it,
+check that the address you pasted is the one in Settings, character for
+character, and that nothing in front of Rolo redirects it.
+
 ## Forgot the password
 
 The reset script only needs Node and the data directory — run it from a

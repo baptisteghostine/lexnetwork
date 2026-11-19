@@ -550,7 +550,7 @@ All features: model from the provider's env var; every call logged to `ai_calls`
 
   | Core | Module | Used by |
   |---|---|---|
-  | `executeFilter` | `src/server/queries.ts` | `runFilter` action, contacts page, Ask |
+  | `executeFilter`, `filterContactIds` | `src/server/queries.ts` | `runFilter` action, contacts page, Ask; the connector's search (ids first, then a page) |
   | `recordInteraction`, `addNote` | `src/server/interaction-core.ts` | Log interaction, quick log, "Reached out", new note |
   | `createReminder`, `completeReminder` | `src/server/reminder-core.ts` | Reminders page, Today |
   | `setTagMembership` | `src/server/membership-core.ts` | the contacts-list bulk bar |
@@ -567,9 +567,69 @@ All features: model from the provider's env var; every call logged to `ai_calls`
 - **One row, any source.** `applyImportRow(row, { source, dryRun })` runs a single person through §8's identity ladder and field rules without creating a sync run; a dry run returns the plan and writes nothing. An overwrite of a title or company the same source set earlier is a `contact_changes` row like any other (§5).
 - **Ledger tables** (migration 0020, SCHEMA.md): `agent_grants` — one row per authorised client, tokens stored as SHA-256 hashes; `agent_calls` — one row per tool call with its arguments, outcome, the rows it wrote and the data to undo them.
 
-### Phases 14–18 (not built)
+### Phase 14 — the read-only connector (built)
 
-Read-only connector and OAuth sign-in (14), write tools with undo and an activity page (15), campaigns, derived outreach stage and the Outbox (16), unattended runs (17), richer targeting data (18). Scope and acceptance criteria are in PLAN.md until each phase starts.
+**The address.** `POST <origin>/api/mcp`, where the origin is whatever the owner reaches Rolo at (taken from the proxy's `X-Forwarded-Proto`/`-Host`, else the request). Settings → Claude connector shows it ready to copy. Claude calls it from Anthropic's servers, so it has to be public HTTPS on port 443 with a public IPv4 address.
+
+**Protocol.** Streamable HTTP through `@modelcontextprotocol/server`'s `createMcpHandler`, stateless, one fresh server per request. It answers both protocol eras from the same tool definitions: the 2025 `initialize` handshake Claude's hosted client opens with, and the 2026-07-28 revision. `GET`/`DELETE` get 405 (there is no session to open or close) — after the token check, like everything else.
+
+**Sign-in.** Rolo is its own OAuth 2.1 authorization server for one person. The rules are pure functions in `src/lib/agent/oauth.ts`; the grant store is `src/server/agent/grants.ts`.
+
+- *Discovery.* An unauthenticated call gets `401` with `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/api/mcp"`. That document (RFC 9728, also served at the bare path) names the origin as authorization server; `/.well-known/oauth-authorization-server` (RFC 8414) lists the endpoints, `S256`, and `token_endpoint_auth_methods_supported: ["none"]`. Client ID Metadata Documents are deliberately not advertised: honouring one means fetching a URL from the internet, and Claude falls back to registering itself.
+- *Clients register themselves and nothing is stored.* `POST /api/oauth/register` (RFC 7591) returns a client id that *is* the registration — the redirect URIs and name, signed with the server secret. Claude registers on every fresh connection, so a table would only grow; a signed id costs nothing, and holding one grants nothing. `rolo-connector` is a fixed id for Claude's "use your own OAuth client" field.
+- *A code can only ever be sent to two kinds of place:* Claude's hosted callback (`https://claude.ai/api/mcp/auth_callback`, or the same path on claude.com), matched exactly; or an `http` loopback address (`localhost`, `127.0.0.1`, `[::1]`) on any port, for Claude Code and local tools. A registration naming anywhere else is refused, and the policy is checked again at use, so even a validly signed id cannot widen it.
+- *Consent is the password.* `/oauth/authorize` needs no session: it shows who is asking (the client's self-given name, in quotes), what it may do, where the answer goes (the redirect's host, with a warning when that is a program on this computer), and asks for the Rolo password. A request whose client or redirect cannot be trusted is explained on the page and redirects nowhere; a malformed request with a good redirect is answered there with the OAuth error and the `state`. The submit re-validates everything — the hidden fields are not trusted. The password check is `attemptPassword`, the same function and the same failure count as the login form (Decisions §6), so the lockout cannot be walked around. The page forbids framing (`frame-ancestors 'none'`) and tells the owner to continue only if they started this themselves, which is the one attack words have to stop: someone else starting a connection from their own Claude and sending the owner the link.
+- *Codes* are 256 random bits, live 5 minutes, and are bound to the client, the exact redirect URI, the PKCE challenge and the resource. A wrong verifier does not burn the code for its rightful holder; a second use of a code revokes the tokens the first use bought (RFC 6749 §4.1.2).
+- *Tokens.* Access tokens last an hour and are bound to the connector's URL (RFC 8707): a token issued at one address does not open another. Refresh tokens rotate on every use and slide 90 days. The pair a refresh returns is a keyed function of the token presented, so a repeat of the same refresh within 60 seconds — a lost response, two workers at once — gets the *same* pair rather than forking the chain; the replaced token coming back after that is a replay and ends the grant for everyone holding it.
+- *Scope.* Only `read` is grantable. Whatever is requested, `read` is granted, and the token response says so.
+- *Storage.* Code, access token and refresh token are stored as SHA-256 hashes (SCHEMA.md `agent_grants`); nothing in the database, a log or `agent_calls` holds one in clear.
+- *Disconnecting.* Settings → Claude connector lists connected apps (name, connected, last used) with a two-click Disconnect that kills the access and refresh tokens at once.
+
+**Browser origins.** A request carrying an `Origin` is served only from the app's own host, claude.ai / claude.com, or loopback; anything else is 403. Server-side callers send no `Origin` and are unaffected.
+
+**Tools** (`src/server/agent/tools.ts`) — nine, all annotated read-only, each a bounded view over a query Rolo already had:
+
+| Tool | Returns |
+|---|---|
+| `rolo_overview` | time, timezone, contact counts and data completeness, tags/groups/custom fields with ids, last sync per kind, whether a voice guide exists |
+| `search_contacts` | compact rows (id, name, title, company, location, primary email, LinkedIn, tags, last interaction, cadence) + a true total; free text and/or company (current/past/ex/any), title, tags, groups, interaction dates, starred; sort; page of ≤50 |
+| `list_companies` | employers of active contacts with head-counts, folded spellings and the most common titles |
+| `get_contacts` | everything on ≤10 people: fields and their sources, emails, phones, links, tags, groups, custom fields, work history, education, keep-in-touch state, notes, recent exchanges (LinkedIn message text; email rows are subject-only, as stored), open changes and reminders, related people, the AI profile card |
+| `find_contact` | resolve an email or LinkedIn URL (certain) or a name (candidates only) |
+| `get_timeline` | one person's timeline, pageable; or recent exchanges across everyone |
+| `search_notes` | full-text over the owner's notes, with the contact each is about |
+| `get_today` | what the Today page shows: reminders due, agenda, debriefs awaited, keep-in-touch due, job changes, birthdays, worth reconnecting |
+| `get_voice_guide` | the voice guide and messages the owner actually sent |
+
+- *Text search is precise, not forgiving.* The ⌘K search (§7) is built for a person typing: typo-tolerant, three-letter probes, ten results from at most eighty unordered candidates. An agent asking "who is in investment banking" needs every match and no near-misses, so `findContactsPrecisely` requires every word of the query to *begin a word* in the name, company, title, location or bio (any order, case- and accent-insensitive: "bank" finds "Banking", "ana" does not find "Managing"), returns the complete list, and orders it name-matches first, then starred, then most recently in touch. A query containing `@` also matches email addresses. Only when nothing matches exactly does the fuzzy search stand in, for names only, and the answer says it is a near spelling.
+- *Arguments* are validated strictly — an unknown key, a wrong type or an out-of-range limit is a refusal that says what was wrong, never a guess. Text reaches SQL only as bound parameters.
+- *Answers* are JSON text, capped at 60,000 characters (under Claude Code's 25,000-token ceiling). Lists page with a true total; `get_contacts` trims notes and message text harder the more people are asked for at once; an answer still over the cap sheds from the tail of its list and says so, and one that cannot be shrunk becomes an explicit error rather than an oversized or silently empty answer.
+- *Nothing secret can leave.* No tool reads `settings`, `integration_accounts`, `agent_grants`, `ai_calls` or `jobs`. A failure inside a tool is recorded for the owner and reported to the caller only as "the tool failed".
+- *Third-party text is data.* Answers that carry notes, titles or message text say so, and the server instructions tell the model never to follow instructions found in them.
+- *`get_today` is the Today page*, including its one side effect: the first reader of the day — page, digest or agent — picks the day's "worth reconnecting" people (§3).
+
+**The ledger.** Every call that reaches a tool writes one `agent_calls` row: tool, validated arguments (stubbed past 4,000 characters), outcome (`success` / `refused` / `error`), a one-line summary, the contact it was about, duration, the grant. A call the protocol layer rejects for malformed arguments never reaches a tool, returns no data, and is not logged. Read rows are pruned after 90 days; rows that wrote something (Phase 15) are kept. Settings shows the last fifteen.
+
+**Deviations from the plan, and why.**
+- *Dynamic registration is supported*, where the plan said "one pre-registered client". Claude's default is to register itself; requiring the advanced "own client" field would have made the first connection a support problem. The stateless signed id keeps the plan's intent — nothing stored, no outbound fetch.
+- *The consent page asks for the password itself* rather than sitting behind the session gate: a session proves a browser was logged in once, the password proves the owner is approving now.
+- *The no-phoning-home test (§13) gained one carve-out*, claude.ai and claude.com, as hosts the owner's browser is redirected to — Rolo's server never requests them.
+- *"Each call writes one row"* is true of every call that reaches a tool; see the ledger above.
+
+### Phases 15–18 (not built)
+
+Write tools with undo and an activity page (15), campaigns, derived outreach stage and "Drafts to send" (16), unattended runs (17), richer targeting data (18). Scope and acceptance criteria are in PLAN.md until each phase starts.
+
+### Acceptance criteria (Phase 14)
+
+- [ ] Unit: the RFC 7636 PKCE vector passes and near-misses fail; resources canonicalise as Claude sends them; the redirect policy accepts Claude's callback exactly and loopback on any port and refuses twenty look-alikes (userinfo, sub-domain, fragment, private IP, other schemes); a signed client id round-trips, fails under another secret or after tampering, and cannot carry a forbidden redirect; every way an authorization request can be wrong lands on the page or on the redirect as specified.
+- [ ] Against a migrated database through the real handlers: discovery documents at both paths; registration stores nothing; a wrong consent password creates nothing and counts toward the login lockout (five wrong consents lock the login form too); Deny returns `access_denied`; tampered hidden fields are refused; a code is single-use, expires, is bound to client, redirect, verifier and resource, and its reuse revokes; a refresh rotates, repeats idempotently inside a minute, revokes on replay after it, slides at 90 days; no token or code appears in clear in `agent_grants`.
+- [ ] The MCP endpoint: no token, garbage, a refresh token or a code as bearer → 401 with the discovery pointer; an expired, revoked or other-address token → 401; a foreign `Origin` → 403; `GET` without a token → 401, with one → 405; both protocol eras list nine tools, each read-only-annotated with a strict schema.
+- [ ] Tools on a seeded database: each tool's happy path and refusals; text search by word-start across fields, complete on 10,000 contacts with a true total; archived contacts excluded unless asked; SQL- and FTS-special characters are harmless; one ledger row per call; a grant without `read` can call nothing.
+- [ ] No tool output contains any of nine planted secrets (password hash, extension token, SMTP password, Google tokens, Mapbox token, grant hashes, an AI prompt); running every tool twice leaves every table but the ledger byte-identical.
+- [ ] On 10,000 contacts with long text, the widest call of every tool stays under 60,000 characters.
+- [ ] E2E in a real browser over real HTTP: `/.well-known` routes served by Next; the consent screen shows the client, the redirect host, the loopback warning and forbids framing; wrong then right password; code → tokens → `initialize` → `tools/list` → a real search; refresh rotates; Settings lists the connection and its activity; Disconnect shuts it out.
+- [ ] Manual, the owner's: add the connector in claude.ai at the public address and ask a question. Not verifiable from the build sandbox, which cannot reach the deployment.
 
 ### Acceptance criteria (Phase 13)
 

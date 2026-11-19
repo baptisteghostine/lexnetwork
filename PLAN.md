@@ -499,9 +499,10 @@ the owner; see that section before revisiting them.
     leg, refresh rotation with replay detection) and `agent_calls` (one
     row per tool call, undo data, idempotency key). Nothing writes them
     until Phase 14.
-  - **Not in this phase after all:** the login attempt throttle, which is
-    being done as its own change in a separate session; and the hosting
-    question (§4.4) is still the owner's to confirm before Phase 14.
+  - **Not in this phase after all:** the login attempt throttle, done as
+    its own change in a separate session and merged into this branch at
+    the start of Phase 14; the hosting question (§4.4) was answered by the
+    owner the same day — Rolo is on a public HTTPS domain.
   - Also fixed: `e2e/06-quick-add` pressed `q` before the page had
     hydrated and lost the keypress on a cold compile (it failed in both
     full runs today and passed alone); it now presses until the dialog
@@ -518,8 +519,51 @@ the owner; see that section before revisiting them.
     the OAuth metadata documents; `GET` handlers are dynamic by default
     since Next 15, so no caching opt-out is needed.
 
-**Next: Phase 14 — the read-only connector.** Blocked only on the owner
-confirming that Rolo is reachable at a public HTTPS address.
+- ✅ **Phase 14 — the read-only connector** (2026-11-19, SPEC §14; no
+  migration — the tables came with Phase 13; dependency:
+  `@modelcontextprotocol/server`). Claude can sign in to Rolo and read it.
+  - **Consolidated first:** the login-throttle branch
+    (`claude/sharp-albattani-j6dsr4`) is merged here, and its password
+    check lifted into `lib/auth/password-gate.ts` so the login form and
+    the connector's consent screen share one function and one lockout.
+    One merge of this branch now brings Phases 13 and 14, the throttle and
+    the wordmark fix.
+  - **Owner refinements recorded:** an agent logs real exchanges only,
+    never noise (a Phase 15 rule, in CLAUDE.md and SPEC §14); the outbox
+    of Phase 16 is to be called "Drafts to send"; sent mail the owner
+    writes directly in Outlook reaches Rolo by forwarding or BCC, as now.
+  - **Sign-in:** discovery documents, stateless dynamic client
+    registration (a client id is its own signed registration), a consent
+    screen that asks for the Rolo password, single-use PKCE-bound codes,
+    hour-long access tokens tied to the connector's address, rotating
+    refresh tokens with an idempotent 60-second repeat window and
+    revocation on replay, every secret stored as a hash, two-click
+    Disconnect in Settings.
+  - **Nine read-only tools** — `rolo_overview`, `search_contacts`,
+    `list_companies`, `get_contacts`, `find_contact`, `get_timeline`,
+    `search_notes`, `get_today`, `get_voice_guide` — strict arguments,
+    answers capped at 60,000 characters, one `agent_calls` row per call.
+  - **A precise search for agents** (`findContactsPrecisely`): the ⌘K
+    search forgives typos and shows ten of at most eighty candidates; an
+    agent needs every match and no near-misses, so words must begin a word
+    in name, company, title, location or bio, and the list is complete.
+    Found by the tests: "ana" was matching "M-ana-ging Director".
+  - **Settings → Claude connector:** the address to paste, connected apps,
+    recent activity. DEPLOY.md gains "Connecting Claude".
+  - **Deviations from the plan** (reasons in SPEC §14): dynamic
+    registration supported rather than one pre-registered client; the
+    consent page asks for the password itself instead of sitting behind
+    the session; the no-phoning-home test gained a carve-out for Claude's
+    callback hosts; a call the protocol layer rejects for malformed
+    arguments is not logged because it never reaches a tool.
+  - **Not verifiable here:** the live connection from claude.ai. The build
+    sandbox cannot reach the deployment, so "add the connector and ask a
+    question" is the owner's first check after merging (DEPLOY.md lists
+    three `curl` checks to run first).
+
+**Next: Phase 15 — write-back.** Start after the owner has connected
+Claude once and used the read tools for real: what Claude actually asks
+for is the best input to the write tools' design.
 
 ---
 
@@ -906,7 +950,10 @@ timeline, today, notes and interactions, reminders, tags, groups); add
 call each core directly with no cookie; an agent-sourced field write
 against an owner-edited field is a conflict (unit); E2E suite still green.
 
-### Phase 14 — The read-only connector (first useful milestone)
+### Phase 14 — The read-only connector (first useful milestone) — ✅ built 2026-11-19
+
+*As built: see the status list and SPEC §14, which now carries the
+acceptance criteria.*
 
 **Goal:** Claude can answer questions about the owner's network.
 

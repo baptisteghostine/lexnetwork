@@ -16,7 +16,7 @@ Every feature serves one loop: capture context automatically → surface who's d
 - **ORM:** Drizzle, with checked-in migrations under `src/db/migrations/`. Never edit an applied migration; add a new one.
 - **UI:** Tailwind + shadcn/ui. Dark mode supported. Density over decoration — visual register of Linear/Superhuman, not a landing page.
 - **Background jobs:** in-process scheduler backed by the `jobs` table. No Redis, no BullMQ, no Kafka, no external broker. Ever.
-- **Auth:** single password gate + signed session cookie (HMAC, httpOnly). Nothing more.
+- **Auth:** single password gate + signed session cookie (HMAC, httpOnly). Nothing more — except the agent connector (owner-amended 2026-11-19, SPEC §14), which is opened by OAuth bearer tokens the same password mints; it adds no user, no role and no second password.
 - **AI:** Anthropic API, Groq's OpenAI-compatible API (owner-amended
   2026-08-20 from "Anthropic only", to run the AI layer on Groq's free
   tier — `openai/gpt-oss-120b`; owner reviewed Groq's no-training terms),
@@ -34,7 +34,7 @@ Every feature serves one loop: capture context automatically → surface who's d
   never silent drops.
 - **Tests:** Vitest for unit (cadence engine, dedupe matcher, import parsers are mandatory coverage), Playwright for 2–3 critical E2E flows.
 - **Deploy:** `docker compose up` on a small VPS; `npm run dev` locally.
-- **Dependencies:** do not add one without stating in the PR/phase summary what it's for and why the stdlib or an existing dep won't do.
+- **Dependencies:** do not add one without stating in the PR/phase summary what it's for and why the stdlib or an existing dep won't do. (`@modelcontextprotocol/server`, added 2026-11-19 with the owner's approval: the MCP protocol handler for the agent connector. It answers both live protocol revisions; hand-rolling would make every future revision ours to track.)
 
 ## Directory conventions
 
@@ -49,8 +49,10 @@ src/
     imports/        #   csv, vcard, linkedin, google-contacts parsers + diff engine
     sync/           #   gmail metadata + calendar incremental sync
     ai/             #   prompt builders, filter-compiler, call logging
+    agent/          #   agent connector: OAuth rules, answer shaping (pure)
   jobs/             # job definitions + the scheduler loop
   server/           # server actions and route-handler helpers (thin; logic lives in lib/)
+    agent/          #   agent connector: grant store, tools, MCP handler, HTTP handlers
 tests/              # Vitest unit tests, mirroring src/lib structure
 tests/fixtures/     # real-shaped sample files (CSV, vCard, LinkedIn ZIP contents)
 e2e/                # Playwright specs
