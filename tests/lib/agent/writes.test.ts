@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   AUTOMATIC_CATEGORIES,
   cleanLine,
+  cleanName,
   describeArgs,
   isPersonalCategory,
   isSameExchange,
@@ -60,6 +61,22 @@ describe("cleanLine", () => {
     expect(cleanLine(`a${ctl(0)}b`, 100)).toBe("a b");
     expect(cleanLine("x".repeat(50), 10)).toBe(`${"x".repeat(9)}…`);
     expect(cleanLine("x".repeat(10), 10)).toBe("x".repeat(10));
+  });
+});
+
+describe("cleanName", () => {
+  it("leaves ordinary names alone, however they are written", () => {
+    for (const name of ["Ana Silva", "Jean-Luc O'Brien", "María José (MJ) García", "Dr. Li Wei, PhD", "Søren Ångström"]) {
+      expect(cleanName(name, 100)).toBe(name);
+    }
+  });
+
+  it("takes out what would turn a name into a link or an image inside a mention", () => {
+    expect(cleanName("Priya ![.](https://evil.test/p.png)", 100)).toBe("Priya !(.)(https://evil.test/p.png)");
+    expect(cleanName("x](https://evil.test/phish) [y", 100)).toBe("x)(https://evil.test/phish) (y");
+    expect(cleanName("<img src=x> `code`", 100)).toBe("img src=x code");
+    for (const hostile of ["a]b", "[a", "![a]", "a<b>"]) expect(cleanName(hostile, 100)).not.toMatch(/[[\]<>`]/);
+    expect(cleanName("[]", 100)).toBe("()");
   });
 });
 
@@ -179,6 +196,8 @@ describe("describeArgs", () => {
     expect(describeArgs("not json")).toEqual([]);
     expect(describeArgs("[1,2]")).toEqual([]);
     expect(describeArgs("null")).toEqual([]);
-    expect(describeArgs(JSON.stringify({ text: "x".repeat(900) }))[0].value).toHaveLength(601);
+    // Shown whole: the owner approves this text, tail included.
+    const long = `${"x".repeat(4000)} [click here](https://evil.test/phish)`;
+    expect(describeArgs(JSON.stringify({ text: long }))[0].value).toBe(long);
   });
 });

@@ -61,6 +61,8 @@ export default async function AgentActivityPage({
           entries={rows.map((r) => ({
             id: r.id,
             status: r.status,
+            // A proposal's stored summary is in the past tense of a thing
+            // that has not happened; name the action instead.
             summary:
               r.status === "queued" || r.status === "rejected" || !r.summary
                 ? `${titles.get(r.tool) ?? r.tool}${r.contactName ? ` — ${r.contactName}` : ""}`
@@ -76,7 +78,12 @@ export default async function AgentActivityPage({
             }),
             undone: r.undoneAt !== null,
             undoable: r.undoable,
-            details: r.tool === "undo_agent_action" ? [] : describeArgs(r.argsJson),
+            details:
+              r.tool === "undo_agent_action"
+                ? r.status === "queued"
+                  ? [{ label: "Would undo", value: r.summary ?? "an earlier action" }]
+                  : []
+                : describeArgs(r.argsJson),
           }))}
         />
       )}

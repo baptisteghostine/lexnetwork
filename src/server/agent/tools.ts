@@ -1061,6 +1061,40 @@ function executeWrite(
   }
 }
 
+class Rehearsal extends Error {
+  constructor(readonly out: ToolOutput) {
+    super("rehearsal");
+  }
+}
+
+/**
+ * Run a write tool for real and then take all of it back, to learn what
+ * it would do without doing it. Review mode uses this so that a proposal
+ * the owner is asked about is one that would actually go through — a
+ * refusal is a refusal now, not a surprise at approval.
+ */
+function rehearse(tool: AgentTool, args: unknown, now: number): { ok: true; out: ToolOutput } | Exclude<Outcome, { ok: true }> {
+  try {
+    db.transaction(() => {
+      throw new Rehearsal(tool.execute(args, { now }));
+    });
+  } catch (err) {
+    if (err instanceof Rehearsal) return { ok: true, out: err.out };
+    if (err instanceof ToolRefusal) return { ok: false, kind: "refused", message: err.message };
+    return { ok: false, kind: "error", message: err instanceof Error ? err.message : "Unknown error" };
+  }
+  return { ok: false, kind: "error", message: "The rehearsal did not finish." };
+}
+
+/** Changes nothing itself, but is not a no-op: it removes what another call wrote. */
+const UNDO_TOOL = "undo_agent_action";
+
+/** What was sent, for a call that failed validation: the shape, never the values. */
+function argumentNames(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { _invalid: true };
+  return { _invalid: true, keys: Object.keys(raw).slice(0, 30).map((k) => k.slice(0, 40)) };
+}
+
 const FAILED = JSON.stringify({ error: "The tool failed inside Rolo. Nothing was changed." });
 
 /**
@@ -1111,7 +1145,9 @@ export function callAgentTool(
   const parsed = tool.input.safeParse(rawArgs ?? {});
   if (!parsed.success) {
     const problem = describeIssues(parsed.error);
-    log("refused", { error: problem });
+    // Arguments that did not validate are not trusted enough to keep: a
+    // caller can put anything in an unknown field.
+    log("refused", { error: problem, args: argumentNames(rawArgs) });
     return { isError: true, text: JSON.stringify({ error: `Invalid arguments — ${problem}` }) };
   }
 
@@ -1168,25 +1204,39 @@ export function callAgentTool(
     }
   }
 
-  if (agentWriteMode() === "review" && tool.name !== "undo_agent_action") {
-    const actionId = recordAgentCall({
-      grantId: caller.grantId,
-      tool: tool.name,
-      args: parsed.data,
-      status: "queued",
-      summary: `Proposed: ${tool.title.toLowerCase()}`,
-      contactId: subjectOf(parsed.data),
-      idempotencyKey: key,
-      now: started,
-    });
-    return {
-      isError: false,
-      text: JSON.stringify({
-        queued: true,
-        actionId,
-        note: "The owner reviews changes before they apply. Nothing has changed yet: this is waiting on Rolo's activity page. Tell the owner it is there.",
-      }),
-    };
+  if (agentWriteMode() === "review") {
+    const trial = rehearse(tool, parsed.data, now);
+    if (!trial.ok) {
+      log(trial.kind, { error: trial.message, args: parsed.data, contactId: subjectOf(parsed.data) });
+      return {
+        isError: true,
+        text: trial.kind === "refused" ? JSON.stringify({ error: trial.message }) : FAILED,
+      };
+    }
+    // Something would change: that is the owner's to approve. A call with
+    // nothing to do — a duplicate, a question back to the caller — falls
+    // through and simply answers.
+    if ((trial.out.writes ?? []).length > 0 || tool.name === UNDO_TOOL) {
+      const actionId = recordAgentCall({
+        grantId: caller.grantId,
+        tool: tool.name,
+        args: parsed.data,
+        wholeArgs: true,
+        status: "queued",
+        summary: trial.out.summary,
+        contactId: trial.out.contactId ?? subjectOf(parsed.data),
+        idempotencyKey: key,
+        now: started,
+      });
+      return {
+        isError: false,
+        text: JSON.stringify({
+          queued: true,
+          actionId,
+          note: "The owner reviews changes before they apply. Nothing has changed yet: this is waiting on Rolo's activity page. Tell the owner it is there.",
+        }),
+      };
+    }
   }
 
   const outcome = executeWrite(tool, parsed.data, now, (out) =>
@@ -1217,8 +1267,12 @@ export function callAgentTool(
 
 export type QueueDecision = { ok: true; summary: string | null } | { ok: false; error: string };
 
-/** The owner said yes: run the proposal exactly as it was made. */
-export function approveQueuedCall(callId: number, now = Date.now()): QueueDecision {
+/**
+ * The owner said yes: run the proposal exactly as it was made — including
+ * when. A note proposed on Monday and approved on Thursday is Monday's
+ * note, and "is this date in the past" is asked as of the proposal.
+ */
+export function approveQueuedCall(callId: number): QueueDecision {
   const call = db.select().from(agentCalls).where(eq(agentCalls.id, callId)).get();
   if (!call || call.status !== "queued") return { ok: false, error: "That proposal is no longer waiting." };
   const tool = AGENT_TOOLS.find((t) => t.name === call.tool && t.mutates);
@@ -1239,7 +1293,7 @@ export function approveQueuedCall(callId: number, now = Date.now()): QueueDecisi
   const parsed = tool.input.safeParse(args);
   if (!parsed.success) return fail(`The proposal is no longer valid — ${describeIssues(parsed.error)}`);
   let summary: string | null = null;
-  const outcome = executeWrite(tool, parsed.data, now, (out) => {
+  const outcome = executeWrite(tool, parsed.data, call.createdAt, (out) => {
     summary = out.summary;
     db.update(agentCalls)
       .set({

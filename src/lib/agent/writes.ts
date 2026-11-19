@@ -70,6 +70,16 @@ export function cleanLine(text: string, max: number): string {
   return flat.length <= max ? flat : `${flat.slice(0, max - 1).trimEnd()}…`;
 }
 
+/**
+ * A person's or a tag's name. Names are the one kind of text Rolo later
+ * places inside markdown itself — an @-mention is `[@Name](mention://…)`
+ * — so a name may not carry the characters that would close that link
+ * and open another, or an image.
+ */
+export function cleanName(text: string, max: number): string {
+  return cleanLine(text.replace(/\[/g, "(").replace(/\]/g, ")").replace(/[<>`]/g, ""), max);
+}
+
 // ---------- a profile link an agent supplies ----------
 
 /**
@@ -195,7 +205,9 @@ export function describeArgs(argsJson: string): { label: string; value: string }
           ? "yes"
           : "no"
         : String(value);
-    if (text) out.push({ label: shown, value: text.length > 600 ? `${text.slice(0, 600)}…` : text });
+    // Whole, never shortened: the owner approves what is shown here, and
+    // must not be approving a tail they were not shown.
+    if (text) out.push({ label: shown, value: text });
   }
   return out;
 }

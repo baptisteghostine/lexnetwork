@@ -735,11 +735,15 @@ describe("every call is recorded, and none can be made without the scope", () =>
     expect(call("get_contacts", { ids: [id.ana] }, ["write"]).isError).toBe(true);
   });
 
-  it("an oversized argument is stored as a stub, not in full", () => {
-    call("search_contacts", { query: "x".repeat(150), unknown: "y".repeat(10_000) });
+  it("arguments that fail validation are not kept — only their names", () => {
+    call("search_contacts", { query: "x".repeat(150), unknown: "y".repeat(10_000), access_token: "SECRET-PASTED-BY-MISTAKE" });
     const [row] = ledger();
-    expect(String(row.args_json).length).toBeLessThan(4100);
-    expect(JSON.parse(String(row.args_json))).toMatchObject({ _truncated: true });
+    expect(JSON.parse(String(row.args_json))).toEqual({ _invalid: true, keys: ["query", "unknown", "access_token"] });
+    expect(String(row.args_json)).not.toContain("SECRET-PASTED-BY-MISTAKE");
+    call("search_contacts", "not an object");
+    call("search_contacts", Object.fromEntries(Array.from({ length: 200 }, (_, i) => [`k${"x".repeat(100)}${i}`, 1])));
+    expect(JSON.parse(String(ledger()[1].args_json))).toEqual({ _invalid: true });
+    expect(String(ledger()[2].args_json).length).toBeLessThan(2000);
   });
 
   it("old read rows are pruned; rows that wrote something are kept for good", async () => {

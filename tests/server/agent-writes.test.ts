@@ -183,8 +183,8 @@ describe("log_interaction", () => {
       undone_at: null,
     });
     expect(JSON.parse(String(entry.writes_json))).toEqual([
-      { table: "interactions", op: "insert", id: out.interactionId, contactId: id.ana },
-      { table: "notes", op: "insert", id: out.noteId, contactId: id.ana, stamp: expect.any(Number) },
+      { table: "interactions", op: "insert", id: out.interactionId, contactId: id.ana, key: "gmail:msg-1" },
+      { table: "notes", op: "insert", id: out.noteId, contactId: id.ana, createdAt: NOW - 2 * DAY, sig: expect.stringMatching(/^[0-9a-f]{16}$/) },
     ]);
   });
 
@@ -379,7 +379,7 @@ describe("upsert_contact", () => {
     // Stored as a full address on LinkedIn's own host: it becomes a link on her page.
     expect(rows("SELECT url, source FROM contact_socials WHERE contact_id = ?", cid)).toEqual([{ url: "https://www.linkedin.com/in/priya-nair", source: "agent" }]);
     expect(new Set(rows<{ source: string }>("SELECT source FROM contact_field_sources WHERE contact_id = ?", cid).map((r) => r.source))).toEqual(new Set(["agent"]));
-    expect(JSON.parse(String(ledger()[0].writes_json))).toEqual([{ table: "contacts", op: "insert", id: cid }]);
+    expect(JSON.parse(String(ledger()[0].writes_json))).toEqual([{ table: "contacts", op: "insert", id: cid, createdAt: expect.any(Number) }]);
   });
 
   it("the same person again is found by email or profile, not added twice", () => {
@@ -584,7 +584,7 @@ describe("undo", () => {
     const made = ok("upsert_contact", { firstName: "Priya", lastName: "Nair", emails: ["priya.nair@evercore.test"] });
     const cid = made.contactId as number;
     const logged = ok("log_interaction", email(cid));
-    expect(refused("undo_agent_action", { actionId: made.actionId })).toMatch(/Priya Nair now has other notes, interactions or reminders/);
+    expect(refused("undo_agent_action", { actionId: made.actionId })).toMatch(/Priya Nair now has notes, interactions or reminders.*Nothing was undone/);
     expect(one("SELECT count(*) AS n FROM contacts WHERE id = ?", cid)).toEqual({ n: 1 });
     expect(one("SELECT undone_at FROM agent_calls WHERE id = ?", made.actionId)).toEqual({ undone_at: null });
     // Take the later write back first, then the contact goes.
@@ -597,7 +597,7 @@ describe("undo", () => {
   it("keeps a contact the owner has edited since it was added", () => {
     const made = ok("upsert_contact", { firstName: "Priya", lastName: "Nair" });
     ins("contact_field_sources", { contact_id: made.contactId, field: "title", source: "user", updated_at: NOW });
-    expect(refused("undo_agent_action", { actionId: made.actionId })).toMatch(/edited by the owner since being added/);
+    expect(refused("undo_agent_action", { actionId: made.actionId })).toMatch(/has details that did not come from Claude/);
     expect(one("SELECT count(*) AS n FROM contacts WHERE id = ?", made.contactId)).toEqual({ n: 1 });
   });
 
@@ -619,8 +619,10 @@ describe("undo", () => {
     const out = ok("create_reminder", { title: "Send the deck", dueAt: new Date(NOW + DAY).toISOString(), contactId: id.ana });
     rawDb.prepare("UPDATE reminders SET title = 'Send the deck and the model', updated_at = updated_at + 1000 WHERE id = ?").run(out.reminderId);
     const res = undoModule.undoAgentCall(out.actionId!);
-    expect(res).toMatchObject({ ok: true, reversed: [], skipped: ["the reminder was changed after it was created, so it was kept"], contactId: id.ana });
+    expect(res).toEqual({ ok: false, error: "Nothing was undone: the reminder was changed after it was created, so it was kept." });
     expect(rows("SELECT title FROM reminders")).toEqual([{ title: "Send the deck and the model" }]);
+    // Nothing was taken back, so the action is not marked as undone.
+    expect(one("SELECT undone_at FROM agent_calls WHERE id = ?", out.actionId)).toEqual({ undone_at: null });
   });
 });
 
@@ -713,15 +715,19 @@ describe("review mode: ask me first", () => {
     expect(rows("SELECT id FROM notes")).toEqual([]);
   });
 
-  it("a queued proposal cannot be undone, and undo itself is never queued", () => {
+  it("a queued proposal cannot be undone; an undo is itself a change the owner approves", () => {
     const proposal = ok("add_note", { contactId: id.ana, text: "Waiting." });
     expect(refused("undo_agent_action", { actionId: proposal.actionId })).toMatch(/still waiting for the owner's approval/);
-    // Something applied before review was switched on can still be taken back at once.
+    // Something applied before review was switched on — or approved since.
     rawDb.prepare("DELETE FROM settings WHERE key = 'agent.write_mode'").run();
     const applied = ok("add_note", { contactId: id.ana, text: "Applied directly." });
     ins("settings", { key: "agent.write_mode", value: JSON.stringify("review") });
-    expect(ok("undo_agent_action", { actionId: applied.actionId })).toMatchObject({ undone: true });
+    const undo = ok("undo_agent_action", { actionId: applied.actionId });
+    expect(undo).toMatchObject({ queued: true });
+    expect(rows("SELECT body_md FROM notes")).toEqual([{ body_md: "Applied directly." }]);
+    expect(tools.approveQueuedCall(undo.actionId!)).toMatchObject({ ok: true });
     expect(rows("SELECT id FROM notes")).toEqual([]);
+    expect(one("SELECT undone_at IS NOT NULL AS undone FROM agent_calls WHERE id = ?", applied.actionId)).toEqual({ undone: 1 });
   });
 
   it("invalid proposals are refused at the door, not queued for the owner to puzzle over", () => {
@@ -747,5 +753,354 @@ describe("the activity page's list", () => {
       [note.actionId, "add_note", false, true, "Ana Silva"],
     ]);
     expect(ledgerModule.listAgentActivity(1, 1).rows.map((r) => r.id)).toEqual([logged.actionId]);
+  });
+});
+
+// ---------- found by the independent review (2026-11-19) ----------
+
+describe("undo never touches a row that is not the one the call wrote", () => {
+  // SQLite hands a freed id to the next insert. Each case: the agent writes
+  // a row, the owner deletes it, and something unrelated takes its number.
+
+  it("an interaction's id reused by another contact's synced mail", () => {
+    const out = ok("log_interaction", email(id.ana));
+    rawDb.prepare("DELETE FROM interactions WHERE id = ?").run(out.interactionId);
+    ins("interactions", { id: out.interactionId, contact_id: id.ben, kind: "email", direction: "inbound", occurred_at: NOW - DAY, title: "Ben's mail", source: "gmail", source_key: "gm-9", counts_for_touch: 0, created_at: NOW });
+    expect(refused("undo_agent_action", { actionId: out.actionId })).toBe("Nothing was undone: the interaction was already gone.");
+    expect(rows("SELECT title FROM interactions WHERE id = ?", out.interactionId)).toEqual([{ title: "Ben's mail" }]);
+    // Same contact, same number, but not the agent's row either.
+    rawDb.prepare("UPDATE interactions SET contact_id = ?, source = 'user', source_key = NULL WHERE id = ?").run(id.ana, out.interactionId);
+    expect(refused("undo_agent_action", { actionId: out.actionId })).toMatch(/Nothing was undone/);
+    expect(rows("SELECT id FROM interactions WHERE id = ?", out.interactionId)).toHaveLength(1);
+  });
+
+  it("a contact's id reused by an imported person", () => {
+    const made = ok("upsert_contact", { firstName: "Priya", lastName: "Nair" });
+    rawDb.prepare("DELETE FROM contacts WHERE id = ?").run(made.contactId);
+    ins("contacts", { id: made.contactId, first_name: "Zed", last_name: "Imported", display_name: "Zed Imported", created_at: NOW - 5000, updated_at: NOW - 5000 });
+    expect(refused("undo_agent_action", { actionId: made.actionId })).toBe("Nothing was undone: the contact was already gone.");
+    expect(rows("SELECT display_name FROM contacts WHERE id = ?", made.contactId)).toEqual([{ display_name: "Zed Imported" }]);
+  });
+
+  it("a new tag's id reused by a tag of the owner's", () => {
+    const out = ok("tag_contacts", { contactIds: [id.ana], addTags: ["TMT"] });
+    const tagId = one<{ id: number }>("SELECT id FROM tags WHERE name = 'TMT'").id;
+    rawDb.prepare("DELETE FROM tags WHERE id = ?").run(tagId);
+    ins("tags", { id: tagId, name: "VIP", color: "#ef4444", created_at: NOW });
+    ins("contact_tags", { contact_id: id.ana, tag_id: tagId, created_at: NOW });
+    expect(refused("undo_agent_action", { actionId: out.actionId })).toMatch(/Nothing was undone/);
+    expect(rows("SELECT name FROM tags WHERE id = ?", tagId)).toEqual([{ name: "VIP" }]);
+    expect(rows("SELECT contact_id FROM contact_tags WHERE tag_id = ?", tagId)).toEqual([{ contact_id: id.ana }]);
+  });
+
+  it("a completed reminder's id reused by one the owner completed", () => {
+    const reminderId = ins("reminders", { title: "Chase", due_at: NOW - DAY, created_at: NOW - 5 * DAY, updated_at: NOW - 5 * DAY });
+    const done = ok("complete_reminder", { reminderId });
+    rawDb.prepare("DELETE FROM reminders WHERE id = ?").run(reminderId);
+    ins("reminders", { id: reminderId, title: "The owner's own", due_at: NOW - DAY, completed_at: NOW - 60_000, created_at: NOW - DAY, updated_at: NOW - 60_000 });
+    expect(refused("undo_agent_action", { actionId: done.actionId })).toMatch(/Nothing was undone/);
+    expect(one("SELECT completed_at FROM reminders WHERE id = ?", reminderId)).toEqual({ completed_at: NOW - 60_000 });
+  });
+
+  it("an email's id reused by an address a later call added to someone else", () => {
+    const first = ok("upsert_contact", { contactId: id.ben, emails: ["ben.old@lazard.test"] });
+    rawDb.prepare("DELETE FROM contact_emails WHERE contact_id = ?").run(id.ben);
+    const second = ok("upsert_contact", { contactId: id.ana, emails: ["ana.private@home.test"] });
+    expect(second.emailsAdded).toBe(1);
+    expect(refused("undo_agent_action", { actionId: first.actionId })).toMatch(/Nothing was undone|did not change/);
+    expect(rows("SELECT email FROM contact_emails WHERE contact_id = ? ORDER BY id", id.ana)).toEqual([
+      { email: "ana.silva@gs.test" },
+      { email: "ana.private@home.test" },
+    ]);
+  });
+
+  it("a note's id reused by a note of the owner's is neither removed nor marked as Claude's", () => {
+    const out = ok("add_note", { contactId: id.ana, text: "Claude's note." });
+    expect(ledgerModule.agentNoteIds(id.ana)).toEqual([out.noteId]);
+    // Edited by the owner: still Claude's note, still marked.
+    rawDb.prepare("UPDATE notes SET body_md = 'Edited by me.' WHERE id = ?").run(out.noteId);
+    expect(ledgerModule.agentNoteIds(id.ana)).toEqual([out.noteId]);
+    rawDb.prepare("DELETE FROM notes WHERE id = ?").run(out.noteId);
+    ins("notes", { id: out.noteId, contact_id: id.ana, body_md: "My own note.", counts_for_touch: 0, created_at: NOW - 9000, updated_at: NOW - 9000 });
+    expect(ledgerModule.agentNoteIds(id.ana)).toEqual([]);
+    expect(refused("undo_agent_action", { actionId: out.actionId })).toBe("Nothing was undone: the note was already gone.");
+    expect(rows("SELECT body_md FROM notes")).toEqual([{ body_md: "My own note." }]);
+  });
+});
+
+describe("a contact Claude added is only removed while it is still just that", () => {
+  const additions: [string, (cid: number) => void, RegExp][] = [
+    ["a phone number", (cid) => void ins("contact_phones", { contact_id: cid, phone_raw: "+44 20 7946 0000", phone_e164: "+442079460000", source: "user", created_at: NOW }), /details that did not come from Claude/],
+    ["a second email typed by the owner", (cid) => void ins("contact_emails", { contact_id: cid, email: "p@home.test", email_normalized: "p@home.test", source: "user", created_at: NOW }), /details that did not come from Claude/],
+    ["a tag", (cid) => void ins("contact_tags", { contact_id: cid, tag_id: id.banking, created_at: NOW }), /tagged, grouped, linked/],
+    ["a group", (cid) => void ins("group_members", { contact_id: cid, group_id: id.lbs, created_at: NOW }), /tagged, grouped, linked/],
+    ["a relationship", (cid) => void ins("contact_relationships", { contact_a_id: id.ana, contact_b_id: cid, label: "colleague", created_at: NOW }), /tagged, grouped, linked/],
+    ["a cadence", (cid) => void rawDb.prepare("UPDATE contacts SET cadence_days = 30 WHERE id = ?").run(cid), /set up by you/],
+    ["a star", (cid) => void rawDb.prepare("UPDATE contacts SET starred = 1 WHERE id = ?").run(cid), /set up by you/],
+    ["a mention in a note about someone else", (cid) => {
+      const noteId = ins("notes", { contact_id: id.ana, body_md: "with Priya", counts_for_touch: 0, created_at: NOW, updated_at: NOW });
+      ins("note_mentions", { note_id: noteId, contact_id: cid });
+    }, /notes, interactions or reminders/],
+  ];
+
+  for (const [what, add, why] of additions) {
+    it(`kept once the owner has given them ${what}`, () => {
+      const made = ok("upsert_contact", { firstName: "Priya", lastName: "Nair", emails: ["priya.nair@evercore.test"] });
+      add(made.contactId as number);
+      const before = fingerprint();
+      expect(refused("undo_agent_action", { actionId: made.actionId })).toMatch(why);
+      expect(fingerprint()).toBe(before);
+      expect(one("SELECT undone_at FROM agent_calls WHERE id = ?", made.actionId)).toEqual({ undone_at: null });
+    });
+  }
+
+  it("kept while a later change by Claude stands, and removed once that is undone", () => {
+    const made = ok("upsert_contact", { firstName: "Priya", lastName: "Nair" });
+    const tagged = ok("tag_contacts", { contactIds: [made.contactId], addTags: ["Banking"] });
+    expect(refused("undo_agent_action", { actionId: made.actionId })).toMatch(/tagged, grouped, linked/);
+    ok("undo_agent_action", { actionId: tagged.actionId });
+    expect(ok("undo_agent_action", { actionId: made.actionId }).reversed).toEqual(["removed the contact Priya Nair"]);
+  });
+});
+
+describe("undo leaves the owner's corrections alone", () => {
+  it("a field the owner retyped — even to the same words — is not wiped", () => {
+    const out = ok("upsert_contact", { contactId: id.ben, location: "london, uk" });
+    expect(out.fieldsSet).toEqual(["location"]);
+    rawDb.prepare("UPDATE contacts SET location = 'London, UK' WHERE id = ?").run(id.ben);
+    rawDb.prepare("UPDATE contact_field_sources SET source = 'user' WHERE contact_id = ? AND field = 'location'").run(id.ben);
+    expect(refused("undo_agent_action", { actionId: out.actionId })).toBe("Nothing was undone: location has changed since, so it was left as it is.");
+    expect(one("SELECT location FROM contacts WHERE id = ?", id.ben)).toEqual({ location: "London, UK" });
+    expect(one("SELECT source FROM contact_field_sources WHERE contact_id = ? AND field = 'location'", id.ben)).toEqual({ source: "user" });
+
+    // Identical text, but the owner confirmed it by saving it themselves.
+    const again = ok("upsert_contact", { contactId: id.ana, location: "Paris, France" });
+    rawDb.prepare("UPDATE contact_field_sources SET source = 'user' WHERE contact_id = ? AND field = 'location'").run(id.ana);
+    expect(refused("undo_agent_action", { actionId: again.actionId })).toMatch(/location has changed since/);
+    expect(one("SELECT location FROM contacts WHERE id = ?", id.ana)).toEqual({ location: "Paris, France" });
+  });
+
+  it("a snooze that logging cleared comes back with the undo", () => {
+    rawDb.prepare("UPDATE contacts SET snoozed_until = ? WHERE id = ?").run(NOW + 20 * DAY, id.ana);
+    const out = ok("log_interaction", email(id.ana));
+    expect(one("SELECT snoozed_until FROM contacts WHERE id = ?", id.ana)).toEqual({ snoozed_until: null });
+    ok("undo_agent_action", { actionId: out.actionId });
+    expect(one("SELECT snoozed_until, last_interaction_at FROM contacts WHERE id = ?", id.ana)).toEqual({
+      snoozed_until: NOW + 20 * DAY,
+      last_interaction_at: NOW - 40 * DAY,
+    });
+  });
+
+  it("a snooze the owner set afterwards is not replaced by the old one", () => {
+    rawDb.prepare("UPDATE contacts SET snoozed_until = ? WHERE id = ?").run(NOW + 20 * DAY, id.ana);
+    const out = ok("log_interaction", email(id.ana));
+    rawDb.prepare("UPDATE contacts SET snoozed_until = ? WHERE id = ?").run(NOW + 3 * DAY, id.ana);
+    ok("undo_agent_action", { actionId: out.actionId });
+    expect(one("SELECT snoozed_until FROM contacts WHERE id = ?", id.ana)).toEqual({ snoozed_until: NOW + 3 * DAY });
+  });
+
+  it("a reminder that has merely come due is still removed; one the owner snoozed is kept", () => {
+    const due = new Date(NOW + 60_000).toISOString();
+    const fired = ok("create_reminder", { title: "Fires soon", dueAt: due });
+    rawDb.prepare("UPDATE reminders SET fired_at = ?, updated_at = ? WHERE id = ?").run(NOW + 61_000, NOW + 61_000, fired.reminderId);
+    expect(ok("undo_agent_action", { actionId: fired.actionId }).reversed).toEqual(["removed the reminder"]);
+    const snoozed = ok("create_reminder", { title: "Snoozed by me", dueAt: due });
+    rawDb.prepare("UPDATE reminders SET snoozed_until = ? WHERE id = ?").run(NOW + DAY, snoozed.reminderId);
+    expect(refused("undo_agent_action", { actionId: snoozed.actionId })).toMatch(/changed after it was created, so it was kept/);
+    expect(rows("SELECT title FROM reminders")).toEqual([{ title: "Snoozed by me" }]);
+  });
+
+  it("a tag the owner took off and put back is theirs", () => {
+    const out = ok("tag_contacts", { contactIds: [id.ana, id.ben], addTags: ["Banking"] });
+    rawDb.prepare("UPDATE contact_tags SET created_at = ? WHERE contact_id = ?").run(NOW + 60 * MINUTE, id.ana);
+    const undone = ok("undo_agent_action", { actionId: out.actionId });
+    expect(undone.reversed).toEqual(["untagged 1 contact"]);
+    expect(rows("SELECT contact_id FROM contact_tags")).toEqual([{ contact_id: id.ana }]);
+  });
+});
+
+describe("recurring reminders", () => {
+  function series(): { occurrence: number } {
+    const rule = ins("reminders", { title: "Weekly check-in", due_at: NOW - DAY, rrule: "FREQ=WEEKLY", created_at: NOW - 30 * DAY, updated_at: NOW - 30 * DAY });
+    const occurrence = ins("reminders", { title: "Weekly check-in", due_at: NOW - DAY, series_id: rule, created_at: NOW - 8 * DAY, updated_at: NOW - 8 * DAY });
+    return { occurrence };
+  }
+
+  it("undoing a completion takes back the next occurrence it created, while that is untouched", () => {
+    const { occurrence } = series();
+    const done = ok("complete_reminder", { reminderId: occurrence });
+    const next = rows<{ id: number }>("SELECT id FROM reminders WHERE series_id IS NOT NULL AND id <> ?", occurrence);
+    expect(next).toHaveLength(1);
+    ok("undo_agent_action", { actionId: done.actionId });
+    expect(one("SELECT completed_at FROM reminders WHERE id = ?", occurrence)).toEqual({ completed_at: null });
+    expect(rows("SELECT id FROM reminders WHERE id = ?", next[0].id)).toEqual([]);
+  });
+
+  it("and leaves it once the owner has snoozed or renamed it", () => {
+    const { occurrence } = series();
+    const done = ok("complete_reminder", { reminderId: occurrence });
+    const next = one<{ id: number }>("SELECT id FROM reminders WHERE series_id IS NOT NULL AND id <> ?", occurrence);
+    rawDb.prepare("UPDATE reminders SET title = 'Weekly check-in (moved)', snoozed_until = ? WHERE id = ?").run(NOW + 2 * DAY, next.id);
+    ok("undo_agent_action", { actionId: done.actionId });
+    expect(rows("SELECT title FROM reminders WHERE id = ?", next.id)).toEqual([{ title: "Weekly check-in (moved)" }]);
+  });
+});
+
+describe("who a write is about, without guessing", () => {
+  it("an address two contacts share is refused, not resolved to whichever comes first", () => {
+    const cara = contact("Cara Shared");
+    const dan = contact("Dan Shared");
+    for (const cid of [cara, dan]) ins("contact_emails", { contact_id: cid, email: "team@shared.test", email_normalized: "team@shared.test", source: "csv", created_at: NOW });
+    const before = fingerprint();
+    expect(refused("upsert_contact", { emails: ["team@shared.test"], location: "Leeds, UK" })).toMatch(/match more than one contact/);
+    expect(refused("upsert_contact", { contactId: id.ben, emails: ["team@shared.test"] })).toMatch(/already belongs to another contact/);
+    expect(fingerprint()).toBe(before);
+    // Naming one of the holders is fine: it is already theirs.
+    expect(refused("upsert_contact", { contactId: cara, emails: ["team@shared.test"], location: "Leeds, UK" })).toMatch(/already belongs to another contact: Dan Shared/);
+  });
+
+  it("the same LinkedIn profile in another spelling is not added twice; a different one is the owner's call", () => {
+    const same = ok("upsert_contact", { contactId: id.ben, linkedinUrl: "https://uk.linkedin.com/in/ben-okafor/", location: "London, UK" });
+    expect(same.fieldsSet).toEqual(["location"]);
+    expect(rows("SELECT url FROM contact_socials WHERE contact_id = ?", id.ben)).toEqual([{ url: "https://www.linkedin.com/in/ben-okafor" }]);
+    const other = ok("upsert_contact", { contactId: id.ben, linkedinUrl: "https://www.linkedin.com/in/someone-else" });
+    expect(other).toMatchObject({ updated: false });
+    expect(other.conflicts).toEqual([
+      { field: "linkedin", kept: "https://www.linkedin.com/in/ben-okafor", setBy: "linkedin", notApplied: "https://www.linkedin.com/in/someone-else" },
+    ]);
+    expect(rows("SELECT url FROM contact_socials WHERE contact_id = ?", id.ben)).toHaveLength(1);
+  });
+
+  it("a field the owner emptied on purpose stays empty", () => {
+    rawDb.prepare("UPDATE contacts SET title = NULL WHERE id = ?").run(id.ana);
+    const out = ok("upsert_contact", { contactId: id.ana, title: "Intern", location: "London, UK" });
+    expect(out.fieldsSet).toEqual(["location"]);
+    expect(out.conflicts).toEqual([{ field: "title", kept: "(left empty)", setBy: "the owner", notApplied: "Intern" }]);
+    expect(one("SELECT title FROM contacts WHERE id = ?", id.ana)).toEqual({ title: null });
+  });
+
+  it("a name or a tag cannot carry markdown that would later become a link or an image", () => {
+    const made = ok("upsert_contact", { firstName: "Priya ![.](https://evil.test/p.png)", lastName: "x](https://evil.test/phish) [y" });
+    const stored = one<{ display_name: string }>("SELECT display_name FROM contacts WHERE id = ?", made.contactId).display_name;
+    expect(stored).not.toMatch(/[[\]<>`]/);
+    ok("tag_contacts", { contactIds: [id.ana], addTags: ["[x](https://evil.test)"] });
+    expect(rows<{ name: string }>("SELECT name FROM tags ORDER BY id").at(-1)!.name).not.toMatch(/[[\]]/);
+  });
+
+  it("a note may mention only people and groups that exist", () => {
+    expect(refused("add_note", { contactId: id.ana, text: "Met with [@Ghost](mention://contact/987654)." })).toMatch(/mentions contact 987654, which does not exist/);
+    expect(refused("log_interaction", email(id.ana, { note: "cc [#Nobody](mention://group/4242)" }))).toMatch(/mentions group 4242/);
+    expect(rows("SELECT id FROM notes")).toEqual([]);
+    expect(rows("SELECT id FROM interactions WHERE source = 'agent'")).toEqual([]);
+    const out = ok("add_note", { contactId: id.ana, text: `Introduced me to [@Ben Okafor](mention://contact/${id.ben}).` });
+    expect(rows("SELECT contact_id FROM note_mentions WHERE note_id = ?", out.noteId)).toEqual([{ contact_id: id.ben }]);
+    ok("undo_agent_action", { actionId: out.actionId });
+    expect(rows("SELECT * FROM note_mentions")).toEqual([]);
+  });
+});
+
+describe("Rolo's own Gmail sync after the agent", () => {
+  it("does not add a second row for a message the agent already logged", async () => {
+    const { processMessages } = await import("@/server/sync/gmail");
+    const first = ok("log_interaction", email(id.ana, { idempotencyKey: "gmail:18c0ffee" }));
+    const stats = { messagesSeen: 0, bulkSkipped: 0, interactionsAdded: 0, contactsTouched: 0, backfillDone: false, unmatchedTop: [] };
+    const meta = (over: Record<string, unknown>) => ({
+      id: "18c0ffee",
+      threadId: "t-1",
+      internalDate: NOW - 2 * DAY,
+      from: "Me <me@lbs.test>",
+      to: ["Ana Silva <ana.silva@gs.test>"],
+      cc: [],
+      subject: "LBS student — 15 minutes?",
+      bulk: false,
+      ...over,
+    });
+    const run = (m: ReturnType<typeof meta>) => processMessages([m], ["me@lbs.test"], stats, new Map(), new Set(), []);
+    // The very message, by id — even dated differently.
+    run(meta({ internalDate: NOW - 2 * DAY + 45 * MINUTE }));
+    // The same exchange under an id the agent never saw.
+    run(meta({ id: "another-copy", internalDate: NOW - 2 * DAY + 90_000, subject: "Fwd: LBS student — 15 minutes?" }));
+    expect(stats.interactionsAdded).toBe(0);
+    expect(rows("SELECT id FROM interactions WHERE contact_id = ? AND kind = 'email'", id.ana)).toEqual([{ id: first.interactionId }]);
+    // A different message is still synced, and a rescan of it still updates it.
+    run(meta({ id: "reply-1", from: "Ana Silva <ana.silva@gs.test>", to: ["me@lbs.test"], subject: "Re: LBS student — 15 minutes?", internalDate: NOW - DAY }));
+    expect(stats.interactionsAdded).toBe(1);
+    run(meta({ id: "reply-1", from: "Ana Silva <ana.silva@gs.test>", to: ["me@lbs.test"], subject: "Re: LBS student — 15 minutes?", internalDate: NOW - DAY }));
+    expect(rows("SELECT source, source_key FROM interactions WHERE contact_id = ? AND kind = 'email' ORDER BY id", id.ana)).toEqual([
+      { source: "agent", source_key: "gmail:18c0ffee" },
+      { source: "gmail", source_key: "reply-1" },
+    ]);
+  });
+});
+
+describe("review mode, after the review", () => {
+  beforeEach(() => {
+    ins("settings", { key: "agent.write_mode", value: JSON.stringify("review") });
+  });
+
+  it("a long proposal is kept whole, shown whole, and approved as written", async () => {
+    const { describeArgs } = await import("@/lib/agent/writes");
+    const text = `${"Long but legitimate. ".repeat(230)}\n"quoted" tail [link](https://example.test/x)`;
+    expect(text.length).toBeGreaterThan(4500);
+    const proposal = ok("add_note", { contactId: id.ana, text });
+    expect(proposal.queued).toBe(true);
+    const stored = one<{ args_json: string }>("SELECT args_json FROM agent_calls WHERE id = ?", proposal.actionId).args_json;
+    expect(JSON.parse(stored)).toEqual({ contactId: id.ana, text });
+    expect(describeArgs(stored)).toEqual([{ label: "Note", value: text }]);
+    expect(tools.approveQueuedCall(proposal.actionId!)).toMatchObject({ ok: true });
+    expect(one("SELECT body_md FROM notes")).toEqual({ body_md: text });
+    // Applied directly, the same arguments are only an audit copy and are stubbed.
+    rawDb.prepare("DELETE FROM settings WHERE key = 'agent.write_mode'").run();
+    const direct = ok("add_note", { contactId: id.ben, text });
+    expect(JSON.parse(one<{ args_json: string }>("SELECT args_json FROM agent_calls WHERE id = ?", direct.actionId).args_json)).toMatchObject({ _truncated: true });
+  });
+
+  it("what would be refused is refused now, not queued for the owner to discover", () => {
+    const before = fingerprint();
+    expect(refused("log_interaction", email(id.ana, { category: "newsletter" }))).toMatch(/left out/);
+    expect(refused("log_interaction", email(999_999))).toMatch(/no contact/);
+    expect(refused("log_interaction", email(id.ana, { occurredAt: at(-DAY) }))).toMatch(/in the future/);
+    expect(refused("upsert_contact", { contactId: id.ben, emails: ["ana.silva@gs.test"] })).toMatch(/already belongs/);
+    expect(refused("tag_contacts", { contactIds: [id.ana], addTags: ["A1", "B2", "C3"] })).toMatch(/At most 2/);
+    expect(refused("undo_agent_action", { actionId: 424242 })).toMatch(/no action/);
+    expect(ledger().map((r) => r.status)).toEqual(Array(6).fill("refused"));
+    expect(ledgerModule.countQueuedAgentCalls()).toBe(0);
+    expect(fingerprint()).toBe(before);
+  });
+
+  it("a call with nothing to do answers at once: a duplicate, a namesake question, an already-tagged contact", () => {
+    ins("interactions", { contact_id: id.ana, kind: "email", direction: "outbound", occurred_at: NOW - 2 * DAY, title: "LBS student — 15 minutes?", source: "gmail", source_key: "gm-1", counts_for_touch: 1, created_at: NOW });
+    const before = fingerprint();
+    expect(ok("log_interaction", email(id.ana))).toMatchObject({ alreadyRecorded: true });
+    expect(ok("upsert_contact", { firstName: "Ana", lastName: "Silva" })).toMatchObject({ needsDecision: true });
+    ins("contact_tags", { contact_id: id.ana, tag_id: id.banking, created_at: NOW });
+    expect(ok("tag_contacts", { contactIds: [id.ana], addTags: ["Banking"] }).queued).toBeUndefined();
+    expect(ledgerModule.countQueuedAgentCalls()).toBe(0);
+    expect(fingerprint().replace(/contact_tags:[^\n]*/, "")).toBe(before.replace(/contact_tags:[^\n]*/, ""));
+  });
+
+  it("the rehearsal leaves no trace: ids, clocks and tags are as they were", () => {
+    const before = fingerprint();
+    ok("log_interaction", email(id.ana, { note: "x" }));
+    ok("upsert_contact", { firstName: "Priya", lastName: "Nair", emails: ["p@e.test"] });
+    ok("tag_contacts", { contactIds: [id.ana], addTags: ["Brand New"], addToGroupIds: [id.lbs] });
+    expect(fingerprint()).toBe(before);
+    expect(ledgerModule.countQueuedAgentCalls()).toBe(3);
+  });
+
+  it("an approved note is dated when it was proposed, not when it was approved", () => {
+    const proposal = ok("add_note", { contactId: id.ana, text: "Proposed three days ago." });
+    rawDb.prepare("UPDATE agent_calls SET created_at = ? WHERE id = ?").run(NOW - 3 * DAY, proposal.actionId);
+    expect(tools.approveQueuedCall(proposal.actionId!)).toMatchObject({ ok: true });
+    expect(one("SELECT created_at FROM notes")).toEqual({ created_at: NOW - 3 * DAY });
+  });
+});
+
+describe("what the ledger keeps of a refused call", () => {
+  it("names of the arguments, never their values", () => {
+    refused("add_note", { contactId: id.ana, text: "ok", body: "FULL-MAIL-BODY-MARKER", access_token: "SECRET-TOKEN-MARKER" });
+    const stored = String(ledger()[0].args_json);
+    expect(JSON.parse(stored)).toEqual({ _invalid: true, keys: ["contactId", "text", "body", "access_token"] });
+    expect(stored).not.toMatch(/MARKER/);
   });
 });

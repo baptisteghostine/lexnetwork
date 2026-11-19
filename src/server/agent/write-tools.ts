@@ -13,7 +13,6 @@ import {
   contactSocials,
   groups,
   interactions,
-  notes,
   reminders,
   tags,
 } from "@/db/schema";
@@ -22,6 +21,7 @@ import {
   AUTOMATIC_CATEGORIES,
   AUTOMATIC_REFUSAL,
   cleanLine,
+  cleanName,
   isPersonalCategory,
   isSameExchange,
   linkedinProfileUrl,
@@ -30,9 +30,11 @@ import {
   sanitizeAgentMarkdown,
 } from "@/lib/agent/writes";
 import { normalizeEmail } from "@/lib/contacts/normalize";
+import { normalizeLinkedInUrl } from "@/lib/imports/linkedin";
+import { parseMentions } from "@/lib/notes/mentions";
 import type { ImportRow } from "@/lib/imports/types";
 import { normalizeForSearch } from "@/lib/search/rank";
-import type { WriteRecord } from "@/server/agent/ledger";
+import { noteSignature, reminderSignature, type WriteRecord } from "@/server/agent/ledger";
 import {
   dateArg,
   defineTool,
@@ -75,8 +77,31 @@ function person(contactId: number): { id: number; name: string } {
   return row;
 }
 
-function noteStamp(noteId: number): number | undefined {
-  return db.select({ at: notes.updatedAt }).from(notes).where(eq(notes.id, noteId)).get()?.at;
+function noteRecord(noteId: number, contactId: number): WriteRecord {
+  const mark = noteSignature(noteId);
+  if (!mark) throw new Error("The note that was just written cannot be read back.");
+  return { table: "notes", op: "insert", id: noteId, contactId, ...mark };
+}
+
+/**
+ * A note's text, cleaned, with every @-mention checked: a mention puts
+ * the note on that person's timeline too, so it has to point at someone
+ * who exists.
+ */
+function noteBody(text: string): string {
+  const body = sanitizeAgentMarkdown(text);
+  for (const mention of parseMentions(body)) {
+    const exists =
+      mention.kind === "contact"
+        ? db.select({ id: contacts.id }).from(contacts).where(eq(contacts.id, mention.id)).get()
+        : db.select({ id: groups.id }).from(groups).where(eq(groups.id, mention.id)).get();
+    if (!exists) {
+      throw new ToolRefusal(
+        `The note mentions ${mention.kind} ${mention.id}, which does not exist. Write the name as plain text, or use an id from Rolo.`
+      );
+    }
+  }
+  return body;
 }
 
 /** A moment that has happened: not in the future, not absurdly old. */
@@ -183,7 +208,9 @@ const logInteractionTool = defineTool({
       };
     }
 
-    const note = args.note ? sanitizeAgentMarkdown(args.note) : "";
+    const note = args.note ? noteBody(args.note) : "";
+    const snoozedBefore =
+      db.select({ at: contacts.snoozedUntil }).from(contacts).where(eq(contacts.id, who.id)).get()?.at ?? null;
     const res = recordInteraction({
       contactId: who.id,
       kind,
@@ -209,11 +236,16 @@ const logInteractionTool = defineTool({
       };
     }
     const writes: WriteRecord[] = [
-      { table: "interactions", op: "insert", id: res.interactionId, contactId: who.id },
+      {
+        table: "interactions",
+        op: "insert",
+        id: res.interactionId,
+        contactId: who.id,
+        key: args.idempotencyKey,
+        ...(snoozedBefore !== null ? { snoozedBefore } : {}),
+      },
     ];
-    if (res.noteId !== null) {
-      writes.push({ table: "notes", op: "insert", id: res.noteId, contactId: who.id, stamp: noteStamp(res.noteId) });
-    }
+    if (res.noteId !== null) writes.push(noteRecord(res.noteId, who.id));
     const way =
       args.kind === "email" || args.kind === "message" ? `an ${direction} ${args.kind}` : `a ${args.kind}`;
     return {
@@ -250,7 +282,7 @@ const addNoteTool = defineTool({
   }),
   run: (args, ctx) => {
     const who = person(args.contactId);
-    const body = sanitizeAgentMarkdown(args.text);
+    const body = noteBody(args.text);
     if (!body) throw new ToolRefusal("The note is empty.");
     const createdAt = args.date ? pastMoment(args.date, ctx.now, "date") : ctx.now;
     // An agent's note is never itself a "touch": if contact happened, that
@@ -260,7 +292,7 @@ const addNoteTool = defineTool({
     return {
       summary: `Added a note on ${who.name}`,
       contactId: who.id,
-      writes: [{ table: "notes", op: "insert", id: res.noteId, contactId: who.id, stamp: noteStamp(res.noteId) }],
+      writes: [noteRecord(res.noteId, who.id)],
       data: { added: true, noteId: res.noteId, contactId: who.id, contactName: who.name },
     };
   },
@@ -297,17 +329,12 @@ const createReminderTool = defineTool({
       contactId: who?.id ?? null,
     });
     if (!res.ok) throw new ToolRefusal(res.error);
+    const mark = reminderSignature(res.reminderId);
+    if (!mark) throw new Error("The reminder that was just created cannot be read back.");
     return {
       summary: `Set a reminder${who ? ` about ${who.name}` : ""} — ${clip(args.title, 80)}`,
       contactId: who?.id ?? null,
-      writes: [
-        {
-          table: "reminders",
-          op: "insert",
-          id: res.reminderId,
-          stamp: db.select({ at: reminders.updatedAt }).from(reminders).where(eq(reminders.id, res.reminderId)).get()?.at,
-        },
-      ],
+      writes: [{ table: "reminders", op: "insert", id: res.reminderId, ...mark }],
       data: { created: true, reminderId: res.reminderId, dueAt: iso(dueAt), contactId: who?.id ?? null },
     };
   },
@@ -350,10 +377,23 @@ const completeReminderTool = defineTool({
             .where(and(eq(reminders.seriesId, before.seriesId), gt(reminders.id, newestBefore)))
             .get()
         : undefined;
+    const completedAt =
+      db.select({ at: reminders.completedAt }).from(reminders).where(eq(reminders.id, args.reminderId)).get()?.at ?? null;
+    if (completedAt === null) throw new Error("The reminder did not complete.");
+    const nextSig = next ? reminderSignature(next.id)?.sig : undefined;
     return {
       summary: `Completed a reminder — ${clip(before.title, 80)}`,
       contactId: res.contactId,
-      writes: [{ table: "reminders", op: "complete", id: args.reminderId, nextOccurrenceId: next?.id ?? null }],
+      writes: [
+        {
+          table: "reminders",
+          op: "complete",
+          id: args.reminderId,
+          completedAt,
+          nextOccurrenceId: next?.id ?? null,
+          ...(nextSig ? { nextSig } : {}),
+        },
+      ],
       data: { completed: true, reminderId: args.reminderId },
     };
   },
@@ -427,8 +467,8 @@ const upsertContactTool = defineTool({
       if (!linkedin) throw new ToolRefusal("linkedinUrl is not a LinkedIn profile address (https://www.linkedin.com/in/…).");
     }
     const row: ImportRow = {
-      firstName: args.firstName ? cleanLine(args.firstName, 100) : undefined,
-      lastName: args.lastName ? cleanLine(args.lastName, 100) : undefined,
+      firstName: args.firstName ? cleanName(args.firstName, 100) || undefined : undefined,
+      lastName: args.lastName ? cleanName(args.lastName, 100) || undefined : undefined,
       title: args.title ? cleanLine(args.title, 200) : undefined,
       company: args.company ? cleanLine(args.company, 200) : undefined,
       location: args.location ? cleanLine(args.location, 200) : undefined,
@@ -471,10 +511,15 @@ const upsertContactTool = defineTool({
       }
       if (!args.confirmNew) {
         const want = normalizeForSearch(fullName).replace(/\s+/g, " ");
-        const namesakes = findContactsPrecisely(fullName, { includeArchived: true, nameOnly: true })
-          .ids.slice(0, 50)
-          .map((id) => person(id))
-          .filter((p) => normalizeForSearch(p.name).replace(/\s+/g, " ") === want);
+        const candidates = findContactsPrecisely(fullName, { includeArchived: true, nameOnly: true }).ids.slice(0, 900);
+        const namesakes = candidates.length
+          ? db
+              .select({ id: contacts.id, name: contacts.displayName })
+              .from(contacts)
+              .where(inArray(contacts.id, candidates))
+              .all()
+              .filter((p) => normalizeForSearch(p.name).replace(/\s+/g, " ") === want)
+          : [];
         if (namesakes.length > 0) {
           const rows = db
             .select({ id: contacts.id, name: contacts.displayName, title: contacts.title, company: contacts.company })
@@ -499,6 +544,56 @@ const upsertContactTool = defineTool({
       throw new ToolRefusal(
         `${MAX_NEW_CONTACTS_PER_DAY} new contacts have been added through this connection in the last 24 hours, which is the limit. Nothing was added. Tell the owner; a larger batch is a job for Rolo's import page.`
       );
+    }
+
+    // On someone already in Rolo, two things the import rules would let
+    // through are not an agent's to do.
+    const extraConflicts: { field: string; kept: string; setBy: string; notApplied: string }[] = [];
+    if (targetId !== null) {
+      const current = db.select().from(contacts).where(eq(contacts.id, targetId)).get();
+      const typedByOwner = new Set(
+        db
+          .select({ field: contactFieldSources.field })
+          .from(contactFieldSources)
+          .where(and(eq(contactFieldSources.contactId, targetId), eq(contactFieldSources.source, "user")))
+          .all()
+          .map((r) => r.field)
+      );
+      // A field the owner emptied on purpose stays empty.
+      for (const [key, field, column] of [
+        ["firstName", "first_name", "firstName"],
+        ["lastName", "last_name", "lastName"],
+        ["title", "title", "title"],
+        ["company", "company", "company"],
+        ["location", "location", "location"],
+      ] as const) {
+        const incoming = row[key];
+        if (incoming && typedByOwner.has(field) && !current?.[column]) {
+          extraConflicts.push({ field, kept: "(left empty)", setBy: "the owner", notApplied: clip(incoming, 200) ?? "" });
+          row[key] = undefined;
+        }
+      }
+      // One LinkedIn profile per person: the same one in another spelling
+      // is not added again, and a different one is the owner's call.
+      if (linkedin) {
+        const have = db
+          .select({ url: contactSocials.url, source: contactSocials.source })
+          .from(contactSocials)
+          .where(and(eq(contactSocials.contactId, targetId), eq(contactSocials.platform, "linkedin")))
+          .all();
+        const want = normalizeLinkedInUrl(linkedin);
+        if (have.some((h) => normalizeLinkedInUrl(h.url) === want)) {
+          row.socials = [];
+        } else if (have.length > 0) {
+          extraConflicts.push({
+            field: "linkedin",
+            kept: have[0].url,
+            setBy: have[0].source === "user" ? "the owner" : have[0].source,
+            notApplied: linkedin,
+          });
+          row.socials = [];
+        }
+      }
     }
 
     // Capture what undo needs before anything is written.
@@ -526,58 +621,68 @@ const upsertContactTool = defineTool({
     if (contactId === null) throw new ToolRefusal("The contact could not be written.");
     const who = person(contactId);
     const plan = res.plan;
-    const conflicts = plan.conflicts.map((c) => ({
-      field: c.field,
-      kept: clip(c.stored, 200),
-      setBy: c.storedSource === "user" ? "the owner" : c.storedSource,
-      notApplied: clip(c.incoming, 200),
-    }));
+    const conflicts = [
+      ...plan.conflicts.map((c) => ({
+        field: c.field as string,
+        kept: clip(c.stored, 200) ?? "",
+        setBy: c.storedSource === "user" ? "the owner" : c.storedSource,
+        notApplied: clip(c.incoming, 200) ?? "",
+      })),
+      ...extraConflicts,
+    ];
+    const createdAt = db.select({ at: contacts.createdAt }).from(contacts).where(eq(contacts.id, contactId)).get()?.at ?? 0;
 
     if (targetId === null) {
       return {
         summary: `Added ${who.name} to Rolo`,
         contactId,
-        writes: [{ table: "contacts", op: "insert", id: contactId }],
+        writes: [{ table: "contacts", op: "insert", id: contactId, createdAt }],
         data: { created: true, contactId, name: who.name },
       };
     }
 
-    const idsAfter = <T extends typeof contactEmails | typeof contactSocials | typeof contactChanges>(
-      table: T,
-      mark: number
-    ): number[] =>
-      db
-        .select({ id: table.id })
-        .from(table)
-        .where(and(eq(table.contactId, contactId), gt(table.id, mark)))
-        .all()
-        .map((r) => r.id);
-    const emailIds = idsAfter(contactEmails, marks.email);
-    const socialIds = idsAfter(contactSocials, marks.social);
-    const changeIds = idsAfter(contactChanges, marks.change);
-    const changed = plan.writes.length > 0 || emailIds.length > 0 || socialIds.length > 0;
+    const emails = db
+      .select({ email: contactEmails.emailNormalized })
+      .from(contactEmails)
+      .where(and(eq(contactEmails.contactId, contactId), gt(contactEmails.id, marks.email)))
+      .all()
+      .map((r) => r.email);
+    const socialUrls = db
+      .select({ url: contactSocials.url })
+      .from(contactSocials)
+      .where(and(eq(contactSocials.contactId, contactId), gt(contactSocials.id, marks.social)))
+      .all()
+      .map((r) => r.url);
+    const changeIds = db
+      .select({ id: contactChanges.id })
+      .from(contactChanges)
+      .where(and(eq(contactChanges.contactId, contactId), gt(contactChanges.id, marks.change)))
+      .all()
+      .map((r) => r.id);
+    const changed = plan.writes.length > 0 || emails.length > 0 || socialUrls.length > 0;
     const writes: WriteRecord[] = changed
       ? [
           {
             table: "contacts",
             op: "update",
             id: contactId,
+            createdAt,
             fields: plan.writes.map((w) => ({
               field: w.field,
               before: w.previous,
               beforeSource: provenanceBefore.get(w.field) ?? null,
               after: w.incoming,
             })),
-            emailIds,
-            socialIds,
+            emails,
+            socialUrls,
             changeIds,
           },
         ]
       : [];
     const added = [
       ...plan.writes.map((w) => w.field.replace("_", " ")),
-      ...(emailIds.length ? [emailIds.length === 1 ? "an email" : `${emailIds.length} emails`] : []),
-      ...(socialIds.length ? ["a LinkedIn link"] : []),
+      ...(emails.length ? [emails.length === 1 ? "an email" : `${emails.length} emails`] : []),
+      ...(socialUrls.length ? ["a LinkedIn link"] : []),
     ];
     return {
       summary: changed
@@ -593,7 +698,7 @@ const upsertContactTool = defineTool({
         contactId,
         name: who.name,
         fieldsSet: plan.writes.map((w) => w.field),
-        emailsAdded: emailIds.length,
+        emailsAdded: emails.length,
         ...(conflicts.length
           ? {
               conflicts,
@@ -613,12 +718,15 @@ function matchByIdentity(row: ImportRow): { contactId: number; matchedBy: "email
     if (hit) out.push({ contactId: hit.contactId, matchedBy: "url" });
   }
   for (const e of row.emails) {
-    const hit = db
+    // Every holder, not the first: an address two contacts share is a
+    // question for the owner, not a coin toss.
+    for (const hit of db
       .select({ contactId: contactEmails.contactId })
       .from(contactEmails)
       .where(eq(contactEmails.emailNormalized, normalizeEmail(e.email)))
-      .get();
-    if (hit) out.push({ contactId: hit.contactId, matchedBy: "email" });
+      .all()) {
+      out.push({ contactId: hit.contactId, matchedBy: "email" });
+    }
   }
   return out;
 }
@@ -673,21 +781,24 @@ const tagContactsTool = defineTool({
         throw new ToolRefusal(`There is no group with id ${groupId}.`);
       }
     }
-    const brandNew = (args.addTags ?? []).filter((name) => !existingTag(name));
+    const addTags = (args.addTags ?? []).map((name) => cleanName(name, 50)).filter(Boolean);
+    const brandNew = addTags.filter((name) => !existingTag(name));
     if (new Set(brandNew.map((n) => n.toLowerCase())).size > MAX_NEW_TAGS_PER_CALL) {
       throw new ToolRefusal(
         `That would create ${brandNew.length} new tags (${brandNew.map((n) => `"${clip(n, 30)}"`).join(", ")}). At most ${MAX_NEW_TAGS_PER_CALL} per call — reuse the owner's existing tags where one fits.`
       );
     }
 
-    for (const name of args.addTags ?? []) {
+    const groupName = (groupId: number) =>
+      db.select({ name: groups.name }).from(groups).where(eq(groups.id, groupId)).get()?.name ?? "";
+    for (const name of addTags) {
       const tag = findOrCreateTag(name);
       if (!tag.ok) throw new ToolRefusal(tag.error);
-      if (tag.created) writes.push({ table: "tags", op: "insert", id: tag.tagId });
+      if (tag.created) writes.push({ table: "tags", op: "insert", id: tag.tagId, name: tag.name });
       const res = setTagMembership(targets, tag.tagId, true);
       if (!res.ok) throw new ToolRefusal(res.error);
       if (res.changedContactIds.length > 0) {
-        writes.push({ table: "contact_tags", op: "add", tagId: tag.tagId, contactIds: res.changedContactIds });
+        writes.push({ table: "contact_tags", op: "add", tagId: tag.tagId, tagName: tag.name, contactIds: res.changedContactIds, at: Date.now() });
       }
       done.push(`tagged ${res.changedContactIds.length} "${tag.name}"${tag.created ? " (new tag)" : ""}`);
     }
@@ -695,7 +806,7 @@ const tagContactsTool = defineTool({
       const res = setTagMembership(targets, tag.id, false);
       if (!res.ok) throw new ToolRefusal(res.error);
       if (res.changedContactIds.length > 0) {
-        writes.push({ table: "contact_tags", op: "remove", tagId: tag.id, contactIds: res.changedContactIds });
+        writes.push({ table: "contact_tags", op: "remove", tagId: tag.id, tagName: tag.name, contactIds: res.changedContactIds, at: Date.now() });
       }
       done.push(`untagged ${res.changedContactIds.length} "${tag.name}"`);
     }
@@ -703,7 +814,7 @@ const tagContactsTool = defineTool({
       const res = setGroupMembership(targets, groupId, true);
       if (!res.ok) throw new ToolRefusal(res.error);
       if (res.changedContactIds.length > 0) {
-        writes.push({ table: "group_members", op: "add", groupId, contactIds: res.changedContactIds });
+        writes.push({ table: "group_members", op: "add", groupId, groupName: groupName(groupId), contactIds: res.changedContactIds, at: Date.now() });
       }
       done.push(`added ${res.changedContactIds.length} to group ${groupId}`);
     }
@@ -711,7 +822,7 @@ const tagContactsTool = defineTool({
       const res = setGroupMembership(targets, groupId, false);
       if (!res.ok) throw new ToolRefusal(res.error);
       if (res.changedContactIds.length > 0) {
-        writes.push({ table: "group_members", op: "remove", groupId, contactIds: res.changedContactIds });
+        writes.push({ table: "group_members", op: "remove", groupId, groupName: groupName(groupId), contactIds: res.changedContactIds, at: Date.now() });
       }
       done.push(`removed ${res.changedContactIds.length} from group ${groupId}`);
     }

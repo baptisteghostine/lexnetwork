@@ -1,9 +1,11 @@
 import "server-only";
 
-import { and, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import { createHash } from "node:crypto";
+
+import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
 
 import { db } from "@/db/client";
-import { agentCalls, contacts } from "@/db/schema";
+import { agentCalls, contacts, notes, reminders } from "@/db/schema";
 
 // One row per tool call the connector serves (SCHEMA.md `agent_calls`,
 // SPEC §14) — the agent's audit trail, and from Phase 15 the source of
@@ -23,30 +25,81 @@ export type AgentCallStatus = "success" | "error" | "refused" | "queued" | "reje
 
 /**
  * What one write call changed, in enough detail to reverse it and nothing
- * more (SCHEMA.md `agent_calls.writes_json`). Ids only, never content: the
- * rows themselves are the record of what was written.
+ * more (SCHEMA.md `agent_calls.writes_json`).
+ *
+ * A row id alone does not say which row it is: SQLite hands a freed id to
+ * the next insert, so the row an agent wrote may be gone and a stranger
+ * sitting under its number. Every record therefore carries something only
+ * the original row has — its creation time, its key, its name — and undo
+ * checks it before touching anything. `sig` is a fingerprint of the
+ * content as written: if it no longer matches, the owner has edited the
+ * row and it is theirs now.
  */
 export type WriteRecord =
-  | { table: "interactions"; op: "insert"; id: number; contactId: number }
-  // `stamp` is the row's updated_at as written: if it has moved, the owner
-  // edited the row since, and undo leaves it alone.
-  | { table: "notes"; op: "insert"; id: number; contactId: number | null; stamp?: number }
-  | { table: "reminders"; op: "insert"; id: number; stamp?: number }
-  | { table: "reminders"; op: "complete"; id: number; nextOccurrenceId: number | null }
-  | { table: "contacts"; op: "insert"; id: number }
+  | {
+      table: "interactions";
+      op: "insert";
+      id: number;
+      contactId: number;
+      /** The row's source_key. */
+      key: string | null;
+      /** A snooze the contact had, which logging a touch cleared. */
+      snoozedBefore?: number | null;
+    }
+  | { table: "notes"; op: "insert"; id: number; contactId: number | null; createdAt: number; sig: string }
+  | { table: "reminders"; op: "insert"; id: number; createdAt: number; sig: string }
+  | {
+      table: "reminders";
+      op: "complete";
+      id: number;
+      completedAt: number;
+      /** The next occurrence completing it materialized, and its fingerprint. */
+      nextOccurrenceId: number | null;
+      nextSig?: string;
+    }
+  | { table: "contacts"; op: "insert"; id: number; createdAt: number }
   | {
       table: "contacts";
       op: "update";
       id: number;
+      createdAt: number;
       /** Each field the call set: what it replaced, and who had set that. */
       fields: { field: string; before: string | null; beforeSource: string | null; after: string }[];
-      emailIds: number[];
-      socialIds: number[];
+      /** Normalized addresses and profile URLs the call added. */
+      emails: string[];
+      socialUrls: string[];
       changeIds: number[];
     }
-  | { table: "tags"; op: "insert"; id: number }
-  | { table: "contact_tags"; op: "add" | "remove"; tagId: number; contactIds: number[] }
-  | { table: "group_members"; op: "add" | "remove"; groupId: number; contactIds: number[] };
+  | { table: "tags"; op: "insert"; id: number; name: string }
+  // `at` is when the memberships were written: undo only takes back rows
+  // created then, not a membership the owner removed and added again.
+  | { table: "contact_tags"; op: "add" | "remove"; tagId: number; tagName: string; contactIds: number[]; at: number }
+  | { table: "group_members"; op: "add" | "remove"; groupId: number; groupName: string; contactIds: number[]; at: number };
+
+function fingerprint(parts: unknown[]): string {
+  return createHash("sha256").update(JSON.stringify(parts)).digest("hex").slice(0, 16);
+}
+
+/** A note's content as one short string; null when the note is gone. */
+export function noteSignature(noteId: number): { createdAt: number; sig: string } | null {
+  const row = db.select().from(notes).where(eq(notes.id, noteId)).get();
+  if (!row) return null;
+  return { createdAt: row.createdAt, sig: fingerprint([row.bodyMd, row.countsForTouch, row.contactId]) };
+}
+
+/**
+ * A reminder's content and state as one short string. Firing is not part
+ * of it — a reminder that came due is still the reminder that was set —
+ * but being snoozed, completed or retitled is: those are the owner's.
+ */
+export function reminderSignature(reminderId: number): { createdAt: number; sig: string } | null {
+  const row = db.select().from(reminders).where(eq(reminders.id, reminderId)).get();
+  if (!row) return null;
+  return {
+    createdAt: row.createdAt,
+    sig: fingerprint([row.title, row.body, row.dueAt, row.contactId, row.rrule, row.snoozedUntil, row.completedAt]),
+  };
+}
 
 /** Reads are kept this long; writes (from Phase 15) are the audit trail and stay. */
 export const READ_CALL_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
@@ -87,6 +140,12 @@ export function recordAgentCall(call: {
   /** Present (even empty) for a write; absent for a read. */
   writes?: WriteRecord[];
   idempotencyKey?: string | null;
+  /**
+   * Keep the arguments whole. For a proposal waiting on the owner: it is
+   * run from this row when approved, so a shortened copy would be a
+   * different proposal. Validated arguments are bounded by their schema.
+   */
+  wholeArgs?: boolean;
 }): number {
   let argsJson: string;
   try {
@@ -94,7 +153,7 @@ export function recordAgentCall(call: {
   } catch {
     argsJson = '{"_unserializable":true}';
   }
-  if (argsJson.length > ARGS_MAX) {
+  if (!call.wholeArgs && argsJson.length > ARGS_MAX) {
     argsJson = JSON.stringify({ _truncated: true, preview: argsJson.slice(0, ARGS_MAX - 60) });
   }
   const at = call.now ?? Date.now();
@@ -255,7 +314,12 @@ export function countQueuedAgentCalls(): number {
   );
 }
 
-/** Note ids an agent wrote for this contact — notes carry no source column. */
+/**
+ * Notes on this contact that an agent wrote — notes carry no source
+ * column. A note counts only while it is still the row that was written
+ * (same id, same creation time), so a later note that inherited a freed
+ * id is not marked, and one the owner has since edited still is.
+ */
 export function agentNoteIds(contactId: number): number[] {
   const rows = db
     .select({ writesJson: agentCalls.writesJson })
@@ -264,18 +328,24 @@ export function agentNoteIds(contactId: number): number[] {
       and(
         eq(agentCalls.contactId, contactId),
         eq(agentCalls.status, "success"),
-        isNull(agentCalls.undoneAt),
-        sql`${agentCalls.writesJson} IS NOT NULL`
+        sql`${agentCalls.writesJson} IS NOT NULL AND ${agentCalls.writesJson} <> '[]'`
       )
     )
     .all();
-  const ids = new Set<number>();
+  const written = new Map<number, number>();
   for (const r of rows) {
     for (const w of parseWrites(r.writesJson)) {
-      if (w.table === "notes" && w.op === "insert") ids.add(w.id);
+      if (w.table === "notes" && w.op === "insert") written.set(w.id, w.createdAt);
     }
   }
-  return [...ids];
+  if (written.size === 0) return [];
+  return db
+    .select({ id: notes.id, createdAt: notes.createdAt })
+    .from(notes)
+    .where(inArray(notes.id, [...written.keys()]))
+    .all()
+    .filter((n) => written.get(n.id) === n.createdAt)
+    .map((n) => n.id);
 }
 
 export type AgentCallRow = {
