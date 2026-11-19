@@ -23,6 +23,7 @@ import {
   type GmailMessageMeta,
 } from "@/lib/sync/gmail";
 import type { SightingInput } from "@/lib/suggestions/rank";
+import { agentLoggedEmail } from "@/server/interaction-core";
 import { recordSightings } from "@/server/sync/suggestions";
 import {
   accessTokenFor,
@@ -234,7 +235,8 @@ function contactIdsByEmail(addresses: string[]): Map<string, number> {
   return map;
 }
 
-function processMessages(
+/** Exported for tests: the sync's per-message step, with no network. */
+export function processMessages(
   metas: GmailMessageMeta[],
   myAddresses: string[],
   stats: GmailSyncStats,
@@ -272,6 +274,32 @@ function processMessages(
           title: meta.subject,
           direction,
         });
+        continue;
+      }
+      // The owner's agent may have logged this very message already
+      // (SPEC §14); a second row for it would double the timeline. A row
+      // this sync wrote earlier is still updated below.
+      const ours = db
+        .select({ id: interactions.id })
+        .from(interactions)
+        .where(
+          and(
+            eq(interactions.contactId, contactId),
+            eq(interactions.source, "gmail"),
+            eq(interactions.sourceKey, meta.id)
+          )
+        )
+        .get();
+      if (
+        !ours &&
+        agentLoggedEmail({
+          contactId,
+          messageId: meta.id,
+          direction,
+          occurredAt: meta.internalDate,
+          title: meta.subject,
+        })
+      ) {
         continue;
       }
       const inserted = db

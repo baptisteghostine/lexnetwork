@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 
 import { db } from "@/db/client";
 import { contacts, interactions, notes } from "@/db/schema";
+import { isSameExchange } from "@/lib/agent/writes";
 import { interactionCountsForTouch } from "@/lib/cadence/engine";
 import { recomputeContact } from "@/lib/cadence/recompute";
 import { mentionedContactIds, syncNoteMentions } from "@/server/note-sync";
@@ -209,4 +210,48 @@ export function addNote(input: AddNoteInput): AddNoteResult {
   // A counting note is a touch for its contact and everyone it mentions.
   if (countsForTouch) for (const id of contactIds) recomputeContact(id);
   return { ok: true, noteId, contactIds };
+}
+
+/**
+ * Has the owner's agent already logged this email on this contact's
+ * timeline? Rolo's own Gmail sync asks before adding a row, so that a
+ * message the agent recorded first is not there twice once the sync
+ * reaches it (SPEC §14) — the mirror of the agent's own check against
+ * rows the sync wrote. Matches the message id the agent keyed it with
+ * (`gmail:<id>`), or the same direction and subject within ten minutes.
+ */
+export function agentLoggedEmail(input: {
+  contactId: number;
+  messageId: string;
+  direction: "inbound" | "outbound";
+  occurredAt: number;
+  title: string | null;
+}): boolean {
+  const rows = db
+    .select({
+      kind: interactions.kind,
+      direction: interactions.direction,
+      occurredAt: interactions.occurredAt,
+      title: interactions.title,
+      sourceKey: interactions.sourceKey,
+    })
+    .from(interactions)
+    .where(
+      and(
+        eq(interactions.contactId, input.contactId),
+        eq(interactions.source, "agent"),
+        eq(interactions.kind, "email")
+      )
+    )
+    .all();
+  return rows.some(
+    (r) =>
+      r.sourceKey === `gmail:${input.messageId}` ||
+      isSameExchange(r, {
+        kind: "email",
+        direction: input.direction,
+        occurredAt: input.occurredAt,
+        title: input.title,
+      })
+  );
 }
