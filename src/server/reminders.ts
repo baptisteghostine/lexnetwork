@@ -9,6 +9,13 @@ import { contacts, reminders } from "@/db/schema";
 import { requireAuth } from "@/lib/auth";
 import { describeRrule, sanitizeRrule } from "@/lib/reminders/engine";
 import { materializeNext } from "@/lib/reminders/fire";
+import {
+  completeReminder,
+  createReminder,
+  REMINDER_BODY_MAX,
+  REMINDER_TITLE_MAX,
+  RRULE_ERROR,
+} from "@/server/reminder-core";
 
 function revalidateReminderViews(contactId?: number | null) {
   revalidatePath("/reminders");
@@ -17,8 +24,8 @@ function revalidateReminderViews(contactId?: number | null) {
 }
 
 const createInput = z.object({
-  title: z.string().trim().min(1).max(300),
-  body: z.string().trim().max(5000).optional().default(""),
+  title: z.string().trim().min(1).max(REMINDER_TITLE_MAX),
+  body: z.string().trim().max(REMINDER_BODY_MAX).optional().default(""),
   dueAt: z.number().int().positive(),
   rrule: z.string().trim().max(200).optional().default(""),
   contactId: z.number().int().positive().nullable().optional().default(null),
@@ -47,57 +54,17 @@ export async function createReminderAction(
     const first = parsed.error.issues[0];
     return { error: `${first.path.join(".")}: ${first.message}` };
   }
-  const p = parsed.data;
-
-  let rrule: string | null = null;
-  if (p.rrule) {
-    rrule = sanitizeRrule(p.rrule);
-    if (rrule === null) {
-      return {
-        error:
-          "Recurrence must use FREQ daily/weekly/monthly/yearly with INTERVAL, BYDAY, BYMONTHDAY, UNTIL, or COUNT.",
-      };
-    }
-  }
-
-  const now = Date.now();
-  db.transaction(() => {
-    const row = db
-      .insert(reminders)
-      .values({
-        contactId: p.contactId,
-        title: p.title,
-        body: p.body || null,
-        dueAt: p.dueAt,
-        rrule,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning({ id: reminders.id })
-      .get();
-    // A recurring definer never fires itself — materialize the first
-    // occurrence (dueAt inclusive) as its own row.
-    if (rrule !== null) materializeNext(row.id, p.dueAt - 1);
-  });
-  revalidateReminderViews(p.contactId);
+  const res = createReminder(parsed.data);
+  if (!res.ok) return { error: res.error };
+  revalidateReminderViews(res.contactId);
   return { created: true };
 }
 
 export async function completeReminderAction(id: number): Promise<void> {
   await requireAuth();
-  const r = db.select().from(reminders).where(eq(reminders.id, id)).get();
-  if (!r || r.completedAt !== null) return;
-  const now = Date.now();
-  db.transaction(() => {
-    db.update(reminders)
-      .set({ completedAt: now, updatedAt: now })
-      .where(eq(reminders.id, id))
-      .run();
-    // SPEC §4 AC: completing a recurring occurrence immediately shows the
-    // next due date.
-    if (r.seriesId !== null) materializeNext(r.seriesId, r.dueAt);
-  });
-  revalidateReminderViews(r.contactId);
+  const res = completeReminder(id);
+  if (!res.ok || !res.changed) return;
+  revalidateReminderViews(res.contactId);
 }
 
 export async function snoozeReminderAction(
@@ -158,12 +125,7 @@ export async function updateReminderAction(
   let rrule: string | null = null;
   if (r.seriesId === null && p.rrule) {
     rrule = sanitizeRrule(p.rrule);
-    if (rrule === null) {
-      return {
-        error:
-          "Recurrence must use FREQ daily/weekly/monthly/yearly with INTERVAL, BYDAY, BYMONTHDAY, UNTIL, or COUNT.",
-      };
-    }
+    if (rrule === null) return { error: RRULE_ERROR };
   }
 
   const now = Date.now();
