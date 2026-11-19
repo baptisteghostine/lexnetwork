@@ -736,11 +736,67 @@ the owner; see that section before revisiting them.
     playbook is only seen in use.
   - **Known stubs:** none.
 
+- 🟡 **Phase 18 — Better data to aim with: parts a, c, d** (2026-11-19,
+  SPEC §17 and §9c; migration 0023: `firms`, `email_guesses`,
+  `work_history.description`; no new dependency). Part b — people from a
+  LinkedIn search page — was dropped by the owner: a results page does
+  not carry the team, which was the missing fact.
+  - **The finding that shaped part c:** only 39 of 3,168 contacts had an
+    email address, so a format learned only from Rolo's own addresses
+    would have suggested almost nothing. A firm's format can therefore
+    also be *recorded* — by the owner on the Firms page, or by Claude with
+    its basis (seen in the owner's mail, or published) — and the owner's
+    click stays the only way an address reaches a contact.
+  - **c — suggested addresses:** fifteen address shapes read off known
+    addresses; up to three guesses with a strength and the evidence in
+    words; "Use this address" / "Not this" on the contact, the campaign
+    and the draft; a "guess" mark until confirmed. A bounce takes a
+    guessed address off again, tags a given one "bad address", and stops
+    the email it was sent in counting as sent — in the pipeline and the
+    keep-in-touch clock, with a mark on the timeline.
+  - **d — firms and tags:** Outreach → Firms holds each firm's tier and
+    address format; what the owner sets, Claude cannot change.
+    `propose_firm_tiers` always waits on the activity page, whatever the
+    write mode (a new kind of tool, `alwaysReview`), and so does undoing
+    one. `suggest_tags` puts a tag and one line of evidence in the review
+    queue under AI; nothing is tagged until approved.
+  - **a — career history:** the extension (now 0.4.0) sends the profile's
+    Experience, Education and About as lines of text on the same click;
+    the server parses them (seven languages' months), fits them to stored
+    history without duplicating or deleting, and keeps role descriptions
+    — searchable with `careerContains`. For someone already in Rolo the
+    popup says **Update from this page**, and says what the page gave.
+  - **Connector:** `suggest_emails` (read); `record_email_format`,
+    `record_email_outcome`, `propose_firm_tiers`, `suggest_tags` (write);
+    tiers, schools and role text in `search_contacts`; tier, format and
+    guess flags in `list_companies`, `get_contacts`, `get_pipeline`.
+    Fifteen read tools, sixteen write. The playbook covers all of it.
+  - **Fixed in passing, from Phase 16:** a draft defaulted to a contact's
+    last-listed address instead of the primary one.
+  - **Reviewed adversarially before the summary:** sixteen findings, all
+    fixed with regression tests (SPEC §17 lists them). The serious three:
+    an agent could add Rolo's own guess to a contact through
+    `upsert_contact`; a change of employer after a capture was no longer
+    recorded; a bounce reported twice marked a second, delivered email.
+    The browser test then caught a shadowed variable in the extension
+    that would have stopped every capture.
+  - **Verified:** `npm run check` clean with 1,107 unit tests (1,019
+    before); Playwright 42 of 42 (4 new), including the extension's own
+    content script run in a real browser on a page laid out like a
+    LinkedIn profile; `next build` succeeds and the new screens were
+    looked at on the standalone production build.
+  - **Not verifiable here:** the extension's reader against LinkedIn
+    itself — the sandbox cannot open LinkedIn, so the page it was tested
+    on is built from how LinkedIn's profile is laid out, not from
+    LinkedIn. The owner's first capture is the check; the popup's counts
+    show a mismatch at once, and the fix would be on the server.
+  - **Known stubs:** none.
+
 **Next: a week of real use, then Phase 17 — Autopilot.** Phase 17 needs
 Rolo's write tools on "always allow", so it should follow supervised use
-of drafts and campaigns: what Claude picks, what the owner rewrites and
-what gets undone is the input. The iPhone-backup WhatsApp probe can run
-alongside whenever the backup exists.
+of drafts, campaigns, guesses and tag suggestions: what Claude picks,
+what the owner rewrites, rejects and undoes is the input. The
+iPhone-backup WhatsApp probe can run alongside whenever the backup exists.
 
 ---
 
@@ -1240,6 +1296,8 @@ mailbox agree.
 
 **Goal:** the answers to "who should I contact" stop being limited by
 thin profiles. Independent of 15–17; can start after 14.
+
+*Status 2026-11-19: (a), (c) and (d) built — see the status list above and SPEC §17; (b) dropped by the owner.*
 
 **Scope, each its own owner decision:** (a) profile capture also reads
 experience and education off the page the owner is viewing, feeding
